@@ -85,14 +85,4 @@ dependencies {
     implementation("com.github.bumptech.glide:glide:4.16.0")
     annotationProcessor("com.github.bumptech.glide:compiler:4.16.0")
 
-    // ── 本地数据库：Room ──
-    implementation("androidx.room:room-runtime:2.5.2")
-    annotationProcessor("androidx.room:room-compiler:2.5.2")
-
-    // ── 内嵌 WebSocket 服务器：NanoHTTPD ──
-    implementation("org.nanohttpd:nanohttpd:2.3.1")
-    implementation("org.nanohttpd:nanohttpd-websocket:2.3.1")
-
-    // ── 加密 ──
-    implementation("commons-codec:commons-codec:1.16.0")
 }

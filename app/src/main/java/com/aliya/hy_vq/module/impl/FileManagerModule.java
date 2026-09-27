@@ -6445,13 +6445,18 @@ public class FileManagerModule extends HyVqModule {
     }
 
     // ── 网络模式：极简 FTP 服务器（左上角入口；参考 Ghost Commander 网络能力方向；
-    //    单连接串行、PASV 数据通道，支持浏览/下载/上传/删除，免密码） ──
+    //    单连接串行、PASV 数据通道，支持浏览/下载/上传/删除，
+    //    登录：用户名 hyvq + 每次启动随机生成的一次性密码） ──
 
     private static java.net.ServerSocket ftpCtrlSocket = null;
     private static java.net.ServerSocket ftpDataSocket = null;
     private static volatile boolean ftpRunning = false;
     private static final File FTP_ROOT = Environment.getExternalStorageDirectory();
     private static final int FTP_PORT = 2121;
+    /** FTP 登录凭据：用户名固定，密码每次启动随机生成（6 位数字），仅当前会话有效。
+     *  ⭐ 安全修复：原实现 USER/PASS 无条件返回 230，同一局域网任何设备都能免密读写全盘。 */
+    private static final String FTP_USER = "hyvq";
+    private static volatile String ftpPass = "";
 
     private void showNetworkMenu(View anchor) {
         LinearLayout panel = new LinearLayout(ctx);
@@ -6498,22 +6503,31 @@ public class FileManagerModule extends HyVqModule {
         tv.setPadding(pad, pad, pad, pad);
         tv.setLineSpacing(dp(3), 1.0f);
         tv.setTextColor(ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOnSurface));
-        tv.setText("本应用内置极简 FTP 服务器（免密码），"
+        tv.setText("本应用内置极简 FTP 服务器（需登录），"
                 + "用于手机与电脑之间传输文件。\n\n"
+                + "【登录凭据】\n"
+                + "· 用户名：" + FTP_USER + "\n"
+                + "· 密码：启动服务器时随机生成，会显示在提示与下方\n\n"
                 + "【使用步骤】\n"
                 + "1. 点下方「启动服务器」，手机开始监听端口 2121；\n"
-                + "2. 查看手机 IP：进入 Wi-Fi 设置 → 当前网络详情；\n"
-                + "3. 电脑上打开资源管理器或浏览器，地址栏输入：\n"
+                + "2. 记下弹出的用户名与密码；\n"
+                + "3. 查看手机 IP：进入 Wi-Fi 设置 → 当前网络详情；\n"
+                + "4. 电脑上打开资源管理器或浏览器，地址栏输入：\n"
                 + "    ftp://手机IP:2121\n"
                 + "    例如 ftp://192.168.1.100:2121\n"
-                + "4. 连接后即可浏览 / 下载 / 上传 / 删除"
+                + "5. 在弹出的登录框输入上面的用户名与密码；\n"
+                + "6. 连接后即可浏览 / 下载 / 上传 / 删除"
                 + " /storage/emulated/0 下的文件；\n"
-                + "5. 使用完毕务必点「停止服务器」，避免手机持续暴露在局域网。\n\n"
+                + "7. 使用完毕务必点「停止服务器」，避免手机持续暴露在局域网。\n\n"
                 + "【注意事项】\n"
                 + "· 手机与电脑需连接同一个 Wi-Fi；\n"
-                + "· 免密码，任何同一局域网设备均可访问，"
-                + "请勿在公共网络开启；\n"
+                + "· 密码每次启动都会变化，仅在本次运行期间有效；\n"
+                + "· 每次连接都必须登录，未登录无法读写任何文件；\n"
+                + "· 请勿在公共网络开启；\n"
                 + "· 若无法连接，请检查路由器是否开启 AP 隔离。");
+        if (!ftpPass.isEmpty()) {
+            tv.append("\n\n【当前密码】" + ftpPass);
+        }
         sv.addView(tv);
         box.addView(sv, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(460)));
@@ -6529,6 +6543,9 @@ public class FileManagerModule extends HyVqModule {
     private void startFtpServer() {
         if (ftpRunning) return;
         try {
+            // ⭐ 安全修复：每次启动生成一次性随机密码（6 位数字），停止即失效
+            ftpPass = String.format(Locale.US, "%06d",
+                    new java.security.SecureRandom().nextInt(1_000_000));
             ftpCtrlSocket = new java.net.ServerSocket(FTP_PORT);
             ftpRunning = true;
             Thread t = new Thread(() -> {
@@ -6551,7 +6568,7 @@ public class FileManagerModule extends HyVqModule {
                 for (int i = 1; i < ips.size(); i++) {
                     sb.append("\n备用：ftp://").append(ips.get(i)).append(":").append(FTP_PORT);
                 }
-                sb.append("\n（在电脑浏览器/资源管理器打开）");
+                sb.append("\n用户名：").append(FTP_USER).append("　密码：").append(ftpPass);
                 ModuleUiKit.toast(ctx, sb.toString());
             }
         } catch (Throwable t) {
@@ -6561,6 +6578,7 @@ public class FileManagerModule extends HyVqModule {
 
     private void stopFtpServer() {
         ftpRunning = false;
+        ftpPass = "";   // 清空一次性密码，重新启动时会生成新的
         try {
             if (ftpCtrlSocket != null) ftpCtrlSocket.close();
         } catch (Throwable ignored) {
@@ -6630,7 +6648,9 @@ public class FileManagerModule extends HyVqModule {
         return l.isEmpty() ? null : l.get(0);
     }
 
-    /** 单连接 FTP 命令循环：USER/PASS 免密、PASV 被动模式、LIST/RETR/STOR/DELE/MKD/RMD */
+    /** 单连接 FTP 命令循环：USER/PASS 认证（一次性随机密码）、PASV 被动模式、
+     *  LIST/RETR/STOR/DELE/MKD/RMD。
+     *  ⭐ 安全修复：未认证的连接只能发 USER/PASS/QUIT，任何文件操作一律 530 拒绝。 */
     private void handleFtp(final Socket s) {
         try {
             s.setSoTimeout(60000);
@@ -6639,17 +6659,31 @@ public class FileManagerModule extends HyVqModule {
             final java.io.PrintWriter out = new java.io.PrintWriter(
                     new java.io.OutputStreamWriter(s.getOutputStream(), "ISO-8859-1"), true);
             File cwd = FTP_ROOT;
+            boolean authed = false;
             out.println("220 HY_VQ FTP Server ready");
             String line;
             while (ftpRunning && (line = in.readLine()) != null) {
                 if (line.isEmpty()) continue;
                 String cmd = line.toUpperCase(Locale.getDefault());
                 String arg = line.length() > cmd.length() ? line.substring(cmd.length()).trim() : "";
-                if (cmd.startsWith("USER") || cmd.startsWith("PASS")) {
-                    out.println("230 Login successful");
+                if (cmd.startsWith("USER")) {
+                    // 用户名固定，但不在此时校验，统一在 PASS 阶段判定
+                    out.println("331 Password required");
+                } else if (cmd.startsWith("PASS")) {
+                    String pw = line.length() > 4 ? line.substring(4).trim() : "";
+                    if (!ftpPass.isEmpty() && pw.equals(ftpPass)) {
+                        authed = true;
+                        out.println("230 Login successful");
+                    } else {
+                        authed = false;
+                        out.println("530 Login incorrect");
+                    }
                 } else if (cmd.startsWith("QUIT")) {
                     out.println("221 Bye");
                     break;
+                } else if (!authed) {
+                    // ⭐ 未登录：除 USER/PASS/QUIT 外一律拒绝，杜绝免密访问
+                    out.println("530 Please login with USER and PASS");
                 } else if (cmd.startsWith("TYPE") || cmd.startsWith("NOOP")) {
                     out.println("200 OK");
                 } else if (cmd.startsWith("SYST")) {
