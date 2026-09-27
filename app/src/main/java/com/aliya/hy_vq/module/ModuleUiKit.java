@@ -116,7 +116,65 @@ public final class ModuleUiKit {
             applyBlur(window, context, false);
         }
         dialog.setCancelable(true);
+
+        // ── 过渡动画（统一入口，所有玻璃弹窗共享）──
+        // 模糊背景是「截图当前界面」得到的静态图，若面板直接从 0 淡入会有半秒空窗感；
+        // 因此面板用「轻微缩放 + 淡入 + 上浮」的 Material 式进入，遮罩层同步淡入。
+        final View scrimView = dismissOnOutside ? shell.getChildAt(0) : null;
+        panel.setAlpha(0f);
+        panel.setScaleX(0.92f);
+        panel.setScaleY(0.92f);
+        panel.setTranslationY(dp(context, 12));
+        if (scrimView != null) scrimView.setAlpha(0f);
+
+        dialog.setOnShowListener(d -> {
+            android.view.animation.Interpolator ease =
+                    new android.view.animation.DecelerateInterpolator(1.6f);
+            panel.animate()
+                    .alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
+                    .setDuration(240).setInterpolator(ease).start();
+            if (scrimView != null) {
+                scrimView.animate().alpha(1f).setDuration(200).start();
+            }
+        });
+        // 把面板挂到 decorView 的 tag 上，供 dismissWithAnim(dialog) 取回
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().getDecorView().setTag(panel);
+        }
+
         return dialog;
+    }
+
+    /** 弹窗退场动画：先播放过渡再真正 dismiss（用于需要「关得也好看」的场景）。
+     *  用法：{@code ModuleUiKit.dismissWithAnim(dialog)} */
+    public static void dismissWithAnim(final Dialog dialog) {
+        if (dialog == null || !dialog.isShowing()) return;
+        View panel = null;
+        try {
+            if (dialog.getWindow() != null) {
+                Object t = dialog.getWindow().getDecorView().getTag();
+                if (t instanceof View) panel = (View) t;
+            }
+        } catch (Throwable ignored) {
+        }
+        if (panel == null) {
+            try {
+                dialog.dismiss();
+            } catch (Throwable ignored) {
+            }
+            return;
+        }
+        panel.animate()
+                .alpha(0f).scaleX(0.94f).scaleY(0.94f)
+                .setDuration(160)
+                .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                .withEndAction(() -> {
+                    try {
+                        dialog.dismiss();
+                    } catch (Throwable ignored) {
+                    }
+                })
+                .start();
     }
 
     /**

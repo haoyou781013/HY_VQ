@@ -6564,12 +6564,8 @@ public class FileManagerModule extends HyVqModule {
             if (ips.isEmpty()) {
                 ModuleUiKit.toast(ctx, "FTP 已启动，但未获取到局域网 IP（请确认已连 WiFi）");
             } else {
-                StringBuilder sb = new StringBuilder("FTP 已启动：ftp://" + ips.get(0) + ":" + FTP_PORT);
-                for (int i = 1; i < ips.size(); i++) {
-                    sb.append("\n备用：ftp://").append(ips.get(i)).append(":").append(FTP_PORT);
-                }
-                sb.append("\n用户名：").append(FTP_USER).append("　密码：").append(ftpPass);
-                ModuleUiKit.toast(ctx, sb.toString());
+                // ⭐ 改为持续可见的弹窗：原 toast 一闪而过，用户来不及看清地址与密码
+                showFtpRunningDialog(ips);
             }
         } catch (Throwable t) {
             ModuleUiKit.toast(ctx, "FTP 启动失败：" + t.getMessage());
@@ -6585,6 +6581,115 @@ public class FileManagerModule extends HyVqModule {
         }
         ftpCtrlSocket = null;
         ModuleUiKit.toast(ctx, "FTP 服务器已停止");
+    }
+
+    /**
+     * FTP 运行信息弹窗 —— 持续可见，替代原来一闪而过的 toast。
+     * <p>原实现用 Toast 展示「地址 + 用户名 + 密码」，长文本在 Toast 里几秒即消失，
+     * 用户来不及抄写或看清（尤其密码），因此改为常驻弹窗：
+     * 地址用等宽大字突出、可长按选中，并提供一键复制与「停止服务器」。</p>
+     */
+    private void showFtpRunningDialog(final java.util.List<String> ips) {
+        final int onSurface = ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOnSurface);
+        final int onVar = ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant);
+        final int primary = ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorPrimary);
+        final int container = ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerHighest);
+        final String mainUrl = "ftp://" + ips.get(0) + ":" + FTP_PORT;
+
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(ctx, "FTP 服务器运行中"));
+
+        // ── 主地址：等宽大字，长按可选中 ──
+        TextView tvUrl = new TextView(ctx);
+        tvUrl.setText(mainUrl);
+        tvUrl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        tvUrl.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        tvUrl.setTextColor(primary);
+        tvUrl.setTextIsSelectable(true);
+        tvUrl.setPadding(dp(2), dp(10), dp(2), dp(2));
+        box.addView(tvUrl);
+
+        TextView tvHint = new TextView(ctx);
+        tvHint.setText("在电脑浏览器 / 资源管理器的地址栏输入上面这行");
+        tvHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tvHint.setTextColor(onVar);
+        tvHint.setPadding(dp(2), 0, dp(2), dp(10));
+        box.addView(tvHint);
+
+        // ── 备用地址（多网卡时列出，便于挨个试）──
+        if (ips.size() > 1) {
+            StringBuilder alts = new StringBuilder("备用地址（主地址连不上时换这个）");
+            for (int i = 1; i < ips.size(); i++) {
+                alts.append("\n    ftp://").append(ips.get(i)).append(":").append(FTP_PORT);
+            }
+            TextView tvAlt = new TextView(ctx);
+            tvAlt.setText(alts.toString());
+            tvAlt.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            tvAlt.setTypeface(android.graphics.Typeface.MONOSPACE);
+            tvAlt.setTextColor(onVar);
+            tvAlt.setTextIsSelectable(true);
+            tvAlt.setPadding(dp(2), 0, dp(2), dp(10));
+            box.addView(tvAlt);
+        }
+
+        // ── 登录凭据卡 ──
+        LinearLayout cred = new LinearLayout(ctx);
+        cred.setOrientation(LinearLayout.VERTICAL);
+        cred.setPadding(dp(12), dp(10), dp(12), dp(10));
+        cred.setBackground(ModuleUiKit.rounded(ctx, 12, container, 0));
+        TextView tvCred = new TextView(ctx);
+        tvCred.setText("用户名：" + FTP_USER + "\n密　码：" + ftpPass);
+        tvCred.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        tvCred.setTypeface(android.graphics.Typeface.MONOSPACE);
+        tvCred.setTextColor(onSurface);
+        tvCred.setTextIsSelectable(true);
+        cred.addView(tvCred);
+        box.addView(cred);
+
+        TextView tvNote = new TextView(ctx);
+        tvNote.setText("· 密码为本次启动临时生成，停止服务器后失效\n"
+                + "· 电脑端弹登录框时填入上面的用户名与密码\n"
+                + "· 用完请点下方「停止服务器」，避免长期暴露在局域网");
+        tvNote.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tvNote.setTextColor(onVar);
+        tvNote.setLineSpacing(dp(2), 1.2f);
+        tvNote.setPadding(dp(2), dp(10), dp(2), dp(2));
+        box.addView(tvNote);
+
+        // ── 按钮 ──
+        LinearLayout btns = new LinearLayout(ctx);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.END);
+        box.addView(btns);
+
+        final android.app.Dialog dialog = ModuleUiKit.glassDialog(ctx, box);
+        btns.addView(textButton("复制地址", v -> {
+            copyToClipboard("FTP 地址", mainUrl);
+            ModuleUiKit.toast(ctx, "地址已复制");
+        }));
+        btns.addView(textButton("复制密码", v -> {
+            copyToClipboard("FTP 密码", ftpPass);
+            ModuleUiKit.toast(ctx, "密码已复制");
+        }));
+        btns.addView(textButton("停止服务器", v -> {
+            ModuleUiKit.dismissWithAnim(dialog);
+            stopFtpServer();
+        }));
+        btns.addView(textButton("关闭", v -> ModuleUiKit.dismissWithAnim(dialog)));
+        dialog.show();
+    }
+
+    /** 写入系统剪贴板（供 FTP 地址/密码一键复制） */
+    private void copyToClipboard(String label, String text) {
+        try {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText(label, text));
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 虚拟/隧道类接口名关键字：这些接口即使 isUp() 也不该作为对外地址，
