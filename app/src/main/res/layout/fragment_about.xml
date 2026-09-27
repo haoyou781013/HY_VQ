@@ -230,6 +230,54 @@
                 android:contentDescription="检查" />
         </LinearLayout>
 
+        <!-- ══ 导出安装包（签名变更/迁移前备份用）══ -->
+        <LinearLayout
+            android:id="@+id/item_about_export"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="4dp"
+            android:paddingVertical="13dp">
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="40dp" android:layout_height="40dp"
+                app:cardCornerRadius="12dp" app:cardElevation="0dp"
+                app:cardBackgroundColor="?attr/colorSecondaryContainer">
+                <ImageView
+                    android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:src="@drawable/ic_save"
+                    android:contentDescription="导出安装包"
+                    android:padding="9dp"
+                    android:tint="?attr/colorSecondary" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <LinearLayout
+                android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginStart="14dp"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="导出安装包"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorOnSurface" />
+                <TextView
+                    android:id="@+id/tv_about_export"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:text="把当前安装的 APK 复制到 Download 目录备份"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+
+            <ImageView
+                android:layout_width="18dp" android:layout_height="18dp"
+                android:src="@drawable/ic_chevron_right"
+                android:contentDescription="导出" />
+        </LinearLayout>
+
         <!-- ══ 致谢 ══ -->
         <TextView
             android:layout_width="wrap_content"

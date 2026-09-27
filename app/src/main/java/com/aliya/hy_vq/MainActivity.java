@@ -515,6 +515,169 @@ public class MainActivity extends AppCompatActivity {
         aboutView.findViewById(R.id.item_about_repo).setOnClickListener(v -> openUrl(OPEN_SOURCE_URL));
         aboutView.findViewById(R.id.item_about_license).setOnClickListener(v -> showLicenseDialog());
         aboutView.findViewById(R.id.item_about_changelog).setOnClickListener(v -> switchToUpdate());
+        aboutView.findViewById(R.id.item_about_export).setOnClickListener(v -> exportSelfApk());
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  导出安装包（备份当前 APK）
+    //  ⭐ 不需要 root：sourceDir 指向本应用自己的 APK，应用自身有读权限。
+    //     用途：签名变更 / 换仓库等场景下，卸载重装前先留一份可回退的安装包。
+    // ══════════════════════════════════════════════════════════════
+
+    /** 选择导出目录：优先公共 Download（需「所有文件访问」），否则回退应用专属外部目录 */
+    private File exportTargetDir() {
+        boolean pub = false;
+        try {
+            pub = android.os.Environment.isExternalStorageManager();
+        } catch (Throwable ignored) {
+        }
+        File base = pub
+                ? android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS)
+                : getExternalFilesDir(null);
+        return base;
+    }
+
+    private void exportSelfApk() {
+        final File src = new File(getApplicationInfo().sourceDir);
+        if (!src.exists()) {
+            Toast.makeText(this, "找不到当前安装包路径", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final File base = exportTargetDir();
+        if (base == null) {
+            Toast.makeText(this, "无法访问存储目录", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!base.exists() && !base.mkdirs()) {
+            Toast.makeText(this, "无法创建目录：" + base.getAbsolutePath(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        final boolean pub;
+        try {
+            pub = android.os.Environment.isExternalStorageManager();
+        } catch (Throwable t) {
+            return;
+        }
+        final File dst = new File(base, "HY_VQ-v" + baseVersionName() + ".apk");
+        final boolean exists = dst.exists() && dst.length() > 0;
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(this, "导出安装包"));
+        TextView tv = new TextView(this);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tv.setLineSpacing(0, 1.45f);
+        tv.setPadding(dp2(4), dp2(4), dp2(4), dp2(4));
+        tv.setTextColor(ModuleUiKit.color(this, com.google.android.material.R.attr.colorOnSurface));
+        tv.setText("把当前已安装的 APK 复制出来留档，卸载重装前多一份保障。\n\n"
+                + "版本：" + baseVersionName() + "\n"
+                + "大小：" + fmtSize(src.length()) + "\n"
+                + "目标：" + dst.getAbsolutePath()
+                + (exists ? "\n\n⚠️ 目标文件已存在，将被覆盖。" : "")
+                + (pub ? "" : "\n\nℹ️ 未授予「所有文件访问」，将导出到应用专属目录，"
+                        + "该目录在部分机型上不易访问；建议先授予权限再导出。"));
+        box.addView(tv);
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.END);
+        box.addView(btns);
+        final android.app.Dialog dlg = ModuleUiKit.glassDialog(this, box);
+        btns.addView(updateTextButton("取消", v -> dlg.dismiss()));
+        btns.addView(updateTextButton("开始导出", v -> {
+            dlg.dismiss();
+            doExportSelfApk(src, dst);
+        }));
+        dlg.show();
+    }
+
+    private void doExportSelfApk(final File src, final File dst) {
+        final android.app.Dialog progress = new android.app.Dialog(this);
+        LinearLayout pb = new LinearLayout(this);
+        pb.setOrientation(LinearLayout.VERTICAL);
+        pb.setPadding(dp2(24), dp2(24), dp2(24), dp2(24));
+        TextView ptv = new TextView(this);
+        ptv.setText("正在导出…");
+        ptv.setTextColor(ModuleUiKit.color(this, com.google.android.material.R.attr.colorOnSurface));
+        pb.addView(ptv);
+        progress.setContentView(pb);
+        progress.setCancelable(false);
+        progress.show();
+
+        new Thread(() -> {
+            String err = null;
+            long size = 0;
+            String md5 = null;
+            File tmp = new File(dst.getAbsolutePath() + ".part");
+            try {
+                try (java.io.FileInputStream in = new java.io.FileInputStream(src);
+                     java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+                    byte[] buf = new byte[65536];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                        size += n;
+                    }
+                    out.getFD().sync();
+                }
+                if (size != src.length()) throw new Exception("复制不完整（" + size + "/" + src.length() + "）");
+                if (dst.exists() && !dst.delete()) throw new Exception("无法覆盖已存在的文件");
+                if (!tmp.renameTo(dst)) throw new Exception("无法写入目标文件");
+                md5 = md5Of(dst);
+            } catch (Throwable t) {
+                err = t.getMessage() == null ? t.toString() : t.getMessage();
+                try { tmp.delete(); } catch (Throwable ignored) { }
+            }
+            final String ferr = err;
+            final long fsize = size;
+            final String fmd5 = md5;
+            runOnUiThread(() -> {
+                try { progress.dismiss(); } catch (Throwable ignored) { }
+                showExportResult(dst, ferr, fsize, fmd5, src.length());
+            });
+        }, "HyVqExportApk").start();
+    }
+
+    private void showExportResult(final File dst, final String err,
+                                  final long size, final String md5, final long srcSize) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(this, err == null ? "导出成功" : "导出失败"));
+        TextView tv = new TextView(this);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tv.setLineSpacing(0, 1.45f);
+        tv.setPadding(dp2(4), dp2(4), dp2(4), dp2(4));
+        tv.setTextColor(ModuleUiKit.color(this, com.google.android.material.R.attr.colorOnSurface));
+        if (err == null) {
+            tv.setText("已保存到：\n" + dst.getAbsolutePath() + "\n\n"
+                    + "大小：" + fmtSize(size) + "（与源文件一致 ✓）\n"
+                    + "MD5：" + md5 + "\n\n"
+                    + "💡 卸载重装前，请先在文件管理器里确认该文件存在且能正常打开。");
+        } else {
+            tv.setText("原因：" + err + "\n\n目标路径：\n" + dst.getAbsolutePath());
+        }
+        box.addView(tv);
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.END);
+        box.addView(btns);
+        final android.app.Dialog dlg = ModuleUiKit.glassDialog(this, box);
+        if (err == null) {
+            btns.addView(updateTextButton("分享", v -> {
+                try {
+                    Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", dst);
+                    android.content.Intent it = new android.content.Intent(android.content.Intent.ACTION_SEND);
+                    it.setType("application/vnd.android.package-archive");
+                    it.putExtra(android.content.Intent.EXTRA_STREAM, uri);
+                    it.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(android.content.Intent.createChooser(it, "分享安装包"));
+                } catch (Throwable t) {
+                    Toast.makeText(this, "分享失败：" + t.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            }));
+        }
+        btns.addView(updateTextButton("知道了", v -> dlg.dismiss()));
+        dlg.show();
     }
 
     /** 用系统浏览器打开链接 */
