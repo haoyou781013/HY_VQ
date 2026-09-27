@@ -1,5 +1,12 @@
 # HY_VQ
 
+> ## 📦 仓库已迁移
+>
+> 项目现维护于 **<https://github.com/haoyou781013/HY_VQ>**（当前仓库）。
+> 旧地址 <https://github.com/haoyou999/HY_VQ> 因账号双重验证密钥丢失已冻结为只读，
+> 但其 raw 直链与已发布的 Release 资产**继续有效**。
+> 迁移原因、对使用者的影响与事故教训详见 **[MIGRATION.md](MIGRATION.md)**。
+
 > ## ⚠️ 重要声明
 >
 > **本项目的全部代码均由 AI 智能体（DeepSeek Harness 驱动的编码代理）编写**，
@@ -91,8 +98,12 @@ libs/terracotta/               Terracotta P2P 运行库
 
 | 用途 | 地址 |
 |---|---|
-| 版本清单 | `https://raw.githubusercontent.com/haoyou999/HY_VQ/main/latest.json` |
-| 安装包 | `https://github.com/haoyou999/HY_VQ/releases/latest/download/<apk 文件名>` |
+| 版本清单 | `https://raw.githubusercontent.com/haoyou781013/HY_VQ/main/latest.json` |
+| 安装包 | `https://github.com/haoyou781013/HY_VQ/releases/latest/download/<apk 文件名>` |
+| 国内备用源 | `https://webdav.123pan.cn/webdav/HY_VQ-updates/`（123 云盘，内置只读凭据） |
+
+更新机制：**默认走 GitHub**，连接失败时自动回退到国内备用源。
+国内源同时保存 `versions.json`（全量版本历史）与各版本 APK，作为 GitHub 不可达时的完整替代。
 
 公开仓库的 raw 文件与 Release 资产均为**无鉴权直链**，因此客户端 APK 内不含任何账号或密钥。
 应用内「设置 → 软件更新」即按上述地址检查新版本、下载 APK 并校验 MD5 后交由系统安装器安装。

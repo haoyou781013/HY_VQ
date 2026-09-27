@@ -127,8 +127,9 @@ public class MainActivity extends AppCompatActivity {
     private boolean historyExpanded = false;
     /** 国内源只读凭据内存缓存（避免每次请求都走 Keystore 解密） */
     private String cachedCnCred;
-    /** 开源仓库地址（与 README / LICENSE 一致） */
-    private static final String OPEN_SOURCE_URL = "https://github.com/haoyou999/HY_VQ";
+    /** 开源仓库地址（与 README / LICENSE 一致）
+     *  2026-09-27：仓库迁至新账号 —— 旧账号因双重验证密钥丢失无法登录，详见 MIGRATION.md */
+    private static final String OPEN_SOURCE_URL = "https://github.com/haoyou781013/HY_VQ";
     private static final int PAGE_SETTINGS = 3;
     private static final int PAGE_ACCOUNT = 4;
     private static final int PAGE_MODULE_SETTINGS = 6;
@@ -1660,8 +1661,11 @@ public class MainActivity extends AppCompatActivity {
     // ── 远程更新（GitHub 公开仓库只读直链）──────────────────────
     // 2026-09-06 变更：更新源从自建 WebDAV 迁到 GitHub —— 公开仓库的 raw 文件与
     // release 资产都是**无鉴权直链**，天然只读，APK 内不再内置任何账号密码。
-    private static final String GH_OWNER = "haoyou999";
-    /** 更新源与源码同仓：latest.json 在仓库根，APK 走该仓的 Release 资产 */
+    // 2026-09-27：项目迁至新账号 haoyou781013（旧账号双重验证密钥随恢复出厂设置丢失，
+    // 无法登录也无法重置，详见 MIGRATION.md）。旧的 haoyou999/HY_VQ 保留只读，
+    // 其 raw 直链与已发布的 Release 资产继续有效，不影响老版本客户端的更新检查。
+    private static final String GH_OWNER = "haoyou781013";
+    /** 更新源与源码同仓：APK 走该仓的 Release 资产 */
     private static final String GH_REPO = "HY_VQ";
     /** 启动时自动检查更新的偏好键（默认开启） */
     private static final String PREF_AUTO_CHECK_UPDATE = "auto_check_update";
