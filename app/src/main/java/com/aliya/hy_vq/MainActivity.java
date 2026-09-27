@@ -171,6 +171,8 @@ public class MainActivity extends AppCompatActivity {
     private Runnable hideHintRunnable;
 
     private final List<Dialog> activeDialogs = new ArrayList<>();
+    /** 正在等待 onActivityResult 的弹窗（onStop 时不销毁，返回后继续使用） */
+    private Dialog dialogAwaitingResult = null;
 
     // ── 房间联机（局域网 P2P 直连：UDP 组播发现 + TCP 直连，纯 Java Socket，无账号体系）──
     private TerracottaUiController terracottaUi;
@@ -908,8 +910,13 @@ public class MainActivity extends AppCompatActivity {
             FileManagerModule.onSafGrantedStatic();
         } else if (requestCode == REQ_PICK_AVATAR && resultCode == RESULT_OK && data != null && data.getData() != null) {
             saveAvatar(data.getData());
+            dialogAwaitingResult = null;   // 弹窗仍存活，解除保护标记
         } else if (requestCode == REQ_INSTALL_MODULE && resultCode == RESULT_OK && data != null && data.getData() != null) {
             installModuleFromUri(data.getData());
+        }
+        // 用户取消选择时也要解除标记，否则该弹窗会永久不受 onStop 保护
+        if (requestCode == REQ_PICK_AVATAR && resultCode != RESULT_OK) {
+            dialogAwaitingResult = null;
         }
     }
 
@@ -1172,12 +1179,20 @@ public class MainActivity extends AppCompatActivity {
             terracottaUi.dismiss();
         }
         // 销毁时关闭所有活跃 Dialog，防止窗口泄漏
+        // ⭐ 例外：正在等待 onActivityResult 的弹窗（如编辑资料里选头像）必须存活，
+        //    否则系统图片选择器一遮挡就会触发 onStop 把弹窗清掉，
+        //    用户回来只看到「头像已更新」而弹窗不见了。
         for (Dialog d : activeDialogs) {
-            if (d != null && d.isShowing()) {
+            if (d == null || d == dialogAwaitingResult) continue;
+            if (d.isShowing()) {
                 try { d.dismiss(); } catch (Exception ignored) {}
             }
         }
-        activeDialogs.clear();
+        // 只清理已关闭的，保留等待结果的那个
+        for (int i = activeDialogs.size() - 1; i >= 0; i--) {
+            Dialog d = activeDialogs.get(i);
+            if (d == null || !d.isShowing()) activeDialogs.remove(i);
+        }
     }
 
     @Override
@@ -1551,6 +1566,9 @@ public class MainActivity extends AppCompatActivity {
         // 头像点击
         dialogAvatar.setOnClickListener(w -> {
             editAvatar = dialogAvatar; // 暂存引用供 onActivityResult 刷新
+            // ⭐ 标记本弹窗正在等待结果：系统图片选择器遮挡会触发 onStop，
+            //    若不豁免，弹窗会被当泄漏窗口销毁，用户回来只看到头像变了、弹窗没了。
+            dialogAwaitingResult = dialog;
             pickAvatar();
         });
 
@@ -1583,6 +1601,7 @@ public class MainActivity extends AppCompatActivity {
         dialog.setOnDismissListener(d -> {
             activeDialogs.remove(dialog);
             editAvatar = null; // 释放弹窗头像引用
+            if (dialogAwaitingResult == dialog) dialogAwaitingResult = null; // 解除保护，避免悬空引用
             if (toggle != null) toggle.setDrawerIndicatorEnabled(true);
         });
         activeDialogs.add(dialog);
@@ -1682,7 +1701,7 @@ public class MainActivity extends AppCompatActivity {
         homeView.findViewById(R.id.card_explore).setOnClickListener(v -> openShareApps());
         homeView.findViewById(R.id.card_moments).setOnClickListener(v ->
                 Toast.makeText(this, "朋友圈功能即将上线", Toast.LENGTH_SHORT).show());
-        homeView.findViewById(R.id.card_mine).setOnClickListener(v -> openFileManager());
+        homeView.findViewById(R.id.card_mine).setOnClickListener(v -> switchToAccount());
         homeView.findViewById(R.id.btn_start).setOnClickListener(v -> openFileManager());
         homeView.findViewById(R.id.btn_about).setOnClickListener(v ->
                 Toast.makeText(this, "HY_VQ - 极简高效连接", Toast.LENGTH_SHORT).show());
