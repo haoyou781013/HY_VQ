@@ -1,12 +1,32 @@
+import java.util.Properties
 
 plugins {
     id("com.android.application")
     
 }
 
+// ── 发布签名配置 ──
+// keystore.properties 存放密钥路径与口令，已被 .gitignore 排除，绝不入库。
+// 文件缺失时（如 CI 或其他机器）自动回退为「不签名」，不影响普通构建。
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
+}
+
 android {
     namespace = "com.aliya.hy_vq"
     compileSdk = 33
+
+    signingConfigs {
+        if (keystorePropsFile.exists()) {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
     
     defaultConfig {
         applicationId = "com.aliya.hy_vq"
@@ -30,7 +50,14 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            // 关闭 PNG crunching：res/mipmap-*/ic_launcher.png 实际是 JPEG 内容
+            // （魔数 ffd8ff），aapt2 的 crunch 路径会正确地拒绝它。
+            // 关闭后与 debug 构建行为一致，且不改动资源文件。
+            isCrunchPngs = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (keystorePropsFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
