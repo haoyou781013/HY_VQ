@@ -138,6 +138,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int PAGE_SHARE = 9;
     /** 鸣潮表情包（v2.9.1 内嵌页） */
     private static final int PAGE_EMOJI = 10;
+    /** 抽卡分析（原神祈愿记录） */
+    private static final int PAGE_GACHA = 11;
     private static final int PAGE_MODULE_BASE = 100;
 
     private ActivityMainBinding binding;
@@ -154,6 +156,8 @@ public class MainActivity extends AppCompatActivity {
     private String currentModuleId = null;
     /** 文件管理：内置一级功能，2026-09-06 起从模块体系剥离为非模块 */
     private FileManagerModule fileManager;
+    /** 抽卡分析页（懒建，仅首次进入时创建） */
+    private com.aliya.hy_vq.gacha.GachaView gachaView;
 
     // ── 模块系统 ──
     private ModuleRegistry moduleRegistry = new ModuleRegistry();
@@ -343,6 +347,20 @@ public class MainActivity extends AppCompatActivity {
                     : com.google.android.material.R.attr.colorOnSurfaceVariant);
             if (fmIcon != null) fmIcon.setColorFilter(fmTint);
             if (fmText != null) fmText.setTextColor(fmTint);
+        }
+        // 抽卡分析一级入口选中态
+        View navGacha = binding.navView.findViewById(R.id.nav_gacha);
+        if (navGacha != null) {
+            boolean gSelected = currentPageIndex == PAGE_GACHA;
+            navGacha.setBackgroundResource(gSelected
+                    ? R.drawable.bg_nav_item_selected : R.drawable.bg_nav_item_default);
+            ImageView gIcon = navGacha.findViewById(R.id.nav_gacha_icon);
+            TextView gText = navGacha.findViewById(R.id.nav_gacha_text);
+            int gTint = resolveAttr(gSelected
+                    ? com.google.android.material.R.attr.colorOnPrimaryContainer
+                    : com.google.android.material.R.attr.colorOnSurfaceVariant);
+            if (gIcon != null) gIcon.setColorFilter(gTint);
+            if (gText != null) gText.setTextColor(gTint);
         }
         if (drawerModuleSlot != null) {
             for (int i = 0; i < drawerModuleSlot.getChildCount(); i++) {
@@ -744,6 +762,23 @@ public class MainActivity extends AppCompatActivity {
         switchContent(v, PAGE_FILEMGR);
         resetToolbar();
         binding.toolbarTitle.setText("文件管理");
+        updateDrawerSelection();
+    }
+
+    /**
+     * 抽卡分析页。
+     * <p>粘贴原神祈愿链接 → 解析 authkey → 拉取 API → 按 uid 融合本地存档 → 统计。
+     * 页面本身常驻实例，切换回来时保留输入内容与上次结果。</p>
+     */
+    private void switchToGacha() {
+        if (gachaView == null) {
+            gachaView = new com.aliya.hy_vq.gacha.GachaView(this);
+            gachaView.showLatestIfAny();
+        }
+        currentModuleId = null;      // 非模块：不参与模块选中态
+        switchContent(gachaView, PAGE_GACHA);
+        resetToolbar();
+        binding.toolbarTitle.setText("抽卡分析");
         updateDrawerSelection();
     }
 
@@ -1419,6 +1454,14 @@ public class MainActivity extends AppCompatActivity {
             fmBtn.setOnClickListener(v -> {
                 binding.drawerLayout.closeDrawers();
                 binding.drawerLayout.postDelayed(this::openFileManager, 160);
+            });
+        }
+        // 抽卡分析（原神祈愿记录）
+        View gachaBtn = binding.navView.findViewById(R.id.nav_gacha);
+        if (gachaBtn != null) {
+            gachaBtn.setOnClickListener(v -> {
+                binding.drawerLayout.closeDrawers();
+                binding.drawerLayout.postDelayed(this::switchToGacha, 160);
             });
         }
         // 房间联机（局域网直连固定入口）
