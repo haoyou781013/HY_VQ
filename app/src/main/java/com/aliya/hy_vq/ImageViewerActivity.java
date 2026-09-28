@@ -24,6 +24,12 @@ import java.io.InputStream;
  * 大图按目标尺寸采样解码（避免 OOM），兼容本地路径与 SAF(content://)。</p>
  */
 public class ImageViewerActivity extends Activity {
+    /** 应用级 DPI 覆盖：让「设置 → 显示密度」只对本应用生效（见 DpiUtils） */
+    @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(com.aliya.hy_vq.util.DpiUtils.wrap(base));
+    }
+
 
     public static final String EXTRA_PATH = "image_path";
     public static final String EXTRA_URI = "image_uri";

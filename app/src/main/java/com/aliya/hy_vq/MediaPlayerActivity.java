@@ -29,6 +29,12 @@ import java.util.Set;
  * {@code VideoView} 依赖 Surface，把 View 隐藏后音频无输出，故音频不走本页。</p>
  */
 public class MediaPlayerActivity extends Activity {
+    /** 应用级 DPI 覆盖：让「设置 → 显示密度」只对本应用生效（见 DpiUtils） */
+    @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(com.aliya.hy_vq.util.DpiUtils.wrap(base));
+    }
+
 
     public static final String EXTRA_PATH = "media_path";     // 兼容单文件调用
     public static final String EXTRA_URI = "media_uri";       // 兼容单文件调用

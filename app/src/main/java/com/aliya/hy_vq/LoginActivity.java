@@ -22,6 +22,11 @@ public class LoginActivity extends AppCompatActivity {
     private TextView loginHint;
     private MaterialButton btnLogin;
     private SignatureManager sm;
+    /** 应用级 DPI 覆盖：让「设置 → 显示密度」只对本应用生效（见 DpiUtils） */
+    @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(com.aliya.hy_vq.util.DpiUtils.wrap(base));
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

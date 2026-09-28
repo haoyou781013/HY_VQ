@@ -175,6 +175,11 @@ public class MainActivity extends AppCompatActivity {
     private Dialog dialogAwaitingResult = null;
 
     // ── 房间联机（局域网 P2P 直连：UDP 组播发现 + TCP 直连，纯 Java Socket，无账号体系）──
+    /** 应用级 DPI 覆盖：让「设置 → 显示密度」只对本应用生效（见 DpiUtils） */
+    @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(com.aliya.hy_vq.util.DpiUtils.wrap(base));
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -1445,7 +1450,7 @@ public class MainActivity extends AppCompatActivity {
         TextView tvDefault = settingsView.findViewById(R.id.tv_default_page);
         if (tvDefault != null) {
             String currentDefault = prefs.getString("default_page", "home");
-            tvDefault.setText("home".equals(currentDefault) ? "首页" : "聊天");
+            tvDefault.setText("首页");
         }
         // 软件更新状态行（更新包版本随时可能变化，进入时刷新）
         updateUpdateStateLabel();
@@ -1474,6 +1479,10 @@ public class MainActivity extends AppCompatActivity {
         TextView tvAboutLabel = settingsView.findViewById(R.id.tv_about_label);
         if (tvAboutLabel != null) tvAboutLabel.setText("v" + baseVersionName());
         settingsView.findViewById(R.id.item_storage).setOnClickListener(v -> showStorageManagerDialog());
+        // 显示密度（应用级 DPI 覆盖）
+        View itemDpi = settingsView.findViewById(R.id.item_dpi);
+        if (itemDpi != null) itemDpi.setOnClickListener(v -> showDpiDialog());
+        refreshDpiLabel();
         // 权限管理入口（检查各项权限申请情况）
         settingsView.findViewById(R.id.item_permission).setOnClickListener(v -> switchToPermissions());
         // 软件更新入口（增量更新包导入中心）
@@ -2271,6 +2280,168 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** 存储管理：用量概览 + 缓存清理 + 回收站清空 */
+    /** 刷新设置页「显示密度」右侧的状态文字 */
+    private void refreshDpiLabel() {
+        if (settingsView == null) return;
+        TextView tv = settingsView.findViewById(R.id.tv_dpi_state);
+        if (tv == null) return;
+        int dpi = com.aliya.hy_vq.util.DpiUtils.get(this);
+        int sys = com.aliya.hy_vq.util.DpiUtils.systemDpi(this);
+        tv.setText(dpi == com.aliya.hy_vq.util.DpiUtils.DEFAULT
+                ? "跟随系统（" + sys + "）"
+                : dpi + " dpi");
+    }
+
+    /**
+     * 显示密度设置弹窗（应用级 DPI 覆盖，范围 100–600）。
+     * <p>只影响本应用的 dp→px 换算，不改系统设置、不需要任何权限；
+     * 保存后调用 {@link #recreate()} 让新密度立即生效。</p>
+     */
+    private void showDpiDialog() {
+        final int sysDpi = com.aliya.hy_vq.util.DpiUtils.systemDpi(this);
+        final int saved = com.aliya.hy_vq.util.DpiUtils.get(this);
+        final int cur = saved == com.aliya.hy_vq.util.DpiUtils.DEFAULT ? sysDpi : saved;
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(this, "显示密度（DPI）"));
+
+        TextView tip = new TextView(this);
+        tip.setText("调整本应用的界面缩放，数值越大界面元素越大。仅影响 HY_VQ，"
+                + "不改动系统设置，卸载或重置即还原。");
+        tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tip.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tip.setLineSpacing(dp2(2), 1.25f);
+        tip.setPadding(dp2(4), dp2(4), dp2(4), dp2(8));
+        box.addView(tip);
+
+        // ── 当前值大字 ──
+        final TextView tvVal = new TextView(this);
+        tvVal.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+        tvVal.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        tvVal.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorPrimary));
+        tvVal.setGravity(Gravity.CENTER);
+        tvVal.setText(String.valueOf(cur));
+        box.addView(tvVal);
+
+        TextView tvSys = new TextView(this);
+        tvSys.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tvSys.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tvSys.setGravity(Gravity.CENTER);
+        tvSys.setText("设备默认 " + sysDpi + "　范围 "
+                + com.aliya.hy_vq.util.DpiUtils.MIN + "–" + com.aliya.hy_vq.util.DpiUtils.MAX);
+        tvSys.setPadding(0, 0, 0, dp2(8));
+        box.addView(tvSys);
+
+        // ── 滑块 ──
+        final android.widget.SeekBar sb = new android.widget.SeekBar(this);
+        final int span = com.aliya.hy_vq.util.DpiUtils.MAX - com.aliya.hy_vq.util.DpiUtils.MIN;
+        sb.setMax(span);
+        sb.setProgress(Math.max(0, Math.min(span, cur - com.aliya.hy_vq.util.DpiUtils.MIN)));
+        box.addView(sb);
+
+        // ── 数值输入框 ──
+        final EditText et = new EditText(this);
+        et.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        et.setText(String.valueOf(cur));
+        et.setGravity(Gravity.CENTER);
+        et.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        elp.topMargin = dp2(6);
+        box.addView(et, elp);
+
+        TextView tvHint = new TextView(this);
+        tvHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tvHint.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tvHint.setGravity(Gravity.CENTER);
+        tvHint.setText("取 " + com.aliya.hy_vq.util.DpiUtils.MIN + "–"
+                + com.aliya.hy_vq.util.DpiUtils.MAX + " 之间的整数，越界会被自动夹取");
+        box.addView(tvHint);
+
+        // ── 预设按钮 ──
+        LinearLayout presetRow = new LinearLayout(this);
+        presetRow.setOrientation(LinearLayout.HORIZONTAL);
+        presetRow.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams prlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        prlp.topMargin = dp2(10);
+        box.addView(presetRow, prlp);
+        for (final int preset : com.aliya.hy_vq.util.DpiUtils.PRESETS) {
+            TextView b = updateTextButton(String.valueOf(preset), v -> {
+                sb.setProgress(Math.max(0, Math.min(span,
+                        preset - com.aliya.hy_vq.util.DpiUtils.MIN)));
+                et.setText(String.valueOf(preset));
+                et.setSelection(et.getText().length());
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.rightMargin = dp2(6);
+            presetRow.addView(b, lp);
+        }
+
+        // 滑块 ↔ 输入框 双向同步
+        sb.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
+                int v = com.aliya.hy_vq.util.DpiUtils.MIN + progress;
+                tvVal.setText(String.valueOf(v));
+                if (fromUser) {
+                    et.setText(String.valueOf(v));
+                    et.setSelection(et.getText().length());
+                }
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+
+        // ── 按钮 ──
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.END);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.topMargin = dp2(12);
+        box.addView(btns, blp);
+
+        final android.app.Dialog dialog = ModuleUiKit.glassDialog(this, box);
+        btns.addView(updateTextButton("跟随系统", v -> {
+            com.aliya.hy_vq.util.DpiUtils.reset(this);
+            ModuleUiKit.dismissWithAnim(dialog);
+            applyDpiAndRestart();
+        }));
+        btns.addView(updateTextButton("取消", v -> ModuleUiKit.dismissWithAnim(dialog)));
+        btns.addView(updateTextButton("应用", v -> {
+            int v2;
+            try {
+                v2 = Integer.parseInt(et.getText().toString().trim());
+            } catch (Throwable t) {
+                v2 = com.aliya.hy_vq.util.DpiUtils.MIN + sb.getProgress();
+            }
+            com.aliya.hy_vq.util.DpiUtils.set(this, v2);
+            ModuleUiKit.dismissWithAnim(dialog);
+            applyDpiAndRestart();
+        }));
+        dialog.show();
+    }
+
+    /** 密度已写入 prefs，重启 Activity 让 attachBaseContext 重新生效 */
+    private void applyDpiAndRestart() {
+        refreshDpiLabel();
+        Toast.makeText(this, "已应用，正在重新加载界面…", Toast.LENGTH_SHORT).show();
+        // 稍作延迟，让 Toast 与弹窗退场动画走完再重建
+        handler.postDelayed(() -> {
+            try {
+                recreate();
+            } catch (Throwable t) {
+                Toast.makeText(this, "请手动重启应用以生效", Toast.LENGTH_LONG).show();
+            }
+        }, 260);
+    }
+
     private void showStorageManagerDialog() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
