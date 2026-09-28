@@ -435,6 +435,25 @@ public class GachaView extends LinearLayout {
                 color(com.google.android.material.R.attr.colorSecondary)));
         poolBox.addView(sumRow);
 
+        // ── 未知卡池提示（官方清单为 100/200/301/302/400/500/5001） ──
+        java.util.List<String> unknown = new java.util.ArrayList<>();
+        for (String t : st.allTypes) {
+            if (!"100".equals(t) && !"200".equals(t) && !"301".equals(t) && !"302".equals(t)
+                    && !"400".equals(t) && !"500".equals(t) && !"5001".equals(t)) {
+                unknown.add(t);
+            }
+        }
+        if (!unknown.isEmpty()) {
+            TextView warn = new TextView(ctx);
+            warn.setText("⚠️ 检测到官方清单之外的卡池类型：" + unknown
+                    + "\n已按原样单独统计，如果数值异常请反馈该类型号。");
+            warn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            warn.setTextColor(color(com.google.android.material.R.attr.colorError));
+            warn.setLineSpacing(dp(2), 1.25f);
+            warn.setPadding(0, dp(6), 0, dp(4));
+            poolBox.addView(warn);
+        }
+
         // ── 各卡池 ──
         for (GachaStats.PoolStat ps : st.pools) {
             poolBox.addView(poolSection(ps));
@@ -491,8 +510,15 @@ public class GachaView extends LinearLayout {
         c.addView(name);
 
         TextView meta = new TextView(ctx);
-        meta.setText(ps.total + " 抽　五星 " + ps.count5 + "　四星 " + ps.count4
-                + "\n当前垫抽 " + ps.pity + "　平均出货 " + ps.avg5Text() + " 抽");
+        StringBuilder mt = new StringBuilder();
+        mt.append(ps.total).append(" 抽　五星 ").append(ps.count5)
+          .append("　四星 ").append(ps.count4)
+          .append("\n当前垫抽 ").append(ps.pity)
+          .append("　平均出货 ").append(ps.avg5Text()).append(" 抽");
+        // 组内包含多个池时列出各自抽数（301+400 / 500+5001 共享保底）
+        String bd = ps.subBreakdown();
+        if (!bd.isEmpty()) mt.append("\n构成：").append(bd);
+        meta.setText(mt.toString());
         meta.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         meta.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
         meta.setLineSpacing(dp(2), 1.2f);
@@ -505,12 +531,14 @@ public class GachaView extends LinearLayout {
             java.util.Collections.reverse(fs);
             int show = Math.min(8, fs.size());
             StringBuilder sb = new StringBuilder();
+            boolean multi = ps.subTypes.size() > 1;
             for (int i = 0; i < show; i++) {
                 GachaStats.FiveStar f = fs.get(i);
                 sb.append("★ ").append(f.name)
                   .append("　第 ").append(f.pulls).append(" 抽")
-                  .append(f.weapon ? "（武器）" : "")
-                  .append("　").append(shortTime(f.time)).append("\n");
+                  .append(f.weapon ? "（武器）" : "");
+                if (multi) sb.append("　").append(f.poolName());   // 标明出自哪个池
+                sb.append("　").append(shortTime(f.time)).append("\n");
             }
             if (fs.size() > show) sb.append("… 共 ").append(fs.size()).append(" 个五星");
             TextView fl = new TextView(ctx);

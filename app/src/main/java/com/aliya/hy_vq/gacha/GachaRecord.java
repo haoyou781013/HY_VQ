@@ -59,19 +59,64 @@ public class GachaRecord {
         return o;
     }
 
-    /** 卡池中文名 */
+    /** 卡池中文名（精确到具体池） */
     public String poolName() {
         return poolName(gachaType);
     }
 
+    /**
+     * 卡池中文名。
+     * <p>完整清单取自官方 bundle.js 的 itemTypeNameMap[zh-cn]（实测），
+     * 共 7 种：100/200/301/302/400/500/5001。</p>
+     */
     public static String poolName(String type) {
         switch (type == null ? "" : type) {
             case "100": return "新手祈愿";
             case "200": return "常驻祈愿";
             case "301": return "角色活动祈愿";
             case "302": return "武器活动祈愿";
+            case "400": return "角色活动祈愿-2";
             case "500": return "集录祈愿";
-            default: return "未知卡池(" + type + ")";
+            case "5001": return "溯光祈愿";
+            default: return "其它祈愿(" + type + ")";
+        }
+    }
+
+    /**
+     * 归一化到「共享保底组」。
+     *
+     * <p>依据 UIGF 标准的 uigf_gacha_type 映射表：</p>
+     * <pre>
+     *   uigf_gacha_type | gacha_type
+     *        301        |   301 | 400      ← 角色活动祈愿 与 角色活动祈愿-2 共享保底
+     *        500        |   500 | 5001     ← 集录祈愿 与 溯光祈愿 共享保底
+     * </pre>
+     *
+     * <p>官方 bundle 的 itemTypeMap 也印证：菜单只列 5 项，
+     * 名称分别是「角色活动祈愿与角色活动祈愿-2」「集录祈愿与溯光祈愿」。</p>
+     *
+     * <p>⚠️ 若不做归一化而直接按 gacha_type 分组算保底，
+     * 301/400 之间的水位会被割裂，算出的「出货抽数」和「垫抽」都会失真。</p>
+     */
+    public String uigfType() {
+        return uigfType(gachaType);
+    }
+
+    public static String uigfType(String type) {
+        if ("400".equals(type)) return "301";
+        if ("5001".equals(type)) return "500";
+        return type == null ? "" : type;
+    }
+
+    /** 共享保底组的显示名（合并后的池名） */
+    public static String groupName(String type) {
+        switch (uigfType(type)) {
+            case "100": return "新手祈愿";
+            case "200": return "常驻祈愿";
+            case "301": return "角色活动祈愿";
+            case "302": return "武器活动祈愿";
+            case "500": return "集录祈愿";
+            default: return "其它祈愿(" + type + ")";
         }
     }
 

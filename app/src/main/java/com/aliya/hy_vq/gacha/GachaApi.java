@@ -60,8 +60,16 @@ public final class GachaApi {
     /** 单卡池最多翻页次数：20×500=10000 条，足够覆盖 6 个月留存期 */
     private static final int MAX_PAGES = 500;
 
-    /** 全部卡池类型 */
-    public static final String[] ALL_TYPES = {"100", "200", "301", "302", "500"};
+    /**
+     * 需要逐个查询的卡池类型。
+     *
+     * <p>官方菜单只列 5 项（100/301/302/500/200），查 301 会连带返回 400、
+     * 查 500 会连带返回 5001。但为防服务端行为变化导致漏拉，这里把
+     * <b>400 与 5001 也单独查一遍</b> —— 结果经 id 去重后不会重复，
+     * 代价仅多两次请求。</p>
+     */
+    public static final String[] ALL_TYPES =
+            {"100", "200", "301", "400", "302", "500", "5001"};
 
     /** 这些参数由我们按翻页逻辑决定，不采用 URL 里的值 */
     private static final Set<String> OVERRIDE_KEYS = new LinkedHashSet<>();
