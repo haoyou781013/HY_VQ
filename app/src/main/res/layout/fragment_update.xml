@@ -334,6 +334,14 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
 
+        <!-- ══════════ ⑦ 更新提醒（原设置页「通知管理」并入） ══════════ -->
+        <LinearLayout
+            android:id="@+id/box_upd_notify"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="vertical" />
+
         <!-- ══════════ ⑦ 说明 ══════════ -->
         <TextView
             android:id="@+id/tv_upd_help"

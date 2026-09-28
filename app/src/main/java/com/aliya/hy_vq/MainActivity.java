@@ -82,8 +82,6 @@ import com.aliya.hy_vq.module.ModuleRegistry;
 import com.aliya.hy_vq.module.ModuleServices;
 import com.aliya.hy_vq.module.impl.FileManagerModule;
 import com.aliya.hy_vq.module.ModuleUiKit;
-import com.aliya.hy_vq.terracotta.HyVqP2pBridge;
-import com.aliya.hy_vq.terracotta.TerracottaUiController;
 import com.aliya.hy_vq.update.HyVqAppEntry;
 import androidx.core.content.FileProvider;
 import com.aliya.hy_vq.update.UpdateManager;
@@ -98,7 +96,6 @@ import com.aliya.hy_vq.module.HyVqTheme;
 
 public class MainActivity extends AppCompatActivity {
     private static final int REQ_PICK_AVATAR = 1001;
-    private static final int REQ_INSTALL_MODULE = 1002;
     private static final int REQ_NOTIFICATION = 1003;
     private static final int REQ_SAF_MOUNT = 1005;
 
@@ -132,7 +129,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String OPEN_SOURCE_URL = "https://github.com/haoyou781013/HY_VQ";
     private static final int PAGE_SETTINGS = 3;
     private static final int PAGE_ACCOUNT = 4;
-    private static final int PAGE_MODULE_SETTINGS = 6;
     private static final int PAGE_PERMISSIONS = 7;
     /** 实用软件分享（v2.9.1 内嵌页） */
     private static final int PAGE_SHARE = 9;
@@ -145,7 +141,7 @@ public class MainActivity extends AppCompatActivity {
     private ActivityMainBinding binding;
     private ActionBarDrawerToggle toggle;
 
-    private View homeView, settingsView, accountView, moduleSettingsView, permissionsView, aboutView, updateView;
+    private View homeView, settingsView, accountView, permissionsView, aboutView, updateView;
     private ViewGroup contentFrame;
     private SharedPreferences prefs;
     private SignatureManager signatureManager;
@@ -179,7 +175,6 @@ public class MainActivity extends AppCompatActivity {
     private Dialog dialogAwaitingResult = null;
 
     // ── 房间联机（局域网 P2P 直连：UDP 组播发现 + TCP 直连，纯 Java Socket，无账号体系）──
-    private TerracottaUiController terracottaUi;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -215,7 +210,6 @@ public class MainActivity extends AppCompatActivity {
         setupDrawer();
         setupDrawerNavigation();
         // 房间联机开关：按设置显示/隐藏抽屉入口
-        applyTerracottaFeature();
         setupBackNavigation();
         initModuleSystem();
         // 增量更新引擎：启动兜底清理 + 加载更新包入口（幂等）
@@ -454,7 +448,6 @@ public class MainActivity extends AppCompatActivity {
         // ── 致谢：主列表常显，完整列表默认折叠 ──
         final String[] MAIN_CREDITS = {
                 "Material Files —— 目录滚动位置记忆、双窗格交互的设计思路",
-                "Terracotta —— 局域网 P2P 直连运行库",
                 "Material Components for Android —— Material 3 组件与主题体系",
                 "AndroidX —— 基础支持库",
                 "呜哇小站 emoji.wuwa.games —— 免费提供鸣潮表情包 API（本应用已主动限流）",
@@ -761,7 +754,7 @@ public class MainActivity extends AppCompatActivity {
         currentModuleId = null;      // 非模块：不参与模块选中态
         switchContent(v, PAGE_FILEMGR);
         resetToolbar();
-        binding.toolbarTitle.setText("文件管理");
+        binding.toolbarTitle.setText("文件管理 BETA");
         updateDrawerSelection();
     }
 
@@ -794,7 +787,7 @@ public class MainActivity extends AppCompatActivity {
         }
         switchContent(shareAppsView.getRoot(), PAGE_SHARE);
         resetToolbar();
-        binding.toolbarTitle.setText("实用软件分享");
+        binding.toolbarTitle.setText("实用软件分享 BETA");
         updateDrawerSelection();
     }
 
@@ -822,305 +815,7 @@ public class MainActivity extends AppCompatActivity {
         super.onBackPressed();
     }
 
-    private void switchToModuleSettings() {
-        if (moduleSettingsView == null) {
-            moduleSettingsView = LayoutInflater.from(this).inflate(R.layout.fragment_module_settings, contentFrame, false);
-            setupModuleSettingsView();
-        }
-        switchContent(moduleSettingsView, PAGE_MODULE_SETTINGS);
-        setSubpageToolbar("模块设置");
-        refreshModuleList();
-    }
-
-    private RecyclerView recyclerModules;
-    private TextView tvModuleCount, tvEmptyHint;
-
-    private void setupModuleSettingsView() {
-        if (moduleSettingsView == null) return;
-        moduleSettingsView.findViewById(R.id.btn_install_module).setOnClickListener(v -> {
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.setType("application/zip");
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            startActivityForResult(intent, REQ_INSTALL_MODULE);
-        });
-
-        recyclerModules = moduleSettingsView.findViewById(R.id.recycler_modules);
-        tvModuleCount = moduleSettingsView.findViewById(R.id.tv_module_count);
-        tvEmptyHint = moduleSettingsView.findViewById(R.id.tv_empty_hint);
-        recyclerModules.setLayoutManager(new LinearLayoutManager(this));
-        refreshModuleList();
-    }
-
-    private void refreshModuleList() {
-        if (recyclerModules == null) return;
-        Map<String, HyVqModule> all = moduleRegistry.getAllModules();
-        List<HyVqModule> list = new ArrayList<>(all.values());
-        recyclerModules.setAdapter(new ModuleAdapter(list));
-        int count = list.size();
-        tvModuleCount.setText(count + " 个");
-        tvEmptyHint.setVisibility(count == 0 ? View.VISIBLE : View.GONE);
-    }
-
-    private class ModuleAdapter extends RecyclerView.Adapter<ModuleAdapter.VH> {
-        private final List<HyVqModule> data;
-        ModuleAdapter(List<HyVqModule> data) { this.data = data; }
-
-        @NonNull @Override
-        public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_module_card, parent, false);
-            return new VH(v);
-        }
-        @Override
-        public void onBindViewHolder(@NonNull VH h, int pos) {
-            HyVqModule m = data.get(pos);
-            h.name.setText(m.name);
-            h.summary.setText(m.getSummary());
-            h.badge.setVisibility(m.isBuiltIn ? View.VISIBLE : View.GONE);
-            h.btnUninstall.setVisibility(View.VISIBLE); // 内置也可卸载(需确认)
-            // 启用开关：初始状态不触发监听，避免误写持久化
-            h.switchEnable.setOnCheckedChangeListener(null);
-            h.switchEnable.setChecked(m.enabled);
-            h.switchEnable.setOnCheckedChangeListener((btn, checked) -> {
-                m.enabled = checked;
-                if (checked) moduleRegistry.enable(m.id);
-                else moduleRegistry.disable(m.id);
-                // 持久化启用状态（内置模块同样记录，重启后恢复）
-                prefs.edit().putBoolean("module_enabled_" + m.id, checked).apply();
-                refreshModuleList();
-                rebuildDrawerModuleSlot();
-                Toast.makeText(MainActivity.this,
-                        (checked ? "已启用 " : "已禁用 ") + m.name, Toast.LENGTH_SHORT).show();
-            });
-            h.btnUninstall.setOnClickListener(v -> {
-                // 内置也可卸载;卸载流程清理全部残余(记录/prefs/模块目录)
-                removeModuleRecord(m.id);
-                getSharedPreferences("module_" + m.id, MODE_PRIVATE).edit().clear().apply();
-                getSharedPreferences("module_enabled_" + m.id, MODE_PRIVATE).edit().clear().apply();
-                deleteRecursive(new File(getDir("modules", MODE_PRIVATE), m.id));
-                moduleRegistry.uninstall(m.id);
-                refreshModuleList();
-                rebuildDrawerModuleSlot();
-                Toast.makeText(MainActivity.this, "已卸载 " + m.name, Toast.LENGTH_SHORT).show();
-            });
-        }
-        @Override public int getItemCount() { return data.size(); }
-
-        class VH extends RecyclerView.ViewHolder {
-            TextView name, summary;
-            View badge, btnUninstall;
-            com.google.android.material.switchmaterial.SwitchMaterial switchEnable;
-            VH(View v) {
-                super(v);
-                name = v.findViewById(R.id.item_name);
-                summary = v.findViewById(R.id.item_summary);
-                badge = v.findViewById(R.id.tv_builtin_badge);
-                btnUninstall = v.findViewById(R.id.btn_uninstall);
-                switchEnable = v.findViewById(R.id.switch_enable);
-            }
-        }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQ_SAF_MOUNT && resultCode == RESULT_OK && data != null && data.getData() != null) {
-            // 文件管理器"挂载"：持久化 SAF 授权（MT 管理器同款"允许访问"），并通知模块刷新侧边栏
-            // 关键（AOSP 硬性限制，真机证实 2026-08-16）：takePersistableUriPermission 只接受
-            // READ|WRITE 两个标志！带 FLAG_GRANT_PREFIX_URI_PERMISSION(0x40) 必抛
-            // IllegalArgumentException（ActivityManagerService 源码检查
-            // "Can only take persistable grants for read or write permission"）。
-            // 授权 intent 里的 PREFIX 是临时 grant 标志（覆盖整棵子树的运行时权限），不能持久化；
-            // 持久化的 tree grant 本身就是整棵子树授权（DocumentsProvider 按 tree 模型检查，
-            // 子 document 天然覆盖，不依赖 PREFIX）。此前"缺 PREFIX 子目录被拒"实为误判：
-            // 真实原因是带 PREFIX 持久化必失败 → 异常被静默吞掉 → 整个授权未持久化。
-            try {
-                int flags = data.getFlags()
-                        & (Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-                getContentResolver().takePersistableUriPermission(data.getData(), flags);
-                Toast.makeText(this, "授权已持久化，目录已挂载", Toast.LENGTH_SHORT).show();
-            } catch (Throwable t) {
-                Toast.makeText(this, "授权持久化失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
-            }
-            FileManagerModule.onSafGrantedStatic();
-        } else if (requestCode == REQ_PICK_AVATAR && resultCode == RESULT_OK && data != null && data.getData() != null) {
-            saveAvatar(data.getData());
-            dialogAwaitingResult = null;   // 弹窗仍存活，解除保护标记
-        } else if (requestCode == REQ_INSTALL_MODULE && resultCode == RESULT_OK && data != null && data.getData() != null) {
-            installModuleFromUri(data.getData());
-        }
-        // 用户取消选择时也要解除标记，否则该弹窗会永久不受 onStop 保护
-        if (requestCode == REQ_PICK_AVATAR && resultCode != RESULT_OK) {
-            dialogAwaitingResult = null;
-        }
-    }
-
-    // ==================== 房间联机（局域网 P2P 直连，FCL 式房间号连接）====================
-
-    /** 房间联机开关：按设置控制抽屉入口显隐（默认关闭：网络服务器暂时搁置） */
-    private void applyTerracottaFeature() {
-        if (binding == null) return;
-        boolean enabled = prefs.getBoolean("feature_terracotta_enabled", false);
-        View tcBtn = binding.navView.findViewById(R.id.nav_terracotta);
-        if (tcBtn != null) tcBtn.setVisibility(enabled ? View.VISIBLE : View.GONE);
-    }
-
-    /** 打开房间联机入口：标准 P2P 流程——直接打开对话框（房间号开房/加入），
-     *  局域网 UDP 组播发现 + TCP 直连，纯 Java Socket，无需 VPN/任何系统 API */
-    private void showTerracotta() {
-        if (!prefs.getBoolean("feature_terracotta_enabled", false)) return;
-        openTerracottaDialog();
-    }
-
-    /** 真正打开房间联机对话框（状态机驱动：等待→进度→成功/异常） */
-    private void openTerracottaDialog() {
-        if (terracottaUi == null) {
-            terracottaUi = new TerracottaUiController(this,
-                    signatureManager != null ? signatureManager.getUsername() : null);
-        }
-        terracottaUi.show();
-    }
-
-    private void installModuleFromUri(Uri uri) {
-        File tempDir = new File(getFilesDir(), "temp_module");
-        if (tempDir.exists()) deleteRecursive(tempDir);
-        tempDir.mkdirs();
-
-        // 解压 zip 到临时目录
-        try (InputStream is = getContentResolver().openInputStream(uri);
-             ZipInputStream zis = new ZipInputStream(is)) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                if (entry.isDirectory()) continue;
-                File outFile = new File(tempDir, entry.getName());
-                outFile.getParentFile().mkdirs();
-                try (FileOutputStream fos = new FileOutputStream(outFile)) {
-                    byte[] buf = new byte[8192];
-                    int len;
-                    while ((len = zis.read(buf)) > 0) {
-                        fos.write(buf, 0, len);
-                    }
-                }
-                zis.closeEntry();
-            }
-        } catch (Exception e) {
-            Toast.makeText(this, "解压失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        // 读取 module.json
-        File jsonFile = new File(tempDir, "module.json");
-        if (!jsonFile.exists()) {
-            Toast.makeText(this, "模块包中未找到 module.json", Toast.LENGTH_LONG).show();
-            return;
-        }
-        String moduleId, moduleName, mainClass;
-        boolean showInDrawer = true;
-        try (java.io.FileInputStream fis = new java.io.FileInputStream(jsonFile)) {
-            byte[] jsonBytes = new byte[(int) jsonFile.length()];
-            int off = 0;
-            while (off < jsonBytes.length) {   // read 不保证一次读满，需循环
-                int n = fis.read(jsonBytes, off, jsonBytes.length - off);
-                if (n < 0) throw new java.io.IOException("文件提前结束");
-                off += n;
-            }
-            String jsonStr = new String(jsonBytes, "UTF-8");
-            JSONObject json = new JSONObject(jsonStr);
-            moduleId = json.optString("id", "");
-            moduleName = json.optString("name", "未知模块");
-            mainClass = json.optString("mainClass", "");
-            showInDrawer = json.optBoolean("showInDrawer", true);
-            if (moduleId.isEmpty() || mainClass.isEmpty()) {
-                Toast.makeText(this, "module.json 中 id/mainClass 不能为空", Toast.LENGTH_LONG).show();
-                return;
-            }
-        } catch (Exception e) {
-            Toast.makeText(this, "读取 module.json 失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        // 检查是否已安装
-        if (moduleRegistry.get(moduleId) != null) {
-            Toast.makeText(this, "模块 " + moduleId + " 已安装", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        // 安装到永久目录
-        File installDir = new File(getDir("modules", MODE_PRIVATE), moduleId);
-        if (installDir.exists()) deleteRecursive(installDir);
-        installDir.mkdirs();
-        File[] tempFiles = tempDir.listFiles();
-        if (tempFiles != null) for (File f : tempFiles) {
-            f.renameTo(new File(installDir, f.getName()));
-        }
-
-        // 用 DexClassLoader 加载模块
-        File dexFile = new File(installDir, "classes.dex");
-        if (!dexFile.exists()) {
-            Toast.makeText(this, "未找到 classes.dex", Toast.LENGTH_LONG).show();
-            return;
-        }
-        try {
-            DexClassLoader loader = new DexClassLoader(
-                dexFile.getAbsolutePath(),
-                getDir("dexopt", MODE_PRIVATE).getAbsolutePath(),
-                null,
-                getClassLoader()
-            );
-            Class<?> clz = loader.loadClass(mainClass);
-            HyVqModule module = (HyVqModule) clz.newInstance();
-            module.id = moduleId;
-            module.name = moduleName;
-            module.showInDrawer = showInDrawer;
-            module.onAttach(this, moduleServices);
-            moduleRegistry.install(module);
-            saveModuleRecord(moduleId, moduleName, mainClass, showInDrawer, installDir.getAbsolutePath());
-            refreshModuleList();
-            rebuildDrawerModuleSlot();
-            Toast.makeText(this, "模块 " + moduleName + " 安装成功", Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            Toast.makeText(this, "加载模块失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
-    }
-
-    // ── 模块持久化 ──
-
-    private void saveModuleRecord(String id, String name, String mainClass, boolean showInDrawer, String installPath) {
-        try {
-            JSONArray arr = getModuleRecords();
-            // 去重
-            for (int i = arr.length() - 1; i >= 0; i--) {
-                if (arr.getJSONObject(i).optString("id", "").equals(id)) {
-                    arr.remove(i);
-                }
-            }
-            JSONObject obj = new JSONObject();
-            obj.put("id", id);
-            obj.put("name", name);
-            obj.put("mainClass", mainClass);
-            obj.put("showInDrawer", showInDrawer);
-            obj.put("installPath", installPath);
-            arr.put(obj);
-            prefs.edit().putString("installed_modules", arr.toString()).apply();
-        } catch (JSONException e) {
-            Log.w("HyVqMain", "保存模块记录失败", e);
-        }
-    }
-
-    private void removeModuleRecord(String id) {
-        try {
-            JSONArray arr = getModuleRecords();
-            for (int i = arr.length() - 1; i >= 0; i--) {
-                if (arr.getJSONObject(i).optString("id", "").equals(id)) {
-                    arr.remove(i);
-                }
-            }
-            prefs.edit().putString("installed_modules", arr.toString()).apply();
-        } catch (JSONException e) {
-            Log.w("HyVqMain", "移除模块记录失败", e);
-        }
-    }
-
+    /** 读取已安装模块记录（loadInstalledModules 用；模块管理 UI 已移除但框架保留） */
     private JSONArray getModuleRecords() {
         String raw = prefs.getString("installed_modules", "[]");
         try {
@@ -1209,10 +904,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         super.onStop();
-        // 关闭联机对话框，防止窗口泄漏（重新打开会由状态机恢复视图）
-        if (terracottaUi != null && terracottaUi.isShowing()) {
-            terracottaUi.dismiss();
-        }
         // 销毁时关闭所有活跃 Dialog，防止窗口泄漏
         // ⭐ 例外：正在等待 onActivityResult 的弹窗（如编辑资料里选头像）必须存活，
         //    否则系统图片选择器一遮挡就会触发 onStop 把弹窗清掉，
@@ -1233,8 +924,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // P2P 联机会话彻底收尾：断开连接 + 释放组播锁（防止退出后后台线程存活）
-        HyVqP2pBridge.stop();
         handler.removeCallbacksAndMessages(null);
         if (contentFrame != null) {
             for (int i = 0; i < contentFrame.getChildCount(); i++) {
@@ -1251,7 +940,6 @@ public class MainActivity extends AppCompatActivity {
         accountView = null;
         aboutView = null;
         updateView = null;
-        moduleSettingsView = null;
         permissionsView = null;
         hideHintRunnable = null;
         if (themeOverlay != null) {
@@ -1336,10 +1024,6 @@ public class MainActivity extends AppCompatActivity {
             return true;
         }
         if (updateView != null && updateView.getParent() != null) {
-            switchToSettings();
-            return true;
-        }
-        if (moduleSettingsView != null && moduleSettingsView.getParent() != null) {
             switchToSettings();
             return true;
         }
@@ -1464,27 +1148,11 @@ public class MainActivity extends AppCompatActivity {
                 binding.drawerLayout.postDelayed(this::switchToGacha, 160);
             });
         }
-        // 房间联机（局域网直连固定入口）
-        View tcBtn = binding.navView.findViewById(R.id.nav_terracotta);
-        if (tcBtn != null) {
-            tcBtn.setOnClickListener(v -> {
-                binding.drawerLayout.closeDrawers();
-                binding.drawerLayout.postDelayed(this::showTerracotta, 160);
-            });
-        }
         // 设置（底部按钮）
         binding.navView.findViewById(R.id.nav_settings).setOnClickListener(v -> {
             binding.drawerLayout.closeDrawers();
             binding.drawerLayout.postDelayed(this::switchToSettings, 160);
         });
-        // 模块设置（底部按钮）
-        View moduleSettingsBtn = binding.navView.findViewById(R.id.nav_module_settings);
-        if (moduleSettingsBtn != null) {
-            moduleSettingsBtn.setOnClickListener(v -> {
-                binding.drawerLayout.closeDrawers();
-                binding.drawerLayout.postDelayed(this::switchToModuleSettings, 160);
-            });
-        }
     }
 
     // ==================== Avatar ====================
@@ -1779,11 +1447,6 @@ public class MainActivity extends AppCompatActivity {
             String currentDefault = prefs.getString("default_page", "home");
             tvDefault.setText("home".equals(currentDefault) ? "首页" : "聊天");
         }
-        // 模块数量可能在设置页存活期间因安装/卸载而变化，进入时同步刷新
-        TextView tvModuleCountSetting = settingsView.findViewById(R.id.tv_module_count_setting);
-        if (tvModuleCountSetting != null) {
-            tvModuleCountSetting.setText(moduleRegistry.getAllModules().size() + "个");
-        }
         // 软件更新状态行（更新包版本随时可能变化，进入时刷新）
         updateUpdateStateLabel();
         switchContent(settingsView, PAGE_SETTINGS);
@@ -1808,44 +1471,14 @@ public class MainActivity extends AppCompatActivity {
         View itemAbout = settingsView.findViewById(R.id.item_about);
         if (itemAbout != null) itemAbout.setOnClickListener(v -> switchToAbout());
         refreshStorageLabel();
-        refreshNotificationLabel();
         TextView tvAboutLabel = settingsView.findViewById(R.id.tv_about_label);
         if (tvAboutLabel != null) tvAboutLabel.setText("v" + baseVersionName());
         settingsView.findViewById(R.id.item_storage).setOnClickListener(v -> showStorageManagerDialog());
-        // 模块设置入口
-        View itemModule = settingsView.findViewById(R.id.item_module);
-        if (itemModule != null) itemModule.setOnClickListener(v -> switchToModuleSettings());
-        // 更新设置页模块计数
-        TextView tvModuleCountSetting = settingsView.findViewById(R.id.tv_module_count_setting);
-        if (tvModuleCountSetting != null) {
-            tvModuleCountSetting.setText(moduleRegistry.getAllModules().size() + "个");
-        }
-        settingsView.findViewById(R.id.item_notification).setOnClickListener(v -> showNotificationSettingsDialog());
         // 权限管理入口（检查各项权限申请情况）
         settingsView.findViewById(R.id.item_permission).setOnClickListener(v -> switchToPermissions());
         // 软件更新入口（增量更新包导入中心）
         View itemUpdate = settingsView.findViewById(R.id.item_update);
         if (itemUpdate != null) itemUpdate.setOnClickListener(v -> switchToUpdate());
-        // 房间联机功能开关（紧凑行：整行可点切换；关闭时隐藏抽屉入口并关闭对话框）
-        View itemTc = settingsView.findViewById(R.id.item_terracotta);
-        com.google.android.material.switchmaterial.SwitchMaterial swTc =
-                settingsView.findViewById(R.id.switch_terracotta);
-        TextView tvTcState = settingsView.findViewById(R.id.tv_terracotta_state);
-        if (itemTc != null && swTc != null) {
-            boolean tcOn = prefs.getBoolean("feature_terracotta_enabled", false);
-            swTc.setOnCheckedChangeListener(null);
-            swTc.setChecked(tcOn);
-            if (tvTcState != null) tvTcState.setText(tcOn ? "开启" : "关闭");
-            swTc.setOnCheckedChangeListener((btn, checked) -> {
-                prefs.edit().putBoolean("feature_terracotta_enabled", checked).apply();
-                if (tvTcState != null) tvTcState.setText(checked ? "开启" : "关闭");
-                applyTerracottaFeature();
-                if (!checked && terracottaUi != null && terracottaUi.isShowing()) {
-                    terracottaUi.dismiss();
-                }
-            });
-            itemTc.setOnClickListener(v -> swTc.setChecked(!swTc.isChecked()));
-        }
         settingsView.findViewById(R.id.item_logout).setOnClickListener(v -> {
             // 仅清除会话标记，保留身份数据（uid/uuid），重新登录可恢复原身份
             signatureManager.clearSession();
@@ -2038,6 +1671,15 @@ public class MainActivity extends AppCompatActivity {
                             ? "打开应用时在后台静默检查，发现新版本会提示"
                             : "已关闭，需手动点击「检查更新」");
                 }
+        // 更新提醒（原设置页「通知管理」并入此处，避免职责重叠）
+        LinearLayout boxNotify = updateView.findViewById(R.id.box_upd_notify);
+        if (boxNotify != null) {
+            boxNotify.removeAllViews();
+            addNotifySwitch(boxNotify, PREF_NOTIFY_NEW_VERSION, true,
+                    "发现新版本时提示", "检查到新版本后弹窗询问是否更新");
+            addNotifySwitch(boxNotify, PREF_NOTIFY_DOWNLOAD_DONE, true,
+                    "下载完成时提示", "更新包下载并校验完成后提醒");
+        }
             });
         }
         TextView help = updateView.findViewById(R.id.tv_upd_help);
@@ -2705,43 +2347,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREF_NOTIFY_NEW_VERSION = "notify_new_version";
     private static final String PREF_NOTIFY_DOWNLOAD_DONE = "notify_download_done";
 
-    private void refreshNotificationLabel() {
-        if (settingsView == null) return;
-        TextView tv = settingsView.findViewById(R.id.tv_notification_state);
-        if (tv == null) return;
-        boolean a = prefs.getBoolean(PREF_NOTIFY_NEW_VERSION, true);
-        boolean b = prefs.getBoolean(PREF_NOTIFY_DOWNLOAD_DONE, true);
-        boolean c = prefs.getBoolean(PREF_AUTO_CHECK_UPDATE, true);
-        int on = (a ? 1 : 0) + (b ? 1 : 0) + (c ? 1 : 0);
-        tv.setText(on == 3 ? "全部开启" : (on == 0 ? "全部关闭" : on + " 项开启"));
-    }
 
     /** 通知管理：更新相关提醒的开关 */
-    private void showNotificationSettingsDialog() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.addView(ModuleUiKit.sectionHeader(this, "🔔 通知管理"));
-
-        addNotifySwitch(box, PREF_AUTO_CHECK_UPDATE, true,
-                "启动时检查更新", "进入软件后立即静默检查新版本");
-        addNotifySwitch(box, PREF_NOTIFY_NEW_VERSION, true,
-                "发现新版本时提示", "检查到新版本后弹窗询问是否更新");
-        addNotifySwitch(box, PREF_NOTIFY_DOWNLOAD_DONE, true,
-                "下载完成时提示", "更新包下载并校验完成后提醒");
-
-        LinearLayout btns = new LinearLayout(this);
-        btns.setOrientation(LinearLayout.HORIZONTAL);
-        btns.setGravity(Gravity.END);
-        box.addView(btns);
-        android.app.Dialog d = ModuleUiKit.glassDialog(this, box);
-        btns.addView(updateTextButton("完成", v -> {
-            d.dismiss();
-            refreshNotificationLabel();
-            refreshUpdateViewIfVisible();
-        }));
-        d.show();
-    }
-
     private void addNotifySwitch(LinearLayout parent, final String key, boolean def,
                                  String title, String desc) {
         LinearLayout row = new LinearLayout(this);
@@ -3126,10 +2733,10 @@ public class MainActivity extends AppCompatActivity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.addView(ModuleUiKit.sectionHeader(this, "默认启动页"));
 
-        String[] items = {"首页", "聊天"};
-        String[] values = {"home", "chat"};
-        int[] icons = {R.drawable.ic_home, R.drawable.ic_chat};
-        int selectedIdx = "chat".equals(current) ? 1 : 0;
+        String[] items = {"首页"};
+        String[] values = {"home"};
+        int[] icons = {R.drawable.ic_home};
+        int selectedIdx = 0;
 
         // 横向双卡片，16:9 比例（宽=高*16/9）
         LinearLayout cardsRow = new LinearLayout(this);
@@ -3241,25 +2848,6 @@ public class MainActivity extends AppCompatActivity {
     private void setupAccountView() {
         // 账号签名管理
         accountView.findViewById(R.id.item_signature).setOnClickListener(v -> showSignatureDialog());
-        // 连接分组：房间联机开关（与设置页同一 prefs key）
-        View tcRow = accountView.findViewById(R.id.item_account_terracotta);
-        com.google.android.material.switchmaterial.SwitchMaterial swAc =
-                accountView.findViewById(R.id.switch_account_terracotta);
-        TextView tvAcState = accountView.findViewById(R.id.tv_account_tc_state);
-        if (tcRow != null && swAc != null) {
-            boolean tcOn = prefs.getBoolean("feature_terracotta_enabled", false);
-            swAc.setChecked(tcOn);
-            if (tvAcState != null) tvAcState.setText(tcOn ? "开启" : "关闭");
-            swAc.setOnCheckedChangeListener((btn, checked) -> {
-                prefs.edit().putBoolean("feature_terracotta_enabled", checked).apply();
-                if (tvAcState != null) tvAcState.setText(checked ? "开启" : "关闭");
-                applyTerracottaFeature();
-                if (!checked && terracottaUi != null && terracottaUi.isShowing()) {
-                    terracottaUi.dismiss();
-                }
-            });
-            tcRow.setOnClickListener(v -> swAc.setChecked(!swAc.isChecked()));
-        }
     }
 
     // 屏幕宽度缓存（用于动画，避免 getWidth() 首次返回 0）

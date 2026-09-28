@@ -56,38 +56,6 @@
             android:layout_marginStart="16dp"
             android:layout_marginBottom="4dp" />
 
-        <!-- 房间联机（局域网 P2P 直连开关） -->
-        <LinearLayout
-            android:id="@+id/item_account_terracotta"
-            android:visibility="gone"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="?attr/selectableItemBackground"
-            android:gravity="center_vertical"
-            android:paddingVertical="10dp"
-            android:paddingHorizontal="16dp">
 
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="房间联机"
-                android:textAppearance="?attr/textAppearanceBodyMedium"
-                android:textColor="?attr/colorOnSurface" />
-
-            <TextView
-                android:id="@+id/tv_account_tc_state"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="开启"
-                android:textAppearance="?attr/textAppearanceBodySmall"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:layout_marginEnd="6dp" />
-
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/switch_account_terracotta"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
-        </LinearLayout>
     </LinearLayout>
 </ScrollView>

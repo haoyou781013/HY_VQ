@@ -157,6 +157,19 @@
                         android:text="文件管理"
                         android:textAppearance="?attr/textAppearanceBodyLarge"
                         android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <!-- BETA 标记：功能尚未完善 -->
+                    <TextView
+                        android:id="@+id/nav_filemgr_beta"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/bg_beta_badge"
+                        android:paddingHorizontal="6dp"
+                        android:paddingVertical="1dp"
+                        android:text="BETA"
+                        android:textAppearance="?attr/textAppearanceLabelSmall"
+                        android:textColor="?attr/colorOnTertiaryContainer" />
                 </LinearLayout>
 
                 <!-- 抽卡分析（原神祈愿记录；粘贴抽卡链接按 uid 融合统计） -->
@@ -266,42 +279,25 @@
                         android:text="实用软件分享"
                         android:textAppearance="?attr/textAppearanceBodyLarge"
                         android:textColor="?attr/colorOnSurfaceVariant" />
-                </LinearLayout>
 
-
-
-
-                <!-- 房间联机（固定入口：局域网 P2P 直连，无账号体系） -->
-                <LinearLayout
-                    android:id="@+id/nav_terracotta"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="16dp"
-                    android:layout_marginBottom="4dp"
-                    android:background="@drawable/bg_nav_item_default"
-                    android:clickable="true"
-                    android:focusable="true">
-
-                    <ImageView
-                        android:id="@+id/nav_terracotta_icon"
-                        android:layout_width="22dp"
-                        android:layout_height="22dp"
-                        android:src="@drawable/ic_chat"
-                        android:contentDescription="房间联机"
-                        android:tint="?attr/colorOnSurfaceVariant" />
-
+                    <!-- BETA 标记：功能尚未完善 -->
                     <TextView
-                        android:id="@+id/nav_terracotta_text"
+                        android:id="@+id/nav_share_beta"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="14dp"
-                        android:text="房间联机"
-                        android:textAppearance="?attr/textAppearanceBodyLarge"
-                        android:textColor="?attr/colorOnSurfaceVariant" />
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/bg_beta_badge"
+                        android:paddingHorizontal="6dp"
+                        android:paddingVertical="1dp"
+                        android:text="BETA"
+                        android:textAppearance="?attr/textAppearanceLabelSmall"
+                        android:textColor="?attr/colorOnTertiaryContainer" />
                 </LinearLayout>
+
+
+
+
+
 
                 <!-- 模块动态插入区（由 ModuleRegistry 在 Java 端动态填充） -->
                 <LinearLayout
@@ -334,37 +330,7 @@
                 android:layout_marginBottom="12dp"
                 android:gravity="center">
 
-                <!-- 模块设置 -->
-                <LinearLayout
-                    android:id="@+id/nav_module_settings"
-                    android:visibility="gone"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="6dp"
-                    android:gravity="center"
-                    android:orientation="horizontal"
-                    android:background="@drawable/bg_nav_item_default"
-                    android:clickable="true"
-                    android:focusable="true">
-
-                    <ImageView
-                        android:id="@+id/nav_module_settings_icon"
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_chat"
-                        android:contentDescription="模块"
-                        android:tint="?attr/colorOnSurfaceVariant" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="6dp"
-                        android:text="模块"
-                        android:textAppearance="?attr/textAppearanceLabelMedium"
-                        android:textColor="?attr/colorOnSurfaceVariant" />
-                </LinearLayout>
-
+                
                 <!-- 通用设置 -->
                 <LinearLayout
                     android:id="@+id/nav_settings"
