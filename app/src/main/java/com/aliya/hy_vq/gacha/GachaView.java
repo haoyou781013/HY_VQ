@@ -64,12 +64,46 @@ public class GachaView extends LinearLayout {
         sv.addView(root);
 
         // ── 标题 ──
+        // 标题行：标题 + BETA 徽章
+        LinearLayout titleRow = new LinearLayout(ctx);
+        titleRow.setOrientation(HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+
         TextView title = new TextView(ctx);
         title.setText("祈愿分析");
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
-        root.addView(title);
+        titleRow.addView(title);
+
+        TextView beta = new TextView(ctx);
+        beta.setText("BETA");
+        beta.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        beta.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        beta.setTextColor(color(com.google.android.material.R.attr.colorOnTertiaryContainer));
+        beta.setBackground(ModuleUiKit.rounded(ctx, 6,
+                color(com.google.android.material.R.attr.colorTertiaryContainer), 0));
+        beta.setPadding(dp(7), dp(2), dp(7), dp(2));
+        LinearLayout.LayoutParams betaLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        betaLp.leftMargin = dp(8);
+        titleRow.addView(beta, betaLp);
+        root.addView(titleRow);
+
+        // 未完善提示条
+        TextView betaNote = new TextView(ctx);
+        betaNote.setText("⚠️ 本功能仍在完善中：卡池分类与保底规则可能随官方调整而变化，"
+                + "统计结果仅供参考。如发现异常请在仓库反馈。");
+        betaNote.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        betaNote.setTextColor(color(com.google.android.material.R.attr.colorOnTertiaryContainer));
+        betaNote.setBackground(ModuleUiKit.rounded(ctx, 8,
+                color(com.google.android.material.R.attr.colorTertiaryContainer), 0));
+        betaNote.setLineSpacing(dp(2), 1.25f);
+        betaNote.setPadding(dp(10), dp(8), dp(10), dp(8));
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nlp.topMargin = dp(10);
+        root.addView(betaNote, nlp);
 
         TextView sub = new TextView(ctx);
         sub.setText("粘贴抽卡链接即可统计。同一 uid 多次导入会自动融合去重；"

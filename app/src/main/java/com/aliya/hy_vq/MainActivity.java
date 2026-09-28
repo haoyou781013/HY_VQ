@@ -778,7 +778,7 @@ public class MainActivity extends AppCompatActivity {
         currentModuleId = null;      // 非模块：不参与模块选中态
         switchContent(gachaView, PAGE_GACHA);
         resetToolbar();
-        binding.toolbarTitle.setText("抽卡分析");
+        binding.toolbarTitle.setText("抽卡分析 BETA");
         updateDrawerSelection();
     }
 

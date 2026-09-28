@@ -189,6 +189,19 @@
                         android:text="抽卡分析"
                         android:textAppearance="?attr/textAppearanceBodyLarge"
                         android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <!-- BETA 标记：功能尚未完善 -->
+                    <TextView
+                        android:id="@+id/nav_gacha_beta"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/bg_beta_badge"
+                        android:paddingHorizontal="6dp"
+                        android:paddingVertical="1dp"
+                        android:text="BETA"
+                        android:textAppearance="?attr/textAppearanceLabelSmall"
+                        android:textColor="?attr/colorOnTertiaryContainer" />
                 </LinearLayout>
 
                 <!-- 鸣潮表情包（数据来源：呜哇小站 emoji.wuwa.games） -->

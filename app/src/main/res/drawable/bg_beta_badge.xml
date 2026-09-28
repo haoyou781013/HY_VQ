@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BETA 徽章：用第三色容器，与「最新/内置」等主色徽章区分开 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="6dp" />
+    <solid android:color="?attr/colorTertiaryContainer" />
+</shape>
