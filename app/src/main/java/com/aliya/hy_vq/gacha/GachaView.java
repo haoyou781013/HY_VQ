@@ -357,11 +357,13 @@ public class GachaView extends LinearLayout {
             final String fErr = lastError;
             final List<String> uids = new ArrayList<>(touchedUids);
             runOnUi(() -> {
+                boolean anyOk = fAdded > 0 || fSkipped > 0;
                 StringBuilder sb = new StringBuilder();
-                sb.append("✅ 导入完成：新增 ").append(fAdded).append(" 条");
+                sb.append(anyOk ? "✅ " : "❌ ");
+                sb.append("导入完成：新增 ").append(fAdded).append(" 条");
                 if (fSkipped > 0) sb.append("，跳过重复 ").append(fSkipped).append(" 条");
                 if (fFail > 0) sb.append("，失败 ").append(fFail).append(" 条凭证");
-                if (fErr != null) sb.append("\n⚠️ ").append(fErr);
+                if (fErr != null) sb.append("\n").append(anyOk ? "⚠️ " : "❌ ").append(fErr);
                 setStatus(sb.toString());
                 input.setText("");
                 refreshUidList();
