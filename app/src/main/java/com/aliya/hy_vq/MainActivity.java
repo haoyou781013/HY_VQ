@@ -1494,9 +1494,12 @@ public class MainActivity extends AppCompatActivity {
             "https://ghproxy.net/",
     };
     /** 只读账密（与发布端使用的读写账密是同一账号的不同密码） */
+    // ⭐ 这里刻意使用**只读**凭据：客户端只需要下载更新包，不需要写入。
+    // 即使该密码泄露，攻击者也无法篡改国内源的 APK（写操作返回 403）。
+    // 发布脚本用的是另一套读写凭据，两者互不通用。
     // 注：网盘密码变更后此处需同步更新；客户端另有 CredentialStore 持久化，
-    // 更新后以 prefs 中的值为准（见 CredentialStore.load 的优先顺序）
-    private static final String CN_CRED_SEED = "15823710155:8p28caaf";
+    // 若持久化的是旧值，openRemote 的 401 分支会自动清除并回退到本常量。
+    private static final String CN_CRED_SEED = "15823710155:9l0czjgi";
 
     /** 版本列表来源：GitHub Releases API —— 一次请求拿到全部版本，
      *  每个版本自带<b>精确</b>下载直链（browser_download_url）。
