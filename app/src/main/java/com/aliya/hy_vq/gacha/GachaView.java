@@ -476,26 +476,34 @@ public class GachaView extends LinearLayout {
     }
 
     /** 「自动获取」入口：按 Shizuku 状态分流 */
+    /**
+     * 「自动获取」入口。
+     *
+     * <p>⚠️ 全流程必须在<b>子线程</b>执行：Shizuku 的状态查询与权限申请都是
+     * Binder 调用，服务端无响应时会长时间阻塞；放在主线程会直接触发 ANR
+     * （表现为界面卡死然后被系统杀掉）。</p>
+     */
     private void doAutoFetch() {
-        // 整体兜底：任何异常都转成可见提示，避免直接崩溃
-        try {
-            doAutoFetchInternal();
-        } catch (Throwable t) {
-            String msg = t.getClass().getSimpleName()
-                    + (t.getMessage() == null ? "" : "：" + t.getMessage());
+        setStatus("正在检查 Shizuku 状态…");
+        new Thread(() -> {
             try {
-                setStatus("❌ 自动获取失败：" + msg
-                        + "\n可改用「如何获取链接」里的手动方案。");
-            } catch (Throwable ignored) {
-                Toast.makeText(ctx, "自动获取失败：" + msg, Toast.LENGTH_LONG).show();
+                final GachaLinkFetcher.State st = GachaLinkFetcher.check(ctx);
+                lastShizukuState = st;
+                runOnUi(() -> handleShizukuState(st));
+            } catch (Throwable t) {
+                final String msg = t.getClass().getSimpleName()
+                        + (t.getMessage() == null ? "" : "：" + t.getMessage());
+                runOnUi(() -> setStatus("❌ 自动获取失败：" + msg
+                        + "\n可改用「如何获取链接」里的手动方案。"));
             }
-        }
+        }, "HyVqShizukuCheck").start();
     }
 
-    private void doAutoFetchInternal() {
-        GachaLinkFetcher.State st = GachaLinkFetcher.check(ctx);
-        lastShizukuState = st;
-        switch (st == null ? GachaLinkFetcher.State.NOT_RUNNING : st) {
+    /** 在主线程根据 Shizuku 状态分流处理 */
+    private void handleShizukuState(final GachaLinkFetcher.State st) {
+        final GachaLinkFetcher.State s =
+                (st == null ? GachaLinkFetcher.State.NOT_RUNNING : st);
+        switch (s) {
             case NOT_INSTALLED:
                 showShizukuGuide(st);
                 break;
@@ -503,11 +511,19 @@ public class GachaView extends LinearLayout {
                 showShizukuGuide(st);
                 break;
             case NO_PERMISSION:
-                // 注册一次性回调并申请
-                GachaLinkFetcher.removePermissionListener(permListener());
-                GachaLinkFetcher.addPermissionListener(permListener());
                 setStatus("正在申请 Shizuku 授权…");
-                GachaLinkFetcher.requestPermission(GachaLinkFetcher.REQ_SHIZUKU_PERMISSION);
+                // 同样是 Binder 调用，必须离开主线程
+                new Thread(() -> {
+                    try {
+                        GachaLinkFetcher.removePermissionListener(permListener());
+                        GachaLinkFetcher.addPermissionListener(permListener());
+                        GachaLinkFetcher.requestPermission(
+                                GachaLinkFetcher.REQ_SHIZUKU_PERMISSION);
+                    } catch (Throwable t) {
+                        final String msg = String.valueOf(t.getMessage());
+                        runOnUi(() -> setStatus("❌ 申请授权失败：" + msg));
+                    }
+                }, "HyVqShizukuReq").start();
                 break;
             case READY:
             default:

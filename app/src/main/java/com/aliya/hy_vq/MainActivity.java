@@ -2728,6 +2728,23 @@ public class MainActivity extends AppCompatActivity {
         return pi == null ? apk.getName() : "v" + pi.versionName + " (code " + pi.versionCode + ")";
     }
 
+    /** 人类可读的传输速度（B/s → KB/s、MB/s） */
+    private static String humanSpeed(double bps) {
+        if (bps <= 0) return "—";
+        if (bps < 1024) return String.format(java.util.Locale.US, "%.0f B/s", bps);
+        if (bps < 1024 * 1024) return String.format(java.util.Locale.US, "%.0f KB/s", bps / 1024);
+        return String.format(java.util.Locale.US, "%.2f MB/s", bps / 1048576);
+    }
+
+    /** 人类可读的剩余时长 */
+    private static String humanDuration(long sec) {
+        if (sec <= 0) return "即将完成";
+        if (sec < 60) return sec + " 秒";
+        long m = sec / 60, ss = sec % 60;
+        if (m < 60) return m + " 分 " + ss + " 秒";
+        return (m / 60) + " 小时 " + (m % 60) + " 分";
+    }
+
     private String fmtSize(long b) {
         if (b >= 1048576L) return String.format(java.util.Locale.CHINA, "%.1f MB", b / 1048576.0);
         if (b >= 1024L) return String.format(java.util.Locale.CHINA, "%.0f KB", b / 1024.0);
@@ -2791,11 +2808,13 @@ public class MainActivity extends AppCompatActivity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.addView(ModuleUiKit.sectionHeader(this, "⬇ 正在下载更新"));
 
+        final int pad = dp2(4);
+
         final TextView tvPct = new TextView(this);
-        tvPct.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        tvPct.setTextColor(ModuleUiKit.color(this, com.google.android.material.R.attr.colorOnSurface));
-        int pad = dp2(4);
-        tvPct.setPadding(pad, pad, pad, pad);
+        tvPct.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        tvPct.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        tvPct.setTextColor(ModuleUiKit.color(this, com.google.android.material.R.attr.colorPrimary));
+        tvPct.setPadding(pad, pad, pad, 0);
         tvPct.setText("准备中…");
         box.addView(tvPct);
 
@@ -2807,6 +2826,52 @@ public class MainActivity extends AppCompatActivity {
                 LinearLayout.LayoutParams.MATCH_PARENT, dp2(8));
         plp.topMargin = dp2(6);
         box.addView(pb, plp);
+
+        // ── 详情区：下载源 / 速度 / 剩余时间 ──
+        final TextView tvSource = new TextView(this);
+        tvSource.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tvSource.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tvSource.setPadding(pad, dp2(8), pad, 0);
+        tvSource.setText("下载源：正在选择…");
+        box.addView(tvSource);
+
+        final TextView tvSpeed = new TextView(this);
+        tvSpeed.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tvSpeed.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tvSpeed.setPadding(pad, dp2(3), pad, 0);
+        tvSpeed.setText("下载速度：—");
+        box.addView(tvSpeed);
+
+        final TextView tvSize = new TextView(this);
+        tvSize.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tvSize.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tvSize.setPadding(pad, dp2(3), pad, 0);
+        tvSize.setText("已下载：—");
+        box.addView(tvSize);
+
+        final TextView tvEta = new TextView(this);
+        tvEta.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tvEta.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tvEta.setPadding(pad, dp2(3), pad, 0);
+        tvEta.setText("剩余时间：—");
+        box.addView(tvEta);
+
+        // ── 取消按钮（大文件下载时很有用）──
+        final java.util.concurrent.atomic.AtomicBoolean cancelled =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        LinearLayout cancelRow = new LinearLayout(this);
+        cancelRow.setOrientation(LinearLayout.HORIZONTAL);
+        cancelRow.setGravity(Gravity.END);
+        LinearLayout.LayoutParams crlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        crlp.topMargin = dp2(12);
+        TextView btnCancel = updateTextButton("取消下载", v -> cancelled.set(true));
+        cancelRow.addView(btnCancel);
+        box.addView(cancelRow, crlp);
 
         // 下载进度弹窗：下载中不允许点击外部关闭（否则下载中途被误关）；
         // 弹窗关闭即代表更新流程结束 → 清掉「进行中」标记（成功/失败/取消各路径都覆盖）
@@ -2835,7 +2900,7 @@ public class MainActivity extends AppCompatActivity {
                     mainErr = e.getMessage();
                 }
                 if (code == 200) {
-                    // 直链可用，直接进入下载
+                    runOnUiThread(() -> tvSource.setText("下载源：GitHub 直链"));
                 } else {
                     tried.append("主源 HTTP ").append(code)
                          .append(mainErr != null ? "(" + mainErr + ")" : "");
@@ -2848,7 +2913,10 @@ public class MainActivity extends AppCompatActivity {
                         String m = mirrorUrl(mir, apkUrl);
                         if (m == null) break;
                         final String host = mir.replace("https://", "").replace("/", "");
-                        runOnUiThread(() -> tvPct.setText("直链不可用，尝试镜像 " + host + "…"));
+                        runOnUiThread(() -> {
+                    tvPct.setText("直链不可用，尝试镜像…");
+                    tvSource.setText("下载源：镜像 " + host);
+                });
                         try {
                             conn = openRemote(m, "GET");
                             code = conn.getResponseCode();
@@ -2865,7 +2933,10 @@ public class MainActivity extends AppCompatActivity {
 
                     // ── 第 3 级：123云盘（需凭据） ──
                     if (code != 200 && cnUrl != null && !cnUrl.isEmpty()) {
-                        runOnUiThread(() -> tvPct.setText("镜像均不可用，切换国内备用源…"));
+                        runOnUiThread(() -> {
+                            tvPct.setText("镜像均不可用，切换国内备用源…");
+                            tvSource.setText("下载源：123云盘（国内备用源）");
+                        });
                         conn = openRemote(cnUrl, "GET");
                         code = conn.getResponseCode();
                         if (code != 200) tried.append(" · 国内源 HTTP ").append(code);
@@ -2882,24 +2953,48 @@ public class MainActivity extends AppCompatActivity {
                 long total = expectSize > 0 ? expectSize : conn.getContentLength();
                 long done = 0;
                 int lastPct = -1;
+                long t0 = System.currentTimeMillis();
+                long lastSampleTime = t0, lastSampleDone = 0;
                 try (java.io.InputStream in = conn.getInputStream();
                      java.io.FileOutputStream fos = new java.io.FileOutputStream(tmp)) {
                     byte[] buf = new byte[16384];
                     int n;
                     while ((n = in.read(buf)) > 0) {
+                        if (cancelled.get()) {
+                            throw new Exception("已取消下载");
+                        }
                         fos.write(buf, 0, n);
                         done += n;
-                        if (total > 0) {
-                            int pct = (int) Math.min(100, done * 100 / total);
-                            if (pct != lastPct) {
-                                lastPct = pct;
-                                final int fp = pct;
-                                final long fd = done, ft = total;
-                                runOnUiThread(() -> {
+                        long now = System.currentTimeMillis();
+                        // 每 400ms 刷新一次，避免过于频繁地更新 UI
+                        if (now - lastSampleTime >= 400) {
+                            long dt = now - lastSampleTime;
+                            long db = done - lastSampleDone;
+                            double bps = dt > 0 ? (db * 1000.0 / dt) : 0;
+                            lastSampleTime = now;
+                            lastSampleDone = done;
+                            final int fp = total > 0 ? (int) Math.min(100, done * 100 / total) : -1;
+                            final long fd = done, ft = total;
+                            final double fbps = bps;
+                            runOnUiThread(() -> {
+                                if (fp >= 0) {
                                     pb.setProgress(fp);
-                                    tvPct.setText(fp + "%    " + fmtSize(fd) + " / " + fmtSize(ft));
-                                });
-                            }
+                                    tvPct.setText(fp + "%");
+                                } else {
+                                    tvPct.setText("下载中…");
+                                }
+                                tvSize.setText("已下载：" + fmtSize(fd)
+                                        + (ft > 0 ? " / " + fmtSize(ft) : ""));
+                                tvSpeed.setText("下载速度：" + humanSpeed(fbps)
+                                        + "　（平均 " + humanSpeed(
+                                        fd * 1000.0 / Math.max(1, now - t0)) + "）");
+                                if (fbps > 1 && ft > fd) {
+                                    long sec = (long) ((ft - fd) / fbps);
+                                    tvEta.setText("剩余时间：" + humanDuration(sec));
+                                } else {
+                                    tvEta.setText("剩余时间：估算中…");
+                                }
+                            });
                         }
                     }
                 }
