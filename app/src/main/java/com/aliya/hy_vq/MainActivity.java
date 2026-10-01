@@ -124,6 +124,8 @@ public class MainActivity extends AppCompatActivity {
     private boolean historyExpanded = false;
     /** 国内源只读凭据内存缓存（避免每次请求都走 Keystore 解密） */
     private String cachedCnCred;
+    /** 本轮请求是否已因 401 刷新过凭据（防止无限重试） */
+    private boolean credRetried = false;
     /** 开源仓库地址（与 README / LICENSE 一致）
      *  2026-09-27：仓库迁至新账号 —— 旧账号因双重验证密钥丢失无法登录，详见 MIGRATION.md */
     private static final String OPEN_SOURCE_URL = "https://github.com/haoyou781013/HY_VQ";
@@ -1486,8 +1488,15 @@ public class MainActivity extends AppCompatActivity {
     private static final String CN_BASE = "https://webdav.123pan.cn/webdav/HY_VQ-updates/";
     private static final String CN_VERSIONS = CN_BASE + "versions.json";
     private static final String CN_HOST = "webdav.123pan.cn";
+    /** GitHub 直链的国内加速镜像（依次尝试；不需要任何凭据） */
+    private static final String[] GH_MIRRORS = {
+            "https://gh-proxy.com/",
+            "https://ghproxy.net/",
+    };
     /** 只读账密（与发布端使用的读写账密是同一账号的不同密码） */
-    private static final String CN_CRED_SEED = "15823710155:b18aqw8r";
+    // 注：网盘密码变更后此处需同步更新；客户端另有 CredentialStore 持久化，
+    // 更新后以 prefs 中的值为准（见 CredentialStore.load 的优先顺序）
+    private static final String CN_CRED_SEED = "15823710155:8p28caaf";
 
     /** 版本列表来源：GitHub Releases API —— 一次请求拿到全部版本，
      *  每个版本自带<b>精确</b>下载直链（browser_download_url）。
@@ -1498,11 +1507,27 @@ public class MainActivity extends AppCompatActivity {
     /** 打开远程只读连接（无鉴权）。
      *  某些 CDN 会 302 跳转，故手动跟随（最多 5 跳），不依赖 HttpURLConnection 自动跟随。
      *  返回的连接已带最终响应码，调用方负责读流与 disconnect()。 */
+    /**
+     * 把 GitHub 直链包上加速镜像前缀。
+     * <p>GitHub 的 release 资产实际托管在 objects.githubusercontent.com，国内常被阻断 ——
+     * 直链失败会自动回退到 123云盘，而网盘需要凭据（曾因内置密码过时导致 401）。
+     * 镜像列为公开通道，用它可绕开凭据问题。</p>
+     */
+    private static String mirrorUrl(String mirrorPrefix, String url) {
+        if (url == null || url.isEmpty()) return url;
+        if (!url.startsWith("https://github.com/")
+                && !url.startsWith("https://objects.githubusercontent.com/")) {
+            return null;   // 只镜像 GitHub 源
+        }
+        return mirrorPrefix + url;
+    }
+
     private java.net.HttpURLConnection openRemote(String url, String method) throws Exception {
         return openRemote(url, method, null);
     }
 
     private java.net.HttpURLConnection openRemote(String url, String method, String accept) throws Exception {
+        credRetried = false;   // 每次新请求重置 401 重试标记
         String cur = url;
         for (int hop = 0; hop < 5; hop++) {
             java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(cur).openConnection();
@@ -1527,6 +1552,16 @@ public class MainActivity extends AppCompatActivity {
                         this.cachedCnCred.getBytes("UTF-8"), android.util.Base64.NO_WRAP));
             }
             int code = conn.getResponseCode();
+            // ⭐ 401：网盘凭据可能已轮换（密码在服务端改过）。
+            // 持久化的旧值会一直覆盖内置 seed，导致永远 401 ——
+            // 故此处清掉持久化值，改用内置 CN_CRED_SEED 重试一次。
+            if (code == 401 && cur.contains(CN_HOST) && !credRetried) {
+                credRetried = true;
+                CredentialStore.clear(this);
+                this.cachedCnCred = CN_CRED_SEED;
+                conn.disconnect();
+                continue;   // 回到 hop 循环重建请求（这次带新凭据）
+            }
             if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
                 String loc = conn.getHeaderField("Location");
                 conn.disconnect();
@@ -2783,30 +2818,63 @@ public class MainActivity extends AppCompatActivity {
             try {
                 // ⭐ 主源尝试必须包在 try 里：GitHub 不可达时 openRemote 会**抛异常**
                 // （而非返回非 200），若不加保护将直接跳到外层 catch，**回退逻辑永远执行不到**。
+                // ⭐ 三级回退：GitHub 直链 → 国内加速镜像（公开）→ 123云盘（需凭据）
                 java.net.HttpURLConnection conn = null;
                 int code = -1;
                 String mainErr = null;
+                StringBuilder tried = new StringBuilder();
+
+                // ── 第 1 级：GitHub 直链 ──
                 try {
                     conn = openRemote(apkUrl, "GET");
                     code = conn.getResponseCode();
                 } catch (Exception e) {
                     mainErr = e.getMessage();
                 }
-                // 主源失败（异常或非 200）→ 自动切国内备用源（123 云盘只读直链）
-                if ((conn == null || code != 200) && cnUrl != null && !cnUrl.isEmpty()) {
+                if (code == 200) {
+                    // 直链可用，直接进入下载
+                } else {
+                    tried.append("主源 HTTP ").append(code)
+                         .append(mainErr != null ? "(" + mainErr + ")" : "");
                     if (conn != null) {
+                        try { conn.disconnect(); } catch (Throwable ignored) { }
+                    }
+
+                    // ── 第 2 级：国内加速镜像（公开通道，不需要凭据） ──
+                    for (String mir : GH_MIRRORS) {
+                        String m = mirrorUrl(mir, apkUrl);
+                        if (m == null) break;
+                        final String host = mir.replace("https://", "").replace("/", "");
+                        runOnUiThread(() -> tvPct.setText("直链不可用，尝试镜像 " + host + "…"));
                         try {
-                            conn.disconnect();
-                        } catch (Throwable ignored) {
+                            conn = openRemote(m, "GET");
+                            code = conn.getResponseCode();
+                        } catch (Exception e) {
+                            code = -1;
+                            conn = null;
+                        }
+                        if (code == 200) break;
+                        tried.append(" · ").append(host).append(" HTTP ").append(code);
+                        if (conn != null) {
+                            try { conn.disconnect(); } catch (Throwable ignored) { }
                         }
                     }
-                    runOnUiThread(() -> tvPct.setText("主源不可用，正在切换国内备用源…"));
-                    conn = openRemote(cnUrl, "GET");
-                    code = conn.getResponseCode();
+
+                    // ── 第 3 级：123云盘（需凭据） ──
+                    if (code != 200 && cnUrl != null && !cnUrl.isEmpty()) {
+                        runOnUiThread(() -> tvPct.setText("镜像均不可用，切换国内备用源…"));
+                        conn = openRemote(cnUrl, "GET");
+                        code = conn.getResponseCode();
+                        if (code != 200) tried.append(" · 国内源 HTTP ").append(code);
+                    }
                 }
                 if (code != 200) {
-                    throw new Exception("HTTP " + code
-                            + (mainErr != null ? "（主源：" + mainErr + "）" : ""));
+                    // 网盘 401 时给出可操作的提示（而非只甩一个 HTTP 码）
+                    if (code == 401) {
+                        throw new Exception("国内源认证失败（HTTP 401）。"
+                                + "请在「软件更新」页从 GitHub 手动下载，或稍后重试。\n明细：" + tried);
+                    }
+                    throw new Exception("下载失败 " + tried);
                 }
                 long total = expectSize > 0 ? expectSize : conn.getContentLength();
                 long done = 0;

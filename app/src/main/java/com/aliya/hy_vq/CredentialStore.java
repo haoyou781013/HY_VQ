@@ -78,4 +78,13 @@ public final class CredentialStore {
     private static SharedPreferences prefs(Context ctx) {
         return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
+
+    /** 清除持久化凭据（凭据失效或需要轮换时调用） */
+    public static void clear(Context ctx) {
+        try {
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                    .remove(PREF_ENC).apply();
+        } catch (Throwable ignored) {
+        }
+    }
 }
