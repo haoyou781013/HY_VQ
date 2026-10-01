@@ -28,6 +28,12 @@
     <!-- 悬浮窗：检测到链接后就地提示，不必切回本应用 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- Android 11+ 包可见性：显式声明要查询 Shizuku 包名，
+         否则 getPackageInfo 会抛 NameNotFoundException 而被误判为「未安装」 -->
+    <queries>
+        <package android:name="moe.shizuku.privileged.api" />
+    </queries>
+
     <application 
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher" 

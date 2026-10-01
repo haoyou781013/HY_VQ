@@ -447,22 +447,55 @@ public class GachaView extends LinearLayout {
 
     private GachaLinkFetcher.State lastShizukuState = null;
 
-    private final rikka.shizuku.Shizuku.OnRequestPermissionResultListener permListener =
-            (requestCode, grantResult) -> {
-                if (requestCode != GachaLinkFetcher.REQ_SHIZUKU_PERMISSION) return;
-                if (grantResult == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                    setStatus("已获得 Shizuku 授权，正在读取系统日志…");
-                    runScan();
-                } else {
-                    setStatus("❌ Shizuku 授权被拒绝。可再次点击「自动获取」重新授权。");
-                }
-            };
+    /**
+     * Shizuku 授权回调。
+     * <p>刻意**懒创建**而非字段初始化：字段初始化发生在 View 构造期，
+     * 一旦 Shizuku 相关类加载出现问题会直接导致整页崩溃；
+     * 懒加载可把风险限制在「点击自动获取」这一刻，且能就地捕获反馈。</p>
+     */
+    private Object permListenerObj = null;
+
+    private rikka.shizuku.Shizuku.OnRequestPermissionResultListener permListener() {
+        if (permListenerObj == null) {
+            permListenerObj = (rikka.shizuku.Shizuku.OnRequestPermissionResultListener)
+                    (requestCode, grantResult) -> {
+                        try {
+                            if (requestCode != GachaLinkFetcher.REQ_SHIZUKU_PERMISSION) return;
+                            if (grantResult == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                setStatus("已获得 Shizuku 授权，正在读取系统日志…");
+                                runScan();
+                            } else {
+                                setStatus("❌ Shizuku 授权被拒绝。可再次点击「自动获取」重新授权。");
+                            }
+                        } catch (Throwable t) {
+                            setStatus("❌ 授权回调异常：" + t);
+                        }
+                    };
+        }
+        return (rikka.shizuku.Shizuku.OnRequestPermissionResultListener) permListenerObj;
+    }
 
     /** 「自动获取」入口：按 Shizuku 状态分流 */
     private void doAutoFetch() {
+        // 整体兜底：任何异常都转成可见提示，避免直接崩溃
+        try {
+            doAutoFetchInternal();
+        } catch (Throwable t) {
+            String msg = t.getClass().getSimpleName()
+                    + (t.getMessage() == null ? "" : "：" + t.getMessage());
+            try {
+                setStatus("❌ 自动获取失败：" + msg
+                        + "\n可改用「如何获取链接」里的手动方案。");
+            } catch (Throwable ignored) {
+                Toast.makeText(ctx, "自动获取失败：" + msg, Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    private void doAutoFetchInternal() {
         GachaLinkFetcher.State st = GachaLinkFetcher.check(ctx);
         lastShizukuState = st;
-        switch (st) {
+        switch (st == null ? GachaLinkFetcher.State.NOT_RUNNING : st) {
             case NOT_INSTALLED:
                 showShizukuGuide(st);
                 break;
@@ -471,8 +504,8 @@ public class GachaView extends LinearLayout {
                 break;
             case NO_PERMISSION:
                 // 注册一次性回调并申请
-                GachaLinkFetcher.removePermissionListener(permListener);
-                GachaLinkFetcher.addPermissionListener(permListener);
+                GachaLinkFetcher.removePermissionListener(permListener());
+                GachaLinkFetcher.addPermissionListener(permListener());
                 setStatus("正在申请 Shizuku 授权…");
                 GachaLinkFetcher.requestPermission(GachaLinkFetcher.REQ_SHIZUKU_PERMISSION);
                 break;
@@ -840,7 +873,9 @@ public class GachaView extends LinearLayout {
         super.onDetachedFromWindow();
         // GachaView 常驻实例，这里只在真正脱离窗口时移除一次性回调
         try {
-            GachaLinkFetcher.removePermissionListener(permListener);
+            if (permListenerObj != null) {
+                GachaLinkFetcher.removePermissionListener(permListener());
+            }
         } catch (Throwable ignored) {
         }
     }
