@@ -20,6 +20,17 @@ import javax.crypto.spec.GCMParameterSpec;
  */
 public final class CredentialStore {
 
+    /**
+     * 内置的<b>只读</b>网盘凭据（唯一来源，其他文件不得再各自硬编码）。
+     *
+     * <p>客户端只需要「读取更新包 / 浏览分享目录」，因此只用只读密码：
+     * 实测该密码对写(PUT)与删(DELETE)均返回 403，即便 APK 被反编译、
+     * 凭据被提取，也无法篡改国内源内容。</p>
+     *
+     * <p>发布脚本用的是另一套读写凭据，与本常量无关。</p>
+     */
+    public static final String READONLY_SEED = "15823710155:9l0czjgi";
+
     private static final String ANDROID_KEYSTORE = "AndroidKeyStore";
     private static final String KEY_ALIAS = "hyvq_webdav_cred";
     private static final String PREFS = "encrypted_creds";
@@ -86,5 +97,19 @@ public final class CredentialStore {
                     .remove(PREF_ENC).apply();
         } catch (Throwable ignored) {
         }
+    }
+
+    /**
+     * 载入凭据；本地无值（或已被 {@link #clear} 清除）时回退到内置只读凭据并落盘。
+     * <p>注意：本地旧值会遮蔽内置新值，所以凭据轮换后必须靠「请求失败时 clear 再重试」
+     * 才能生效 —— 见 MainActivity.openRemote 的 401 分支。</p>
+     */
+    public static String loadOrDefault(Context ctx) {
+        String c = load(ctx);
+        if (c == null || c.isEmpty()) {
+            save(ctx, READONLY_SEED);
+            c = load(ctx);
+        }
+        return (c == null || c.isEmpty()) ? READONLY_SEED : c;
     }
 }

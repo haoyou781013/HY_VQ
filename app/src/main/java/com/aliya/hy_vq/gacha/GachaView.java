@@ -150,6 +150,11 @@ public class GachaView extends LinearLayout {
         blp.topMargin = dp(10);
         importCard.addView(btnRow, blp);
 
+        TextView btnHow = btn("如何获取链接", color(com.google.android.material.R.attr.colorPrimary),
+                color(com.google.android.material.R.attr.colorSurfaceContainerHighest));
+        btnHow.setOnClickListener(v -> showHowToDialog());
+        btnRow.addView(btnHow);
+
         TextView btnImport = btn("解析并导入", color(com.google.android.material.R.attr.colorOnPrimary),
                 color(com.google.android.material.R.attr.colorPrimary));
         btnImport.setOnClickListener(v -> doImport());
@@ -429,6 +434,121 @@ public class GachaView extends LinearLayout {
     public void showLatestIfAny() {
         List<String> uids = GachaStore.listUids(ctx);
         if (!uids.isEmpty()) showStats(uids.get(0));
+    }
+
+    /**
+     * 「如何获取抽卡链接」教程弹窗。
+     *
+     * <p>链接里最关键的是 authkey —— 游戏打开「祈愿 → 历史记录」时会把它拼进网页地址，
+     * 所以只要能截到这个 URL 就行。按设备与门槛给出三种方案。</p>
+     */
+    private void showHowToDialog() {
+        ScrollView sv = new ScrollView(ctx);
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(4), dp(4), dp(4), dp(4));
+        sv.addView(box);
+        sv.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (int) (getResources().getDisplayMetrics().heightPixels * 0.66)));
+
+        box.addView(ModuleUiKit.sectionHeader(ctx, "如何获取抽卡链接"));
+
+        TextView intro = new TextView(ctx);
+        intro.setText("链接里最关键的是 authkey。游戏打开「祈愿 → 历史记录」时会把含 authkey 的"
+                + "网址交给网页组件，所以只要能截到这个网址就能分析记录。");
+        intro.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        intro.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        intro.setLineSpacing(dp(2), 1.25f);
+        intro.setPadding(dp(4), dp(2), dp(4), dp(6));
+        box.addView(intro);
+
+        addHowToSection(box, "方案一 · 电脑端读日志（最简单）",
+                com.google.android.material.R.attr.colorPrimary,
+                new String[]{
+                        "① 电脑上打开原神，进入「祈愿 → 历史记录」并保持窗口不要关闭",
+                        "② 找到游戏日志文件：",
+                        "    C:\\Users\\<你的用户名>\\AppData\\LocalLow\\miHoYo\\原神\\output_log.txt",
+                        "③ 用记事本打开，搜索 webstatic.mihoyo.com",
+                        "④ 把找到的那一整行网址复制下来（要包含 authkey= 到最后）",
+                        "⑤ 发送到手机，粘贴到上面的输入框即可",
+                });
+
+        addHowToSection(box, "方案二 · 手机端抓包",
+                com.google.android.material.R.attr.colorSecondary,
+                new String[]{
+                        "① 安装抓包工具（如 Reqable、HttpCanary）",
+                        "② 按提示安装 CA 证书并开启抓包",
+                        "③ 在游戏里打开「祈愿 → 历史记录」",
+                        "④ 在抓包记录里找到 webstatic.mihoyo.com 的请求",
+                        "⑤ 复制完整网址，粘贴到上面的输入框",
+                });
+
+        addHowToSection(box, "方案三 · 电脑上直接用现成工具",
+                com.google.android.material.R.attr.colorTertiary,
+                new String[]{
+                        "① 使用开源工具 Genshin Wish Export（GitHub 可搜）",
+                        "② 它会自动从游戏日志或代理读取链接",
+                        "③ 复制它读到的链接，发送到手机粘贴即可",
+                });
+
+        TextView tail = new TextView(ctx);
+        tail.setText("💡 提示：authkey 有效期通常不到 24 小时，过期后重新获取即可。\n"
+                + "本应用不会上传任何数据，记录只保存在本机。\n"
+                + "服务端只保留最近 6 个月的记录，建议每隔一两个月导入一次以免丢失。");
+        tail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tail.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tail.setLineSpacing(dp(2), 1.3f);
+        tail.setPadding(dp(4), dp(12), dp(4), dp(4));
+        box.addView(tail);
+
+        final android.app.Dialog dialog = ModuleUiKit.glassDialog(ctx, sv);
+        LinearLayout btns = new LinearLayout(ctx);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.END);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.topMargin = dp(14);
+        box.addView(btns, blp);
+        TextView close = btn("知道了", color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorPrimary));
+        close.setOnClickListener(v -> ModuleUiKit.dismissWithAnim(dialog));
+        btns.addView(close);
+        dialog.show();
+    }
+
+    /** 教程弹窗里的一个方案板块 */
+    private void addHowToSection(LinearLayout parent, String title, int colorAttr, String[] lines) {
+        LinearLayout sec = new LinearLayout(ctx);
+        sec.setOrientation(LinearLayout.VERTICAL);
+        sec.setPadding(dp(12), dp(10), dp(12), dp(10));
+        sec.setBackground(ModuleUiKit.rounded(ctx, 12,
+                color(com.google.android.material.R.attr.colorSurfaceContainerLow),
+                color(com.google.android.material.R.attr.colorOutlineVariant)));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(10);
+        sec.setLayoutParams(lp);
+
+        TextView t = new TextView(ctx);
+        t.setText(title);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTextColor(color(colorAttr));
+        sec.addView(t);
+
+        for (String ln : lines) {
+            TextView row = new TextView(ctx);
+            row.setText(ln);
+            row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            row.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+            row.setLineSpacing(dp(3), 1.2f);
+            row.setPadding(0, dp(2), 0, dp(2));
+            // 路径这类内容用等宽字体，便于辨认
+            if (ln.startsWith("    ")) row.setTypeface(Typeface.MONOSPACE);
+            sec.addView(row);
+        }
+        parent.addView(sec);
     }
 
     private void showStats(String uid) {

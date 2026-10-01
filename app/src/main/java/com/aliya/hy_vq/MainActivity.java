@@ -1499,7 +1499,7 @@ public class MainActivity extends AppCompatActivity {
     // 发布脚本用的是另一套读写凭据，两者互不通用。
     // 注：网盘密码变更后此处需同步更新；客户端另有 CredentialStore 持久化，
     // 若持久化的是旧值，openRemote 的 401 分支会自动清除并回退到本常量。
-    private static final String CN_CRED_SEED = "15823710155:9l0czjgi";
+    private static final String CN_CRED_SEED = CredentialStore.READONLY_SEED;
 
     /** 版本列表来源：GitHub Releases API —— 一次请求拿到全部版本，
      *  每个版本自带<b>精确</b>下载直链（browser_download_url）。

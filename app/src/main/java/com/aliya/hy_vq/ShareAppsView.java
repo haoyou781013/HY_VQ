@@ -57,7 +57,6 @@ import okhttp3.ResponseBody;
 public class ShareAppsView {
 
     private static final String BASE = "https://webdav.123pan.cn/webdav/HY_VQ软件分享/";
-    private static final String CN_CRED_SEED = "15823710155:b18aqw8r";
 
     private static final String PROPFIND_BODY =
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
@@ -69,7 +68,7 @@ public class ShareAppsView {
     private final View root;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final OkHttpClient client;
-    private final String cred;
+    private String cred;   // 非 final：401 时刷新凭据后可重试
 
     private LinearLayout listBox;
     private TextView titleView;
@@ -81,6 +80,8 @@ public class ShareAppsView {
     private boolean loading = false;
     /** 下载取消标记（点弹窗外关闭 → 取消下载并清掉半成品） */
     private volatile boolean downloadCancelled = false;
+    /** 本轮是否已因 401 刷新过凭据（防无限重试） */
+    private boolean credRefreshed = false;
 
     private static final class Item {
         String name;
@@ -103,6 +104,28 @@ public class ShareAppsView {
         }
     }
 
+    /** 把 "user:pass" 形式的内置凭据转成 Basic 头 */
+    private static String toBasicHeader(String userPass) {
+        int i = userPass == null ? -1 : userPass.indexOf(':');
+        if (i <= 0) return "";
+        return Credentials.basic(userPass.substring(0, i), userPass.substring(i + 1));
+    }
+
+    /**
+     * 遇到 401 时刷新凭据并返回是否值得重试。
+     * <p>持久化的旧凭据会永久遮蔽内置新值，因此这里清除本地值、改用内置只读凭据。</p>
+     */
+    private boolean refreshCredOn401() {
+        if (credRefreshed) return false;
+        credRefreshed = true;
+        try {
+            com.aliya.hy_vq.CredentialStore.clear(host);
+        } catch (Throwable ignored) {
+        }
+        cred = toBasicHeader(com.aliya.hy_vq.CredentialStore.READONLY_SEED);
+        return true;
+    }
+
     public ShareAppsView(Activity host, LayoutInflater inflater, ViewGroup parent) {
         this.host = host;
         this.root = inflater.inflate(R.layout.activity_share_apps, parent, false);
@@ -110,7 +133,8 @@ public class ShareAppsView {
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(60, TimeUnit.SECONDS)
                 .build();
-        this.cred = Credentials.basic("15823710155", "b18aqw8r");
+        // 复用统一的只读凭据（本地旧值会遮蔽内置新值，故 401 时需 clear 重试）
+        this.cred = toBasicHeader(com.aliya.hy_vq.CredentialStore.loadOrDefault(host));
 
         listBox = root.findViewById(R.id.share_list);
         titleView = root.findViewById(R.id.share_title);
@@ -189,7 +213,28 @@ public class ShareAppsView {
     }
 
     /** PROPFIND Depth:1 列出当前目录 */
+    /**
+     * 列出目录；遇 401 时刷新凭据后重试一次。
+     * <p>凭据轮换后，本地持久化的旧值会一直遮蔽内置新值，必须清除再用新值重试。</p>
+     */
     private List<Item> list(String category) throws Exception {
+        try {
+            return listOnce(category);
+        } catch (Auth401 e) {
+            if (refreshCredOn401()) {
+                return listOnce(category);   // 用内置只读凭据再试一次
+            }
+            throw new IllegalStateException("HTTP 401（更新源凭据已失效，请更新本应用）");
+        }
+    }
+
+    /** 鉴权失败的内部信号（用于触发凭据刷新与重试） */
+    private static final class Auth401 extends Exception {
+        Auth401() { super("401"); }
+    }
+
+    /** PROPFIND Depth:1 列出当前目录 */
+    private List<Item> listOnce(String category) throws Exception {
         HttpUrl.Builder b = HttpUrl.parse(BASE).newBuilder();
         if (category != null) b.addPathSegment(category);
         HttpUrl url = b.build();
@@ -206,6 +251,9 @@ public class ShareAppsView {
         try (Response resp = client.newCall(req).execute()) {
             ResponseBody body = resp.body();
             String xml = body == null ? "" : body.string();
+            if (resp.code() == 401) {
+                throw new Auth401();
+            }
             if (!resp.isSuccessful()) {
                 throw new IllegalStateException("HTTP " + resp.code() + "（请检查网络）");
             }

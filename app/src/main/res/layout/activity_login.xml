@@ -82,6 +82,21 @@
             android:textColor="?attr/colorError"
             android:visibility="gone" />
 
+        <!-- 测试版提示：随便填即可，并说明当前主要功能 -->
+        <TextView
+            android:id="@+id/login_test_notice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:layout_marginHorizontal="8dp"
+            android:background="?attr/colorTertiaryContainer"
+            android:lineSpacingExtra="3dp"
+            android:padding="12dp"
+            android:text="🧪 测试版提示&#10;账号与密码随便填写即可，无需记忆、也无需注册。&#10;当前主要功能是「抽卡链接分析」。"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?attr/colorOnTertiaryContainer" />
+
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_login"
             android:layout_width="match_parent"
