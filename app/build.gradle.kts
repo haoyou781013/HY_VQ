@@ -34,8 +34,8 @@ android {
         // compileSdk/targetSdk 保持 33，暂不适配 Android 17 (API 37)
         minSdk = 28
         targetSdk = 33
-        versionCode = 54
-        versionName = "2.11.4"
+        versionCode = 55
+        versionName = "2.12.0"
         
         vectorDrawables { 
             useSupportLibrary = true
@@ -69,6 +69,10 @@ android {
 }
 
 dependencies {
+    // ── Shizuku：以 adb(shell) 权限执行命令，用于读取系统日志提取抽卡链接 ──
+    // 项目需离线构建，故 AAR 预置于 app/libs（非 Maven 联网拉取）
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
+
     // ── AndroidX 基础 ──
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("com.google.android.material:material:1.9.0")

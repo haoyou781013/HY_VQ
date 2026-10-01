@@ -150,6 +150,11 @@ public class GachaView extends LinearLayout {
         blp.topMargin = dp(10);
         importCard.addView(btnRow, blp);
 
+        TextView btnAuto = btn("自动获取", color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorTertiary));
+        btnAuto.setOnClickListener(v -> doAutoFetch());
+        btnRow.addView(btnAuto);
+
         TextView btnHow = btn("如何获取链接", color(com.google.android.material.R.attr.colorPrimary),
                 color(com.google.android.material.R.attr.colorSurfaceContainerHighest));
         btnHow.setOnClickListener(v -> showHowToDialog());
@@ -436,6 +441,130 @@ public class GachaView extends LinearLayout {
         if (!uids.isEmpty()) showStats(uids.get(0));
     }
 
+    // ══════════════════════════════════════════════
+    //  自动获取链接（Shizuku → 读系统日志）
+    // ══════════════════════════════════════════════
+
+    private GachaLinkFetcher.State lastShizukuState = null;
+
+    private final rikka.shizuku.Shizuku.OnRequestPermissionResultListener permListener =
+            (requestCode, grantResult) -> {
+                if (requestCode != GachaLinkFetcher.REQ_SHIZUKU_PERMISSION) return;
+                if (grantResult == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    setStatus("已获得 Shizuku 授权，正在读取系统日志…");
+                    runScan();
+                } else {
+                    setStatus("❌ Shizuku 授权被拒绝。可再次点击「自动获取」重新授权。");
+                }
+            };
+
+    /** 「自动获取」入口：按 Shizuku 状态分流 */
+    private void doAutoFetch() {
+        GachaLinkFetcher.State st = GachaLinkFetcher.check(ctx);
+        lastShizukuState = st;
+        switch (st) {
+            case NOT_INSTALLED:
+                showShizukuGuide(st);
+                break;
+            case NOT_RUNNING:
+                showShizukuGuide(st);
+                break;
+            case NO_PERMISSION:
+                // 注册一次性回调并申请
+                GachaLinkFetcher.removePermissionListener(permListener);
+                GachaLinkFetcher.addPermissionListener(permListener);
+                setStatus("正在申请 Shizuku 授权…");
+                GachaLinkFetcher.requestPermission(GachaLinkFetcher.REQ_SHIZUKU_PERMISSION);
+                break;
+            case READY:
+            default:
+                setStatus("正在读取系统日志…");
+                runScan();
+                break;
+        }
+    }
+
+    /** 状态不满足时给出引导弹窗 */
+    private void showShizukuGuide(GachaLinkFetcher.State st) {
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(ctx, "需要 Shizuku"));
+
+        TextView tv = new TextView(ctx);
+        tv.setText(GachaLinkFetcher.describe(st) + "\n\n"
+                + "为什么要它：读取系统日志需要 adb(shell) 权限，而 Shizuku 能在"
+                + "不 root 的前提下把这个权限授予应用，且可随时在 Shizuku 里撤销。\n\n"
+                + "若不想使用，也可以走「如何获取链接」里的手动方案。");
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tv.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        tv.setLineSpacing(dp(2), 1.3f);
+        tv.setPadding(dp(4), dp(6), dp(4), dp(4));
+        box.addView(tv);
+
+        final android.app.Dialog d = ModuleUiKit.glassDialog(ctx, box);
+        LinearLayout btns = new LinearLayout(ctx);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.END);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.topMargin = dp(14);
+        box.addView(btns, blp);
+
+        if (st == GachaLinkFetcher.State.NOT_INSTALLED) {
+            TextView open = btn("去安装", color(com.google.android.material.R.attr.colorOnPrimary),
+                    color(com.google.android.material.R.attr.colorPrimary));
+            open.setOnClickListener(v -> {
+                ModuleUiKit.dismissWithAnim(d);
+                try {
+                    // 优先跳应用商店详情页
+                    android.content.Intent i = new android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("market://details?id=moe.shizuku.privileged.api"));
+                    ctx.startActivity(i);
+                } catch (Throwable t) {
+                    try {
+                        ctx.startActivity(new android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse("https://shizuku.rikka.app/")));
+                    } catch (Throwable t2) {
+                        Toast.makeText(ctx, "请手动搜索安装 Shizuku", Toast.LENGTH_LONG).show();
+                    }
+                }
+            });
+            btns.addView(open);
+        }
+        TextView close = btn("知道了", color(com.google.android.material.R.attr.colorPrimary),
+                color(com.google.android.material.R.attr.colorSurfaceContainerHighest));
+        close.setOnClickListener(v -> ModuleUiKit.dismissWithAnim(d));
+        btns.addView(close);
+        d.show();
+    }
+
+    /** 执行扫描并把结果填进输入框 */
+    private void runScan() {
+        GachaLinkFetcher.scan(ctx, 8000, (best, all, err) -> {
+            if (err != null) {
+                setStatus("❌ " + err);
+                return;
+            }
+            if (all == null || all.isEmpty()) {
+                setStatus("未在日志中找到抽卡链接。\n"
+                        + "请先在游戏里打开「祈愿 → 历史记录」，再回来点「自动获取」。");
+                return;
+            }
+            // 填入输入框（追加，便于多条链接融合）
+            StringBuilder sb = new StringBuilder();
+            for (String u : all) {
+                if (sb.length() > 0) sb.append('\n');
+                sb.append(u);
+            }
+            String cur = input.getText().toString().trim();
+            input.setText(cur.isEmpty() ? sb.toString() : cur + "\n" + sb);
+            setStatus("✅ 从日志中找到 " + all.size() + " 条链接，已填入输入框，"
+                    + "点「解析并导入」即可。");
+        });
+    }
+
     /**
      * 「如何获取抽卡链接」教程弹窗。
      *
@@ -704,6 +833,16 @@ public class GachaView extends LinearLayout {
             c.addView(fl);
         }
         return c;
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        // GachaView 常驻实例，这里只在真正脱离窗口时移除一次性回调
+        try {
+            GachaLinkFetcher.removePermissionListener(permListener);
+        } catch (Throwable ignored) {
+        }
     }
 
     private static String shortTime(String t) {

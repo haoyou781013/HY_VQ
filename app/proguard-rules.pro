@@ -1,21 +1,21 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ══════════════════════════════════════════════════════════════
+#  HY_VQ 混淆规则
+# ══════════════════════════════════════════════════════════════
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# ── Shizuku ──
+# 本应用通过**反射**调用 Shizuku.newProcess() 以 shell 权限执行 logcat，
+# 并且依赖其 AIDL 生成的 Binder 接口类。若被混淆：
+#   · 反射会因方法名改变而抛 NoSuchMethodException
+#   · Binder 事务会因接口描述符改变而失败
+# 症状是 debug 版正常、release 版功能失效 —— 极难排查，故整体保留。
+-keep class rikka.shizuku.** { *; }
+-keep class moe.shizuku.** { *; }
+-keep class rikka.sui.** { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# 反射目标方法名必须原样保留
+-keepclassmembers class rikka.shizuku.Shizuku {
+    *** newProcess(...);
+}
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# ShizukuProvider 在 Manifest 中声明，组件类名不可混淆
+-keep class rikka.shizuku.ShizukuProvider { *; }

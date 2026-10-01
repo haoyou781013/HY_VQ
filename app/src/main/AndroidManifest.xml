@@ -21,6 +21,13 @@
          normal 级权限，安装自动授予；仅侧载分发，无 Play 政策问题 -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+    <!-- 抽卡链接获取：通过 Shizuku 以 adb(shell) 权限读取系统日志。
+         shell 权限足以读取 logcat —— 游戏打开「祈愿→历史记录」时会把含 authkey 的
+         网址写进日志，从中提取即可，无需 root、无需抓包、无需装证书。 -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
+    <!-- 悬浮窗：检测到链接后就地提示，不必切回本应用 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <application 
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher" 
@@ -28,6 +35,15 @@
         android:label="@string/app_name" 
         android:supportsRtl="true" 
         android:theme="@style/AppTheme">
+
+        <!-- Shizuku 客户端 provider（AAR 只带 meta-data，provider 需自行声明） -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <activity 
             android:name="LoginActivity" 
             android:exported="true">
