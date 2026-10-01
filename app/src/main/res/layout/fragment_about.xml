@@ -230,9 +230,10 @@
                 android:contentDescription="检查" />
         </LinearLayout>
 
-        <!-- ══ 导出安装包（签名变更/迁移前备份用）══ -->
+
+        <!-- ══ 致谢（点击打开独立弹窗，分引用/借鉴/历史三板块） ══ -->
         <LinearLayout
-            android:id="@+id/item_about_export"
+            android:id="@+id/item_about_credits"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="?attr/selectableItemBackground"
@@ -248,8 +249,8 @@
                 app:cardBackgroundColor="?attr/colorSecondaryContainer">
                 <ImageView
                     android:layout_width="match_parent" android:layout_height="match_parent"
-                    android:src="@drawable/ic_save"
-                    android:contentDescription="导出安装包"
+                    android:src="@drawable/ic_star"
+                    android:contentDescription="致谢"
                     android:padding="9dp"
                     android:tint="?attr/colorSecondary" />
             </com.google.android.material.card.MaterialCardView>
@@ -260,14 +261,14 @@
                 android:orientation="vertical">
                 <TextView
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="导出安装包"
+                    android:text="致谢"
                     android:textAppearance="?attr/textAppearanceBodyMedium"
                     android:textColor="?attr/colorOnSurface" />
                 <TextView
-                    android:id="@+id/tv_about_export"
+                    android:id="@+id/tv_about_credits"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginTop="1dp"
-                    android:text="把当前安装的 APK 复制到 Download 目录备份"
+                    android:text="引用的开源库、借鉴的设计与历史参考"
                     android:textAppearance="?attr/textAppearanceBodySmall"
                     android:textColor="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
@@ -275,78 +276,7 @@
             <ImageView
                 android:layout_width="18dp" android:layout_height="18dp"
                 android:src="@drawable/ic_chevron_right"
-                android:contentDescription="导出" />
-        </LinearLayout>
-
-        <!-- ══ 致谢 ══ -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
-            android:layout_marginBottom="8dp"
-            android:layout_marginStart="4dp"
-            android:text="致谢"
-            android:textAppearance="?attr/textAppearanceTitleSmall"
-            android:textColor="?attr/colorPrimary" />
-
-        <TextView
-            android:id="@+id/tv_about_credits"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:lineSpacingExtra="5dp"
-            android:textAppearance="?attr/textAppearanceBodySmall"
-            android:textColor="?attr/colorOnSurfaceVariant" />
-
-        <!-- 完整致谢（默认折叠，避免列表过长） -->
-        <LinearLayout
-            android:id="@+id/box_about_credits_more"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:layout_marginTop="2dp"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/tv_about_credits_more"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:lineSpacingExtra="5dp"
-                android:textAppearance="?attr/textAppearanceBodySmall"
-                android:textColor="?attr/colorOnSurfaceVariant" />
-        </LinearLayout>
-
-        <!-- 折叠开关：整行可点 -->
-        <LinearLayout
-            android:id="@+id/row_about_credits_toggle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:background="?attr/selectableItemBackground"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingVertical="8dp">
-
-            <TextView
-                android:id="@+id/tv_about_credits_toggle"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="4dp"
-                android:text="展开完整致谢"
-                android:textAppearance="?attr/textAppearanceLabelMedium"
-                android:textColor="?attr/colorPrimary" />
-
-            <ImageView
-                android:id="@+id/iv_about_credits_arrow"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:src="@drawable/ic_expand_more"
-                android:contentDescription="展开"
-                android:tint="?attr/colorPrimary" />
+                android:contentDescription="查看" />
         </LinearLayout>
 
         

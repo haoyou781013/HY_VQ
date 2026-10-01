@@ -451,65 +451,12 @@ public class MainActivity extends AppCompatActivity {
         if (tvRepo != null) tvRepo.setText(OPEN_SOURCE_URL.replace("https://", ""));
 
         // ── 致谢：主列表常显，完整列表默认折叠 ──
-        final String[] MAIN_CREDITS = {
-                "Material Files —— 目录滚动位置记忆、双窗格交互的设计思路",
-                "Material Components for Android —— Material 3 组件与主题体系",
-                "AndroidX —— 基础支持库",
-                "呜哇小站 emoji.wuwa.games —— 免费提供鸣潮表情包 API（本应用已主动限流）",
-        };
-        final String[] MORE_CREDITS = {
-                "",
-                "【同样致谢以下项目】",
-                "MT 管理器 —— 双窗格文件管理交互与长按菜单的参考",
-                "ZhuFiler —— 主题叠加与目录缓存实现的参考",
-                "Amaze File Manager —— 底部导航栏（文件/分类/回收站/网络）的风格参考",
-                "Fossify File Manager —— 同类实现与交互细节参考",
-                "Ghost Commander —— 网络能力（FTP 服务端）的方向参考",
-                "Blurry / BlurView —— 浮窗与侧边栏背景模糊的实现原理参考",
-                "",
-                "【历史参考，代码现已不再使用，但仍致谢】",
-                "Jetpack Media3 / ExoPlayer —— 曾评估引入媒体播放，因本项目需离线构建而改用原生实现",
-                "pnpm —— 早期构建与依赖管理工具（非应用内组件）",
-                "",
-                "感谢上述所有开源作者与免费服务的提供者。",
-                "本项目以 GPL-3.0 发布，相关代码与资源版权归各自原作者所有。",
-        };
+        // 致谢数据见类字段 CREDITS_USED / CREDITS_INSPIRED / CREDITS_HISTORY
 
-        TextView tvCredits = aboutView.findViewById(R.id.tv_about_credits);
-        if (tvCredits != null) tvCredits.setText(String.join(System.lineSeparator(), MAIN_CREDITS));
-        final TextView tvCreditsMore = aboutView.findViewById(R.id.tv_about_credits_more);
-        if (tvCreditsMore != null) {
-            tvCreditsMore.setText(String.join(System.lineSeparator(), MORE_CREDITS));
-        }
+        // 致谢：点击打开独立弹窗（分「引用 / 借鉴 / 历史」三板块）
+        View itemCredits = aboutView.findViewById(R.id.item_about_credits);
+        if (itemCredits != null) itemCredits.setOnClickListener(v -> showCreditsDialog());
 
-        final View creditsMoreBox = aboutView.findViewById(R.id.box_about_credits_more);
-        final TextView creditsToggle = aboutView.findViewById(R.id.tv_about_credits_toggle);
-        final ImageView creditsArrow = aboutView.findViewById(R.id.iv_about_credits_arrow);
-        View creditsToggleRow = aboutView.findViewById(R.id.row_about_credits_toggle);
-        if (creditsToggleRow != null) {
-            creditsToggleRow.setOnClickListener(v -> {
-                boolean expand = creditsMoreBox != null
-                        && creditsMoreBox.getVisibility() != View.VISIBLE;
-                // 平滑过渡（同更新页历史版本的做法）
-                ViewGroup scene = aboutView.findViewById(R.id.about_content);
-                if (scene != null) {
-                    android.transition.TransitionManager.beginDelayedTransition(
-                            scene, new android.transition.AutoTransition().setDuration(220));
-                }
-                if (creditsMoreBox != null) {
-                    creditsMoreBox.setVisibility(expand ? View.VISIBLE : View.GONE);
-                }
-                if (creditsToggle != null) {
-                    creditsToggle.setText(expand
-                            ? "收起完整致谢（共 " + (MAIN_CREDITS.length + MORE_CREDITS.length - 1) + " 条目）"
-                            : "展开完整致谢（共 " + (MAIN_CREDITS.length + MORE_CREDITS.length - 1) + " 条目）");
-                }
-                if (creditsArrow != null) {
-                    creditsArrow.setImageResource(expand
-                            ? R.drawable.ic_expand_less : R.drawable.ic_expand_more);
-                }
-            });
-        }
         TextView tvDisc = aboutView.findViewById(R.id.tv_about_disclaimer);
         if (tvDisc != null) {
             tvDisc.setText(String.join(System.lineSeparator(), new String[]{
@@ -533,7 +480,6 @@ public class MainActivity extends AppCompatActivity {
         aboutView.findViewById(R.id.item_about_repo).setOnClickListener(v -> openUrl(OPEN_SOURCE_URL));
         aboutView.findViewById(R.id.item_about_license).setOnClickListener(v -> showLicenseDialog());
         aboutView.findViewById(R.id.item_about_changelog).setOnClickListener(v -> switchToUpdate());
-        aboutView.findViewById(R.id.item_about_export).setOnClickListener(v -> exportSelfApk());
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -1680,6 +1626,10 @@ public class MainActivity extends AppCompatActivity {
                             ? "打开应用时在后台静默检查，发现新版本会提示"
                             : "已关闭，需手动点击「检查更新」");
                 }
+        // 导出安装包（由关于页迁入）
+        View itemUpdExport = updateView.findViewById(R.id.item_upd_export);
+        if (itemUpdExport != null) itemUpdExport.setOnClickListener(v -> exportSelfApk());
+
         // 更新提醒（原设置页「通知管理」并入此处，避免职责重叠）
         LinearLayout boxNotify = updateView.findViewById(R.id.box_upd_notify);
         if (boxNotify != null) {
@@ -2280,6 +2230,141 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** 存储管理：用量概览 + 缓存清理 + 回收站清空 */
+    // ══════════════════════════════════════════════════════════════
+    //  致谢（三板块：引用的 / 借鉴的 / 不再使用但曾参考的）
+    // ══════════════════════════════════════════════════════════════
+
+    /** 板块一：本项目直接引用的开源库与免费服务 */
+    private static final String[] CREDITS_USED = {
+            "AndroidX —— 基础支持库（AppCompat / RecyclerView / FileProvider 等）",
+            "Material Components for Android —— Material 3 组件与主题体系",
+            "呜哇小站 emoji.wuwa.games —— 免费提供鸣潮表情包 API（本应用已主动限流）",
+    };
+
+    /** 板块二：借鉴其设计思路与交互的项目（未直接使用其代码） */
+    private static final String[] CREDITS_INSPIRED = {
+            "Material Files —— 目录滚动位置记忆、双窗格交互的设计思路",
+            "MT 管理器 —— 双窗格文件管理交互与长按菜单的参考",
+            "ZhuFiler —— 主题叠加与目录缓存实现的参考",
+            "Amaze File Manager —— 底部导航栏（文件/分类/回收站/网络）的风格参考",
+            "Fossify File Manager —— 同类实现与交互细节参考",
+            "Ghost Commander —— 网络能力（FTP 服务端）的方向参考",
+            "Blurry / BlurView —— 浮窗与侧边栏背景模糊的实现原理参考",
+    };
+
+    /** 板块三：历史参考 —— 代码现已不再使用，但开发过程中曾受益 */
+    private static final String[] CREDITS_HISTORY = {
+            "Jetpack Media3 / ExoPlayer —— 曾评估引入媒体播放，因本项目需离线构建而改用原生实现",
+            "pnpm —— 早期构建与依赖管理工具（非应用内组件）",
+    };
+
+    /**
+     * 致谢弹窗：三个板块分别列出「引用的」「借鉴的」「历史参考的」。
+     * <p>拆成独立弹窗而非内嵌折叠，是因为条目较多、内嵌会把关于页撑得过长。</p>
+     */
+    private void showCreditsDialog() {
+        ScrollView sv = new ScrollView(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp2(4), dp2(4), dp2(4), dp2(4));
+        sv.addView(box);
+        // 限制高度，避免条目多时弹窗超出屏幕
+        sv.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, (int) (getResources()
+                .getDisplayMetrics().heightPixels * 0.62)));
+
+        box.addView(ModuleUiKit.sectionHeader(this, "致谢"));
+
+        TextView intro = new TextView(this);
+        intro.setText("本项目的实现得益于以下开源项目与免费服务。"
+                + "按使用方式分为三类，一并致谢。");
+        intro.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        intro.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        intro.setLineSpacing(dp2(2), 1.25f);
+        intro.setPadding(dp2(4), dp2(2), dp2(4), dp2(6));
+        box.addView(intro);
+
+        addCreditsSection(box, "① 引用的", "直接使用了其库或服务",
+                CREDITS_USED, com.google.android.material.R.attr.colorPrimary);
+        addCreditsSection(box, "② 借鉴的", "未用其代码，参考了设计与交互",
+                CREDITS_INSPIRED, com.google.android.material.R.attr.colorSecondary);
+        addCreditsSection(box, "③ 历史参考", "代码现已不再使用，但开发中曾受益",
+                CREDITS_HISTORY, com.google.android.material.R.attr.colorTertiary);
+
+        TextView tail = new TextView(this);
+        tail.setText("感谢上述所有开源作者与免费服务的提供者。\n"
+                + "本项目以 GPL-3.0 发布，相关代码与资源版权归各自原作者所有。");
+        tail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tail.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tail.setLineSpacing(dp2(2), 1.25f);
+        tail.setPadding(dp2(4), dp2(12), dp2(4), dp2(4));
+        box.addView(tail);
+
+        final android.app.Dialog dialog = ModuleUiKit.glassDialog(this, sv);
+        // 弹窗底部补一个关闭按钮
+        box.addView(updateTextButtonRow("关闭", v -> ModuleUiKit.dismissWithAnim(dialog)));
+        dialog.show();
+    }
+
+    /** 致谢弹窗里的一个板块：标题 + 副标题 + 条目列表 */
+    private void addCreditsSection(LinearLayout parent, String title, String subtitle,
+                                   String[] items, int colorAttr) {
+        LinearLayout sec = new LinearLayout(this);
+        sec.setOrientation(LinearLayout.VERTICAL);
+        sec.setPadding(dp2(12), dp2(10), dp2(12), dp2(10));
+        sec.setBackground(ModuleUiKit.rounded(this, 12,
+                ModuleUiKit.color(this,
+                        com.google.android.material.R.attr.colorSurfaceContainerLow),
+                ModuleUiKit.color(this,
+                        com.google.android.material.R.attr.colorOutlineVariant)));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp2(10);
+        sec.setLayoutParams(lp);
+
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        t.setTextColor(ModuleUiKit.color(this, colorAttr));
+        sec.addView(t);
+
+        TextView st = new TextView(this);
+        st.setText(subtitle + "（" + items.length + " 项）");
+        st.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        st.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        st.setPadding(0, dp2(2), 0, dp2(6));
+        sec.addView(st);
+
+        for (String it : items) {
+            TextView row = new TextView(this);
+            row.setText("· " + it);
+            row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            row.setTextColor(ModuleUiKit.color(this,
+                    com.google.android.material.R.attr.colorOnSurface));
+            row.setLineSpacing(dp2(3), 1.2f);
+            row.setPadding(0, dp2(2), 0, dp2(2));
+            sec.addView(row);
+        }
+        parent.addView(sec);
+    }
+
+    /** 生成一行右对齐按钮容器（含单个按钮） */
+    private LinearLayout updateTextButtonRow(String text, View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.END);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp2(14);
+        row.setLayoutParams(lp);
+        row.addView(updateTextButton(text, onClick));
+        return row;
+    }
+
     /** 刷新设置页「显示密度」右侧的状态文字 */
     private void refreshDpiLabel() {
         if (settingsView == null) return;

@@ -334,6 +334,50 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
 
+        <!-- ══════════ ⑧ 导出安装包（由关于页迁入） ══════════ -->
+        <LinearLayout
+            android:id="@+id/item_upd_export"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingVertical="10dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="导出安装包"
+                    android:textAppearance="?attr/textAppearanceBodyLarge"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <TextView
+                    android:id="@+id/tv_upd_export_desc"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="把当前安装的 APK 复制到 Download 目录备份"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_chevron_right"
+                android:contentDescription="导出"
+                android:tint="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
+
         <!-- ══════════ ⑦ 更新提醒（原设置页「通知管理」并入） ══════════ -->
         <LinearLayout
             android:id="@+id/box_upd_notify"
