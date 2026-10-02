@@ -51,6 +51,9 @@ public class PermissionCenterView extends LinearLayout {
         this.onRefresh = onRefresh;
         setOrientation(VERTICAL);
         setPadding(dp(16), dp(12), dp(16), dp(32));
+        // 页面用纯白底：与卡片（主题淡色容器，如蓝主题的 #BBDEFB）形成干净对比，
+        // 卡片边界更清楚；同时避免继承父容器的浅灰底导致的"糊成一片"。
+        setBackgroundColor(0xFFFFFFFF);
         build();
     }
 
@@ -371,6 +374,18 @@ public class PermissionCenterView extends LinearLayout {
         addView(gap, glp);
     }
 
+    /**
+     * 统一的卡片外观：淡色容器背景 + 主色细边框。
+     *
+     * <p>底色用 {@code colorPrimaryContainer} 而非写死颜色，可自动跟随主题
+     * ——蓝主题为淡蓝 (#BBDEFB)、绿主题为淡绿、紫主题为淡紫，视觉更协调。</p>
+     */
+    private android.graphics.drawable.GradientDrawable cardBg() {
+        return ModuleUiKit.rounded(ctx, 12,
+                color(R.attr.colorPrimaryContainer),   // 跟随主题的淡色容器
+                color(R.attr.colorPrimary));           // 细边框
+    }
+
     private View buildRow(final PermItem p) {
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(HORIZONTAL);
@@ -381,11 +396,7 @@ public class PermissionCenterView extends LinearLayout {
         // 用 colorPrimaryContainer 作底色可自动跟随主题（蓝主题即淡蓝 #BBDEFB，
         // 绿主题即淡绿，暗色主题则为深色容器），比写死颜色更协调。
         // 注意：背景只能设一个，所以必须用 rippleBg 把两者合成，不能分两次设置。
-        android.graphics.drawable.GradientDrawable cardBg = ModuleUiKit.rounded(
-                ctx, 12,
-                color(R.attr.colorPrimaryContainer),   // 淡色背景（跟随主题）
-                color(R.attr.colorPrimary));           // 边框
-        row.setBackground(ModuleUiKit.rippleBg(ctx, cardBg));
+        row.setBackground(ModuleUiKit.rippleBg(ctx, cardBg()));
 
         LinearLayout col = new LinearLayout(ctx);
         col.setOrientation(VERTICAL);
@@ -629,27 +640,22 @@ public class PermissionCenterView extends LinearLayout {
         note.setPadding(dp(2), 0, dp(2), dp(6));
         addView(note);
 
-        LinearLayout card = new LinearLayout(ctx);
-        card.setOrientation(VERTICAL);
-        card.setBackground(ModuleUiKit.rounded(ctx, 14,
-                color(R.attr.colorSurfaceContainerHigh), 0));
-
-        // Shizuku
-        card.addView(buildCapabilityRow("Shizuku 授权",
+        // 与权限项保持同一种卡片样式，整页风格统一
+        LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp1.bottomMargin = dp(8);
+        addView(buildCapabilityRow("Shizuku 授权",
                 "以 adb(shell) 身份读取系统日志，用于自动提取抽卡链接。"
                         + "不使用该功能时无需授权。",
-                capabilityShizukuState()));
-        card.addView(divider());
-        // SAF
-        card.addView(buildCapabilityRow("存储访问框架（SAF）",
+                capabilityShizukuState()), lp1);
+
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp2.bottomMargin = dp(6);
+        addView(buildCapabilityRow("存储访问框架（SAF）",
                 "你在文件管理里通过系统文件选择器授权的目录。"
                         + "应用只能访问你明确选择过的位置。",
-                "按需授权"));
-
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        clp.bottomMargin = dp(14);
-        addView(card, clp);
+                "按需授权"), lp2);
     }
 
     /** 读取 Shizuku 授权状态（反射调用，未安装时安全降级） */
@@ -669,7 +675,9 @@ public class PermissionCenterView extends LinearLayout {
     private View buildCapabilityRow(String label, String desc, String status) {
         LinearLayout col = new LinearLayout(ctx);
         col.setOrientation(VERTICAL);
-        col.setPadding(dp(14), dp(12), dp(14), dp(12));
+        col.setPadding(dp(14), dp(13), dp(14), dp(13));
+        // 与权限项用同一种卡片外观（能力项不可点击，故不加水波纹）
+        col.setBackground(cardBg());
 
         LinearLayout titleRow = new LinearLayout(ctx);
         titleRow.setOrientation(HORIZONTAL);
@@ -706,15 +714,6 @@ public class PermissionCenterView extends LinearLayout {
     //  小工具
     // ══════════════════════════════════════════════
 
-    private View divider() {
-        View v = new View(ctx);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-        lp.leftMargin = dp(16);
-        v.setBackgroundColor(color(R.attr.colorOutlineVariant));
-        v.setLayoutParams(lp);
-        return v;
-    }
 
     private void addDivider(LinearLayout box) {
         View v = new View(ctx);
