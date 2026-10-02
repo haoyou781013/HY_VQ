@@ -155,10 +155,10 @@ public class GachaView extends LinearLayout {
                 color(com.google.android.material.R.attr.colorOnPrimary),
                 color(com.google.android.material.R.attr.colorTertiary),
                 v -> doAutoFetch());
-        addGridButton(grid, "米游社登录",
+        addGridButton(grid, "用 HoYoGet 获取",
                 color(com.google.android.material.R.attr.colorOnSecondary),
                 color(com.google.android.material.R.attr.colorSecondary),
-                v -> showMiyousheLogin());
+                v -> showHoyoGetDialog());
         addGridButton(grid, "如何获取链接",
                 color(com.google.android.material.R.attr.colorPrimary),
                 color(com.google.android.material.R.attr.colorSurfaceContainerHighest),
@@ -629,6 +629,88 @@ public class GachaView extends LinearLayout {
         });
     }
 
+    /** HoYoGet 官网（成熟的第三方取链工具，支持原神/崩铁/绝区零） */
+    private static final String HOYOGET_HOME = "https://www.wyylkjs.com/HoYoGet/";
+
+    /**
+     * 引导用户使用 HoYoGet 获取链接。
+     *
+     * <p>本项目不再自行实现账号登录：那需要长期跟随米哈游的接口与风控变化
+     * （DS 签名 salt 会随米游社版本失效、设备风险判定规则也会调整）。
+     * 交由专门工具处理更稳妥，本应用只负责拿到链接后的分析。</p>
+     */
+    private void showHoyoGetDialog() {
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(ctx, "用 HoYoGet 获取链接"));
+
+        TextView tv = new TextView(ctx);
+        tv.setText("HoYoGet 是专门用于提取抽卡分析链接的工具，支持原神、崩坏：星穹铁道、"
+                + "绝区零，提供三种获取方式，可按机型与习惯任选：\n\n"
+                + "① 账号登录获取 —— 支持扫码，最省事\n"
+                + "② ADB 获取 —— 兼容 B 服与国际服\n"
+                + "③ 云游戏获取 —— 不装游戏也能用\n\n"
+                + "在 HoYoGet 里拿到链接后，回到本应用粘贴并点「解析并导入」即可。\n\n"
+                + "本应用不再自行实现账号登录，因为那需要长期跟随米哈游的接口与风控变化；"
+                + "交由专门工具维护更可靠。");
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tv.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        tv.setLineSpacing(dp(2), 1.35f);
+        tv.setPadding(dp(4), dp(8), dp(4), dp(4));
+        box.addView(tv);
+
+        TextView tip = new TextView(ctx);
+        tip.setText("⚠️ 链接含可读取你抽卡记录的凭证，请勿分享给他人或不明应用。");
+        tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tip.setTextColor(color(com.google.android.material.R.attr.colorError));
+        tip.setLineSpacing(dp(2), 1.25f);
+        tip.setPadding(dp(4), dp(10), dp(4), dp(4));
+        box.addView(tip);
+
+        final android.app.Dialog d = ModuleUiKit.glassDialog(ctx, box);
+        LinearLayout btns = new LinearLayout(ctx);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.END);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.topMargin = dp(14);
+        box.addView(btns, blp);
+
+        TextView open = btn("打开 HoYoGet 官网", color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorPrimary));
+        open.setOnClickListener(v -> {
+            ModuleUiKit.dismissWithAnim(d);
+            openUrl(HOYOGET_HOME);
+        });
+        btns.addView(open);
+
+        TextView close = btn("关闭", color(com.google.android.material.R.attr.colorPrimary),
+                color(com.google.android.material.R.attr.colorSurfaceContainerHighest));
+        close.setOnClickListener(v -> ModuleUiKit.dismissWithAnim(d));
+        btns.addView(close);
+        d.show();
+    }
+
+    /** 用系统浏览器打开链接（失败则提示） */
+    private void openUrl(String url) {
+        try {
+            android.content.Intent i = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(i);
+        } catch (Throwable t) {
+            Toast.makeText(ctx, "无法打开浏览器，请手动访问：\n" + url, Toast.LENGTH_LONG).show();
+            // 同时把网址放进剪贴板，便于用户手动粘贴
+            try {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                        ctx.getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm != null) cm.setPrimaryClip(
+                        android.content.ClipData.newPlainText("HoYoGet", url));
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
     /**
      * 「如何获取抽卡链接」教程弹窗。
      *
@@ -656,8 +738,19 @@ public class GachaView extends LinearLayout {
         intro.setPadding(dp(4), dp(2), dp(4), dp(6));
         box.addView(intro);
 
-        addHowToSection(box, "方案一 · 电脑端读日志（最简单）",
+        addHowToSection(box, "方案一 · 用 HoYoGet（推荐，最省事）",
                 com.google.android.material.R.attr.colorPrimary,
+                new String[]{
+                        "① 点上方「用 HoYoGet 获取」按钮前往官网下载",
+                        "② 它提供三种获取方式，按机型任选：",
+                        "    账号登录（支持扫码）/ ADB 获取 / 云游戏获取",
+                        "③ 在 HoYoGet 里拿到链接（会自动复制）",
+                        "④ 回到本应用，点「从剪贴板粘贴」再「解析并导入」",
+                        "支持原神、崩坏：星穹铁道、绝区零",
+                });
+
+        addHowToSection(box, "方案二 · 电脑端读日志",
+                com.google.android.material.R.attr.colorSecondary,
                 new String[]{
                         "① 电脑上打开原神，进入「祈愿 → 历史记录」并保持窗口不要关闭",
                         "② 找到游戏日志文件：",
@@ -667,7 +760,7 @@ public class GachaView extends LinearLayout {
                         "⑤ 发送到手机，粘贴到上面的输入框即可",
                 });
 
-        addHowToSection(box, "方案二 · 手机端抓包",
+        addHowToSection(box, "方案三 · 手机端抓包",
                 com.google.android.material.R.attr.colorSecondary,
                 new String[]{
                         "① 安装抓包工具（如 Reqable、HttpCanary）",
@@ -677,7 +770,7 @@ public class GachaView extends LinearLayout {
                         "⑤ 复制完整网址，粘贴到上面的输入框",
                 });
 
-        addHowToSection(box, "方案三 · 电脑上直接用现成工具",
+        addHowToSection(box, "方案四 · 电脑上直接用现成工具",
                 com.google.android.material.R.attr.colorTertiary,
                 new String[]{
                         "① 使用开源工具 Genshin Wish Export（GitHub 可搜）",
@@ -897,179 +990,6 @@ public class GachaView extends LinearLayout {
             c.addView(fl);
         }
         return c;
-    }
-
-    // ══════════════════════════════════════════════
-    //  米游社账号登录 → 生成 authkey
-    // ══════════════════════════════════════════════
-
-    /**
-     * 打开米游社登录（WebView）。
-     *
-     * <p>用网页登录而非自建登录接口，是因为后者需要 DS 动态签名（salt 随版本失效）、
-     * 设备指纹与新设备短信验证；而官方网页本身已经处理了这一切，
-     * 我们只需从 CookieManager 读取登录后的 Cookie。</p>
-     */
-    private void showMiyousheLogin() {
-        if (!(ctx instanceof android.app.Activity)) {
-            setStatus("❌ 无法打开登录页");
-            return;
-        }
-
-        final LinearLayout box = new LinearLayout(ctx);
-        box.setOrientation(LinearLayout.VERTICAL);
-
-        final TextView tip = new TextView(ctx);
-        tip.setText("正在创建扫码会话…");
-        tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        tip.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
-        tip.setLineSpacing(dp(2), 1.25f);
-        tip.setPadding(dp(4), dp(2), dp(4), dp(8));
-        box.addView(tip);
-
-        // 官方二维码页面用 WebView 直接加载 —— 无需二维码生成库
-        final android.webkit.WebView web = new android.webkit.WebView((android.app.Activity) ctx);
-        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                (int) (getResources().getDisplayMetrics().heightPixels * 0.52));
-        box.addView(web, wlp);
-
-        final TextView st2 = new TextView(ctx);
-        st2.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        st2.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
-        st2.setPadding(dp(4), dp(8), dp(4), 0);
-        st2.setText("用米游社 App 扫描上方二维码并确认");
-        box.addView(st2);
-
-        final android.app.Dialog dialog = ModuleUiKit.glassDialog(ctx, box);
-        LinearLayout btns = new LinearLayout(ctx);
-        btns.setOrientation(LinearLayout.HORIZONTAL);
-        btns.setGravity(Gravity.END);
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        blp.topMargin = dp(10);
-        box.addView(btns, blp);
-        TextView cancel = btn("取消", color(com.google.android.material.R.attr.colorPrimary),
-                color(com.google.android.material.R.attr.colorSurfaceContainerHighest));
-        btns.addView(cancel);
-
-        final java.util.concurrent.atomic.AtomicBoolean stop =
-                new java.util.concurrent.atomic.AtomicBoolean(false);
-        cancel.setOnClickListener(v -> {
-            stop.set(true);
-            try { web.destroy(); } catch (Throwable ignored) { }
-            ModuleUiKit.dismissWithAnim(dialog);
-        });
-
-        // 在子线程创建会话（网络请求不能占主线程）
-        new Thread(() -> {
-            final MiyousheAuth.QrSession sess = MiyousheAuth.createQrLogin(ctx);
-            runOnUi(() -> {
-                if (sess.error != null || sess.url.isEmpty()) {
-                    tip.setText("❌ 创建扫码会话失败：" + sess.error);
-                    st2.setText("可改用「如何获取链接」里的手动方案");
-                    return;
-                }
-                tip.setText("请用米游社 App 扫描下方二维码并确认登录");
-                web.loadUrl(sess.url);
-                startQrPolling(sess.ticket, stop, dialog, web, st2);
-            });
-        }, "HyVqQrCreate").start();
-
-        dialog.show();
-    }
-
-    /** 轮询扫码状态；确认后换取 authkey */
-    private void startQrPolling(final String ticket,
-                                final java.util.concurrent.atomic.AtomicBoolean stop,
-                                final android.app.Dialog dialog,
-                                final android.webkit.WebView web,
-                                final TextView st2) {
-        new Thread(() -> {
-            int tries = 0;
-            while (!stop.get() && tries++ < 100) {   // 最多约 3 分钟
-                try {
-                    Thread.sleep(2000);
-                } catch (InterruptedException e) {
-                    return;
-                }
-                if (stop.get()) return;
-                final MiyousheAuth.QrSession q = MiyousheAuth.queryQrStatus(ctx, ticket);
-                if (q.error != null) {
-                    runOnUi(() -> st2.setText("⚠️ " + q.error));
-                    continue;
-                }
-                if ("Scanned".equalsIgnoreCase(q.status)) {
-                    runOnUi(() -> st2.setText("已扫码，请在手机上确认登录…"));
-                    continue;
-                }
-                if (q.confirmed()) {
-                    final String cookie = MiyousheAuth.cookieFrom(q);
-                    final MiyousheAuth.AuthKeyResult r =
-                            MiyousheAuth.genAuthKey(cookie, "hk4e_cn");
-                    final String roles = MiyousheAuth.queryRoles(cookie);
-                    runOnUi(() -> {
-                        stop.set(true);
-                        try { web.destroy(); } catch (Throwable ignored) { }
-                        ModuleUiKit.dismissWithAnim(dialog);
-                        if (r.authKey != null && !r.authKey.isEmpty()) {
-                            String url = "https://webstatic.mihoyo.com/hk4e/event/"
-                                    + "e20190909gacha-df01aea2/index.html?authkey_ver=1&sign_type=2"
-                                    + "&auth_appid=webview_gacha&lang=zh-cn&game_biz=hk4e_cn"
-                                    + "&authkey=" + r.authKey + "#/log";
-                            String cur = input.getText().toString().trim();
-                            input.setText(cur.isEmpty() ? url : cur + "\n" + url);
-                            setStatus("✅ 已通过米游社扫码登录获取链接，点「解析并导入」开始统计。");
-                        } else {
-                            setStatus("❌ 生成链接失败：" + r.error
-                                    + "\n① 凭证：" + MiyousheAuth.summarize(cookie)
-                                    + "\n② 角色查询：" + summarizeRoles(roles)
-                                    + "\n③ genAuthKey：" + abbreviate(r.raw, 180));
-                        }
-                    });
-                    return;
-                }
-            }
-            runOnUi(() -> st2.setText("⚠️ 等待超时或已取消，请重新扫码。"));
-        }, "HyVqQrPoll").start();
-    }
-
-    /**
-     * 用户手动确认登录完成：读取当前 Cookie → 校验角色 → 生成 authkey。
-     * <p>分步展示结果，便于判断卡在哪一环。</p>
-     */
-
-    /** 从角色接口返回里提取「是否成功 / 角色数 / 错误」，用于分步排错 */
-    private static String summarizeRoles(String json) {
-        if (json == null || json.isEmpty()) return "无响应";
-        try {
-            org.json.JSONObject o = new org.json.JSONObject(json);
-            int code = o.optInt("retcode", 0);
-            if (code != 0) {
-                return "retcode " + code + " " + o.optString("message", "");
-            }
-            org.json.JSONObject data = o.optJSONObject("data");
-            org.json.JSONArray list = data == null ? null : data.optJSONArray("list");
-            int n = list == null ? 0 : list.length();
-            StringBuilder sb = new StringBuilder("成功，找到 " + n + " 个角色");
-            if (n > 0) {
-                org.json.JSONObject r0 = list.optJSONObject(0);
-                if (r0 != null) {
-                    sb.append("（如 ").append(r0.optString("nickname", "?"))
-                      .append(" / uid ").append(r0.optString("game_uid", "?"))
-                      .append(" / ").append(r0.optString("region", "?")).append("）");
-                }
-            }
-            return sb.toString();
-        } catch (Throwable t) {
-            return "解析失败：" + abbreviate(json, 90);
-        }
-    }
-
-    /** 截断过长文本用于界面显示 */
-    private static String abbreviate(String s, int max) {
-        if (s == null) return "（空）";
-        return s.length() <= max ? s : s.substring(0, max) + "…";
     }
 
     @Override
