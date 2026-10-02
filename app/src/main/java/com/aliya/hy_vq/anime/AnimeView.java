@@ -60,6 +60,20 @@ public class AnimeView extends LinearLayout {
     private final WatchHistory history;
     private LinearLayout continueBox;
 
+    // ── Kazumi 方案：源做成横向 Tab，一次只看一个源的结果 ──
+    /** 源名 → 该源的搜索结果（按出现顺序） */
+    private final java.util.LinkedHashMap<String, List<Subject>> resultsBySource =
+            new java.util.LinkedHashMap<>();
+    /** 源名 → 源对象 */
+    private final java.util.LinkedHashMap<String, AnimeSource> sourceByName =
+            new java.util.LinkedHashMap<>();
+    /** 当前选中的源名（null = 还没选中） */
+    private String currentSource = null;
+    private LinearLayout tabBar;
+    private LinearLayout listBox;
+    private TextView tvStatusTabHint;
+    private android.widget.HorizontalScrollView tabScroll;
+
     private EditText etKeyword;
     private LinearLayout resultBox;
     private TextView tvStatus;
@@ -118,7 +132,25 @@ public class AnimeView extends LinearLayout {
         tvStatus.setPadding(pad, 0, pad, dp(6));
         addView(tvStatus);
 
-        // ── 结果区（顶部含「继续观看」卡片）──
+        // ── 源 Tab 栏（Kazumi 方案：源做 Tab，一次只看一个源）──
+        tvStatusTabHint = new TextView(ctx);
+        tvStatusTabHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tvStatusTabHint.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tvStatusTabHint.setPadding(pad, 0, pad, dp(2));
+        tvStatusTabHint.setVisibility(View.GONE);
+        addView(tvStatusTabHint);
+
+        android.widget.HorizontalScrollView hsv = new android.widget.HorizontalScrollView(ctx);
+        hsv.setHorizontalScrollBarEnabled(false);
+        tabBar = new LinearLayout(ctx);
+        tabBar.setOrientation(HORIZONTAL);
+        tabBar.setPadding(pad, 0, pad, dp(6));
+        hsv.addView(tabBar);
+        hsv.setVisibility(View.GONE);
+        addView(hsv);
+        this.tabScroll = hsv;
+
+        // ── 结果区（顶部含「继续观看」卡片，下方只渲染当前源）──
         ScrollView sv = new ScrollView(ctx);
         resultBox = new LinearLayout(ctx);
         resultBox.setOrientation(VERTICAL);
@@ -126,6 +158,9 @@ public class AnimeView extends LinearLayout {
         continueBox = new LinearLayout(ctx);
         continueBox.setOrientation(VERTICAL);
         resultBox.addView(continueBox);
+        listBox = new LinearLayout(ctx);
+        listBox.setOrientation(VERTICAL);
+        resultBox.addView(listBox);
         sv.addView(resultBox);
         addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
@@ -196,8 +231,12 @@ public class AnimeView extends LinearLayout {
             ModuleUiKit.toast(ctx, repo.isEmpty() ? "还没有源，请先导入" : "所有源都被屏蔽了");
             return;
         }
-        resultBox.removeAllViews();
+        listBox.removeAllViews();
+        resultsBySource.clear();
+        sourceByName.clear();
         shownSources.clear();
+        currentSource = null;
+        refreshSourceTabs();
         searchTotal = srcs.size();
         searcher.search(srcs, kw, new AnimeSearchManager.Callback() {
             @Override public void onStart(int total) {
@@ -294,50 +333,81 @@ public class AnimeView extends LinearLayout {
         }, "anime-resume").start();
     }
 
-    /** 一个源 = 一张卡片（源名 + tier 徽标 + 条目） */
+    /**
+     * 收到一个源的结果：**先缓存，不直接全渲染**（Kazumi 方案）。
+     * 第一个出结果的源自动选中并展示，其余等用户点 Tab。
+     */
     private void addSourceCard(AnimeSource src, List<Subject> subs) {
         shownSources.add(src);
-        LinearLayout c = card();
-
-        // 卡片头：源名 + tier 徽标
-        LinearLayout head = new LinearLayout(ctx);
-        head.setOrientation(HORIZONTAL);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView name = new TextView(ctx);
-        name.setText(src.name);
-        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        name.setTypeface(null, Typeface.BOLD);
-        name.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
-        head.addView(name, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        TextView tier = new TextView(ctx);
-        tier.setText(src.tier >= 0 ? ("tier " + src.tier) : "未评测");
-        tier.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        tier.setTextColor(color(com.google.android.material.R.attr.colorOnTertiaryContainer));
-        tier.setBackground(ModuleUiKit.rounded(ctx, 6,
-                color(com.google.android.material.R.attr.colorTertiaryContainer), 0));
-        tier.setPadding(dp(6), dp(1), dp(6), dp(1));
-        head.addView(tier);
-        c.addView(head);
-
-        // 条目
-        for (final Subject sub : subs) {
-            TextView tv = new TextView(ctx);
-            tv.setText(sub.name);
-            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-            tv.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
-            tv.setPadding(dp(10), dp(10), dp(10), dp(10));
-            tv.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 10,
-                    color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
-            LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = dp(6);
-            tv.setLayoutParams(lp);
-            tv.setOnClickListener(v -> autoPlay(src, sub));
-            c.addView(tv);
+        resultsBySource.put(src.name, subs);
+        sourceByName.put(src.name, src);
+        refreshSourceTabs();
+        if (currentSource == null) {
+            showSource(src.name);          // 第一个出结果的直接展示，不等其它源
         }
-        resultBox.addView(c);
+        return;
+    }
+
+    /** 源 Tab 栏：每个有结果的源一个 Tab，显示名字与条数 */
+    private void refreshSourceTabs() {
+        if (tabBar == null) return;
+        tabBar.removeAllViews();
+        boolean any = !resultsBySource.isEmpty();
+        if (tabScroll != null) tabScroll.setVisibility(any ? View.VISIBLE : View.GONE);
+        if (tvStatusTabHint != null) {
+            tvStatusTabHint.setVisibility(any ? View.VISIBLE : View.GONE);
+            tvStatusTabHint.setText(any
+                    ? "点标签切换源（数字＝该源搜到的条数）" : "");
+        }
+        int i = 0;
+        for (java.util.Map.Entry<String, List<Subject>> e : resultsBySource.entrySet()) {
+            final String key = e.getKey();
+            boolean sel = key.equals(currentSource);
+            TextView t = new TextView(ctx);
+            t.setText(key + " " + e.getValue().size());
+            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            t.setPadding(dp(12), dp(7), dp(12), dp(7));
+            t.setTextColor(sel
+                    ? color(com.google.android.material.R.attr.colorOnPrimary)
+                    : color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            t.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 16,
+                    color(sel ? com.google.android.material.R.attr.colorPrimary
+                              : com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
+            LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (i++ > 0) lp.leftMargin = dp(6);
+            t.setLayoutParams(lp);
+            t.setOnClickListener(v -> showSource(key));
+            tabBar.addView(t);
+        }
+    }
+
+    /** 只渲染当前源的条目 */
+    private void showSource(String key) {
+        currentSource = key;
+        listBox.removeAllViews();
+        List<Subject> subs = resultsBySource.get(key);
+        AnimeSource src = sourceByName.get(key);
+        if (subs != null) {
+            for (final Subject sub : subs) {
+                TextView tv = new TextView(ctx);
+                tv.setText(sub.name);
+                tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                tv.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+                tv.setPadding(dp(10), dp(12), dp(10), dp(12));
+                tv.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 10,
+                        color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
+                LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.bottomMargin = dp(6);
+                tv.setLayoutParams(lp);
+                tv.setOnClickListener(v -> {
+                    if (src != null) autoPlay(src, sub);
+                });
+                listBox.addView(tv);
+            }
+        }
+        refreshSourceTabs();          // 更新选中态
     }
 
     // ══════════════════ 自动选源播放 ══════════════════
