@@ -93,6 +93,11 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:1.1.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.1.1")
 
+    // ── HTML 解析：jsoup ──
+    // 用于解析番剧源页面。ani 源规则基于 CSS selector（不是 XPath），jsoup 原生支持。
+    // zero-dependency 纯 Java 库；同样走本地 Maven 仓库固化。
+    implementation("org.jsoup:jsoup:1.17.2")
+
     // ── 图片加载 ──
     implementation("com.github.bumptech.glide:glide:4.16.0")
     annotationProcessor("com.github.bumptech.glide:compiler:4.16.0")
