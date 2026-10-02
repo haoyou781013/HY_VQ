@@ -7,12 +7,11 @@
     <!-- 软件更新：下载 APK 后拉起系统安装器 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- 局域网 UDP 组播发现：接收组播需多播权限（normal 级别，安装自动授予，无运行时弹窗） -->
-    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <!-- 房间联机（局域网 P2P 直连）：仅需普通网络权限，无 VPN/前台服务/通知依赖 -->
-    <!-- HyVqVpnService / HyVqTerracottaBridge / HyVqLanBridge 已删除（废弃死代码，无活跃调用方），
-         FOREGROUND_SERVICE 权限一并移除，按权限最小化原则不声明多余权限 -->
+    <!-- v2.16.0 权限最小化：曾计划「局域网 UDP 组播发现 / 房间联机（P2P 直连）」，
+         涉及 CHANGE_WIFI_MULTICAST_STATE、ACCESS_WIFI_STATE 与 FOREGROUND_SERVICE。
+         相关组件（HyVqVpnService / HyVqTerracottaBridge / HyVqLanBridge）已于早前删除；
+         两个 WiFi 权限经全量审计确认代码中 0 引用（MulticastLock / WifiManager / WifiInfo
+         均无出现），本版一并移除。若将来重做局域网传输，届时按需重新声明。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 文件管理模块：全盘浏览/编辑需要"所有文件访问"（用户设置里手动授权，
          未授权时模块内引导跳转 Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION） -->

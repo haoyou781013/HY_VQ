@@ -82,6 +82,7 @@ import com.aliya.hy_vq.module.ModuleRegistry;
 import com.aliya.hy_vq.module.ModuleServices;
 import com.aliya.hy_vq.module.impl.FileManagerModule;
 import com.aliya.hy_vq.module.ModuleUiKit;
+import com.aliya.hy_vq.module.PermissionCenterView;
 import com.aliya.hy_vq.update.HyVqAppEntry;
 import androidx.core.content.FileProvider;
 import com.aliya.hy_vq.update.UpdateManager;
@@ -176,7 +177,6 @@ public class MainActivity extends AppCompatActivity {
     /** 正在等待 onActivityResult 的弹窗（onStop 时不销毁，返回后继续使用） */
     private Dialog dialogAwaitingResult = null;
 
-    // ── 房间联机（局域网 P2P 直连：UDP 组播发现 + TCP 直连，纯 Java Socket，无账号体系）──
     /** 应用级 DPI 覆盖：让「设置 → 显示密度」只对本应用生效（见 DpiUtils） */
     @Override
     protected void attachBaseContext(android.content.Context base) {
@@ -216,7 +216,6 @@ public class MainActivity extends AppCompatActivity {
         setupToolbar();
         setupDrawer();
         setupDrawerNavigation();
-        // 房间联机开关：按设置显示/隐藏抽屉入口
         setupBackNavigation();
         initModuleSystem();
         // 增量更新引擎：启动兜底清理 + 加载更新包入口（幂等）
@@ -3097,53 +3096,21 @@ public class MainActivity extends AppCompatActivity {
         return Math.round(getResources().getDisplayMetrics().density * v);
     }
 
-    // ==================== 权限管理页（规范：各种权限申请备齐；成功不弹窗，状态就地展示） ====================
+    // ==================== 权限中心 ====================
+    // 动态列出应用持有的「全部」权限（含系统自动授予、在系统设置里看不到的项目），
+    // 分层展示 + 点击查看用途说明。实现见 module/PermissionCenterView。
 
     private void switchToPermissions() {
-        if (permissionsView == null) {
-            permissionsView = LayoutInflater.from(this).inflate(R.layout.fragment_permissions, contentFrame, false);
-            // 通知行：未授权时点击申请（已授权/低版本点击无动作）
-            permissionsView.findViewById(R.id.item_perm_notification).setOnClickListener(v -> {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                        && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATION);
-                }
-            });
-            // 联机行：局域网 P2P 直连（纯 Java Socket），无需 VPN 授权，仅状态展示
-            permissionsView.findViewById(R.id.item_perm_vpn).setOnClickListener(v ->
-                    Toast.makeText(this, "房间联机走 P2P 组网（同网直连 / 异地打洞），无需 VPN 授权", Toast.LENGTH_SHORT).show());
-        }
+        permissionsView = new PermissionCenterView(this, this::refreshPermissionsView);
         switchContent(permissionsView, PAGE_PERMISSIONS);
         setSubpageToolbar("权限管理");
-        refreshPermissionsView();
-        refreshVpnStatusText();
     }
 
-    /** 同步联机行状态文本：P2P 组网无需 VPN 授权，固定展示说明 */
-    private void refreshVpnStatusText() {
-        setVpnStatusText("无需授权（P2P 组网）");
-    }
-
-    /** 刷新权限页状态文本（纯状态展示，不弹窗） */
+    /** 重建权限中心（从系统设置授权完返回后，状态能立即刷新） */
     private void refreshPermissionsView() {
-        if (permissionsView == null) return;
-        TextView tvNotif = permissionsView.findViewById(R.id.tv_notification_status);
-        if (tvNotif != null) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                tvNotif.setText("无需申请");
-            } else if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                tvNotif.setText("已授权");
-            } else {
-                tvNotif.setText("未授权·点此申请");
-            }
-        }
-    }
-
-    /** 联机行状态展示（局域网直连固定文案） */
-    private void setVpnStatusText(String text) {
-        if (permissionsView == null) return;
-        TextView tvVpn = permissionsView.findViewById(R.id.tv_vpn_status);
-        if (tvVpn != null) tvVpn.setText(text);
+        if (permissionsView == null || permissionsView.getParent() == null) return;
+        permissionsView = new PermissionCenterView(this, this::refreshPermissionsView);
+        switchContent(permissionsView, PAGE_PERMISSIONS);
     }
 
     private void showDefaultPageDialog() {
