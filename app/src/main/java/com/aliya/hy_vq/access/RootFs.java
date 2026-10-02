@@ -330,7 +330,9 @@ public final class RootFs {
     /** 当前挂载读写状态：rw / ro / null（不是独立挂载点） */
     public static String mountState(String mountPoint) {
         if (!RootShell.isGranted()) return null;
-        String cmd = "grep -E ' " + mountPoint + " ' /proc/mounts | head -1";
+        // 防御性转义：当前调用方传的是硬编码路径列表，但本方法是 public，
+        // 若将来被传入用户可控内容，未转义会形成命令注入。统一走 q() 更稳妥。
+        String cmd = "grep -E " + RootShell.q(" " + mountPoint + " ") + " /proc/mounts | head -1";
         RootShell.Result r = RootShell.exec(cmd, 8000);
         String line = r.out.trim();
         if (line.isEmpty()) return null;
