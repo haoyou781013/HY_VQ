@@ -155,6 +155,11 @@ public class GachaView extends LinearLayout {
         btnAuto.setOnClickListener(v -> doAutoFetch());
         btnRow.addView(btnAuto);
 
+        TextView btnMys = btn("米游社登录", color(com.google.android.material.R.attr.colorOnSecondary),
+                color(com.google.android.material.R.attr.colorSecondary));
+        btnMys.setOnClickListener(v -> showMiyousheLogin());
+        btnRow.addView(btnMys);
+
         TextView btnHow = btn("如何获取链接", color(com.google.android.material.R.attr.colorPrimary),
                 color(com.google.android.material.R.attr.colorSurfaceContainerHighest));
         btnHow.setOnClickListener(v -> showHowToDialog());
@@ -882,6 +887,132 @@ public class GachaView extends LinearLayout {
             c.addView(fl);
         }
         return c;
+    }
+
+    // ══════════════════════════════════════════════
+    //  米游社账号登录 → 生成 authkey
+    // ══════════════════════════════════════════════
+
+    /**
+     * 打开米游社登录（WebView）。
+     *
+     * <p>用网页登录而非自建登录接口，是因为后者需要 DS 动态签名（salt 随版本失效）、
+     * 设备指纹与新设备短信验证；而官方网页本身已经处理了这一切，
+     * 我们只需从 CookieManager 读取登录后的 Cookie。</p>
+     */
+    private void showMiyousheLogin() {
+        if (!(ctx instanceof android.app.Activity)) {
+            setStatus("❌ 无法打开登录页");
+            return;
+        }
+        final android.app.Activity act = (android.app.Activity) ctx;
+
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+
+        TextView tip = new TextView(ctx);
+        tip.setText("请在下方页面登录米游社账号。账号密码只提交给官方网页，本应用不接触。"
+                + "登录成功后会自动返回并生成链接。");
+        tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tip.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tip.setLineSpacing(dp(2), 1.25f);
+        tip.setPadding(dp(4), dp(2), dp(4), dp(8));
+        box.addView(tip);
+
+        final android.webkit.WebView web = new android.webkit.WebView(act);
+        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (int) (getResources().getDisplayMetrics().heightPixels * 0.58));
+        box.addView(web, wlp);
+
+        final TextView status2 = new TextView(ctx);
+        status2.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        status2.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+        status2.setPadding(dp(4), dp(8), dp(4), 0);
+        status2.setText("等待登录…");
+        box.addView(status2);
+
+        final android.app.Dialog dialog = ModuleUiKit.glassDialog(ctx, box);
+
+        LinearLayout btns = new LinearLayout(ctx);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.END);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.topMargin = dp(10);
+        box.addView(btns, blp);
+        TextView cancel = btn("取消", color(com.google.android.material.R.attr.colorPrimary),
+                color(com.google.android.material.R.attr.colorSurfaceContainerHighest));
+        cancel.setOnClickListener(v -> {
+            web.destroy();
+            ModuleUiKit.dismissWithAnim(dialog);
+        });
+        btns.addView(cancel);
+
+        MiyousheAuth.setupWebView(web, act, (cookie, err) -> {
+            if (err != null) {
+                status2.setText("❌ 登录失败：" + err);
+                return;
+            }
+            status2.setText("✅ 已检测到登录态，正在验证…\nCookie 字段："
+                    + MiyousheAuth.summarize(cookie));
+            // 网络请求放子线程；先查角色验证 Cookie，再生成 authkey
+            new Thread(() -> {
+                String roles = MiyousheAuth.queryRoles(cookie);
+                MiyousheAuth.AuthKeyResult r = MiyousheAuth.genAuthKey(cookie, "hk4e_cn");
+                runOnUi(() -> {
+                    try { web.destroy(); } catch (Throwable ignored) { }
+                    ModuleUiKit.dismissWithAnim(dialog);
+                    if (r.authKey != null && !r.authKey.isEmpty()) {
+                        // 拼成与游戏一致的完整链接，便于复用既有解析逻辑
+                        String url = "https://webstatic.mihoyo.com/hk4e/event/e20190909gacha-df01aea2/"
+                                + "index.html?authkey_ver=1&sign_type=2&auth_appid=webview_gacha"
+                                + "&lang=zh-cn&game_biz=hk4e_cn&authkey=" + r.authKey + "#/log";
+                        String cur = input.getText().toString().trim();
+                        input.setText(cur.isEmpty() ? url : cur + "\n" + url);
+                        setStatus("✅ 已通过米游社登录获取链接，点「解析并导入」开始统计。");
+                    } else {
+                        // 分步展示，便于判断卡在哪一环
+                        setStatus("❌ 生成链接失败：" + r.error
+                                + "\n① 角色查询：" + summarizeRoles(roles)
+                                + "\n② genAuthKey 返回：" + abbreviate(r.raw, 200));
+                    }
+                });
+            }, "HyVqGenAuthKey").start();
+        });
+
+        dialog.show();
+    }
+
+    /** 从角色接口返回里提取「是否成功 / 角色数 / 错误」，用于分步排错 */
+    private static String summarizeRoles(String json) {
+        if (json == null || json.isEmpty()) return "无响应";
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(json);
+            int code = o.optInt("retcode", 0);
+            if (code != 0) {
+                return "retcode " + code + " " + o.optString("message", "");
+            }
+            org.json.JSONArray list = o.optJSONObject("data") == null ? null
+                    : o.optJSONObject("data").optJSONArray("list");
+            int n = list == null ? 0 : list.length();
+            StringBuilder sb = new StringBuilder("成功，找到 " + n + " 个角色");
+            if (n > 0) {
+                org.json.JSONObject r0 = list.optJSONObject(0);
+                if (r0 != null) sb.append("（如 ").append(r0.optString("nickname", "?"))
+                        .append(" / uid ").append(r0.optString("game_uid", "?"))
+                        .append(" / ").append(r0.optString("region", "?")).append("）");
+            }
+            return sb.toString();
+        } catch (Throwable t) {
+            return "解析失败：" + abbreviate(json, 90);
+        }
+    }
+
+    /** 截断过长文本用于界面显示 */
+    private static String abbreviate(String s, int max) {
+        if (s == null) return "（空）";
+        return s.length() <= max ? s : s.substring(0, max) + "…";
     }
 
     @Override
