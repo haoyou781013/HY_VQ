@@ -139,6 +139,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int PAGE_EMOJI = 10;
     /** 抽卡分析（原神祈愿记录） */
     private static final int PAGE_GACHA = 11;
+    private static final int PAGE_ANIME = 12;      // 动漫（多源聚合搜索）
     private static final int PAGE_MODULE_BASE = 100;
 
     private ActivityMainBinding binding;
@@ -361,6 +362,20 @@ public class MainActivity extends AppCompatActivity {
                     : com.google.android.material.R.attr.colorOnSurfaceVariant);
             if (gIcon != null) gIcon.setColorFilter(gTint);
             if (gText != null) gText.setTextColor(gTint);
+        }
+        // 动漫一级入口选中态
+        View navAnime = binding.navView.findViewById(R.id.nav_anime);
+        if (navAnime != null) {
+            boolean aSel = currentPageIndex == PAGE_ANIME;
+            navAnime.setBackgroundResource(aSel
+                    ? R.drawable.bg_nav_item_selected : R.drawable.bg_nav_item_default);
+            ImageView aIcon = navAnime.findViewById(R.id.nav_anime_icon);
+            TextView aText = navAnime.findViewById(R.id.nav_anime_text);
+            int aTint = resolveAttr(aSel
+                    ? com.google.android.material.R.attr.colorOnPrimaryContainer
+                    : com.google.android.material.R.attr.colorOnSurfaceVariant);
+            if (aIcon != null) aIcon.setColorFilter(aTint);
+            if (aText != null) aText.setTextColor(aTint);
         }
         if (drawerModuleSlot != null) {
             for (int i = 0; i < drawerModuleSlot.getChildCount(); i++) {
@@ -724,6 +739,20 @@ public class MainActivity extends AppCompatActivity {
         switchContent(gachaView, PAGE_GACHA);
         resetToolbar();
         binding.toolbarTitle.setText("抽卡分析 BETA");
+        updateDrawerSelection();
+    }
+
+    // ── 动漫：多源聚合搜索 + 按 tier 自动选源播放（内置一级页面）──
+    private com.aliya.hy_vq.anime.AnimeView animeView;
+
+    private void switchToAnime() {
+        if (animeView == null) {
+            animeView = new com.aliya.hy_vq.anime.AnimeView(this);
+        }
+        currentModuleId = null;      // 非模块：不参与模块选中态
+        switchContent(animeView, PAGE_ANIME);
+        resetToolbar();
+        binding.toolbarTitle.setText("动漫 BETA");
         updateDrawerSelection();
     }
 
@@ -1098,6 +1127,14 @@ public class MainActivity extends AppCompatActivity {
             gachaBtn.setOnClickListener(v -> {
                 binding.drawerLayout.closeDrawers();
                 binding.drawerLayout.postDelayed(this::switchToGacha, 160);
+            });
+        }
+        // 动漫（多源聚合搜索）
+        View animeBtn = binding.navView.findViewById(R.id.nav_anime);
+        if (animeBtn != null) {
+            animeBtn.setOnClickListener(v -> {
+                binding.drawerLayout.closeDrawers();
+                binding.drawerLayout.postDelayed(this::switchToAnime, 160);
             });
         }
         // 设置（底部按钮）

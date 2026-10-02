@@ -217,6 +217,51 @@
                         android:textColor="?attr/colorOnTertiaryContainer" />
                 </LinearLayout>
 
+                <!-- 动漫（多源聚合搜索 + 按 tier 自动选源播放） -->
+                <LinearLayout
+                    android:id="@+id/nav_anime"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="16dp"
+                    android:layout_marginBottom="4dp"
+                    android:background="@drawable/bg_nav_item_default"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <ImageView
+                        android:id="@+id/nav_anime_icon"
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:src="@drawable/ic_video"
+                        android:contentDescription="动漫"
+                        android:tint="?attr/colorOnSurfaceVariant" />
+
+                    <TextView
+                        android:id="@+id/nav_anime_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="14dp"
+                        android:text="动漫"
+                        android:textAppearance="?attr/textAppearanceBodyLarge"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <!-- BETA 标记：数据源依赖第三方，规则会失效 -->
+                    <TextView
+                        android:id="@+id/nav_anime_beta"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/bg_beta_badge"
+                        android:paddingHorizontal="6dp"
+                        android:paddingVertical="1dp"
+                        android:text="BETA"
+                        android:textAppearance="?attr/textAppearanceLabelSmall"
+                        android:textColor="?attr/colorOnTertiaryContainer" />
+                </LinearLayout>
+
                 <!-- 鸣潮表情包（数据来源：呜哇小站 emoji.wuwa.games） -->
                 <LinearLayout
                     android:id="@+id/nav_emoji"
