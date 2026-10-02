@@ -50,12 +50,36 @@ public class SourceEngine {
 
     private final OkHttpClient http;
 
+    /**
+     * 共享连接池 —— 原实现在构造函数里 new 一个 client，而 AnimeSearchManager
+     * 对**每个源**都 new SourceEngine()，等于每源一个连接池，复用率为零。
+     * 改为静态单例后，多源并发共用同一池，省掉重复的对象与线程开销。
+     */
+    private static volatile OkHttpClient SHARED_HTTP;
+
+    private static OkHttpClient shared() {
+        OkHttpClient c = SHARED_HTTP;
+        if (c == null) {
+            synchronized (SourceEngine.class) {
+                c = SHARED_HTTP;
+                if (c == null) {
+                    c = new OkHttpClient.Builder()
+                            // 超时收短：解析场景宁可快速失败，也不要让一个慢源拖住整体
+                            .connectTimeout(10, TimeUnit.SECONDS)
+                            .readTimeout(12, TimeUnit.SECONDS)
+                            .connectionPool(new okhttp3.ConnectionPool(24, 5, TimeUnit.MINUTES))
+                            .retryOnConnectionFailure(true)
+                            .followRedirects(true)
+                            .build();
+                    SHARED_HTTP = c;
+                }
+            }
+        }
+        return c;
+    }
+
     public SourceEngine() {
-        this.http = new OkHttpClient.Builder()
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(20, TimeUnit.SECONDS)
-                .followRedirects(true)
-                .build();
+        this.http = shared();
     }
 
     // ══════════════════════════ 1. 搜索 ══════════════════════════

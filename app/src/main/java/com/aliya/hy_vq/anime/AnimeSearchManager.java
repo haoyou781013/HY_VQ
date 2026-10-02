@@ -33,10 +33,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class AnimeSearchManager {
 
-    /** 单源超时预算：内部 OkHttp 另设 connect 15s / read 20s，这里做兜底 */
-    private static final long PER_SOURCE_TIMEOUT_MS = 25_000L;
+    /** 单源超时：实测能通的源 1~3s 就回来了，拖到 12s 的基本是死源 */
+    private static final long PER_SOURCE_TIMEOUT_MS = 7_000L;
+    /**
+     * 总预算 —— 这是实测出来的关键参数。
+     * 实测并发 4/6/8 的总耗时分别为 29/32/26 秒：**提高并发几乎没用**，
+     * 因为总耗时 = 最慢的那个源，而 18 个源里约一半会超时。
+     * 所以改为「总预算到点就交付已有结果」，不再等剩下的慢源。
+     */
+    private static final long TOTAL_BUDGET_MS = 8_000L;
     /** 并发度：过高会触发源站风控（实测源站对密集请求敏感） */
-    private static final int MAX_PARALLEL = 4;
+    private static final int MAX_PARALLEL = 8;
 
     public interface Callback {
         /** 开始，total = 参与搜索的源数 */
@@ -47,6 +54,9 @@ public class AnimeSearchManager {
 
         /** 某个源失败（超时/异常/规则失效） */
         void onSourceError(AnimeSource source, String reason);
+
+        /** 进度：done 已完成源数 / total 总数（用于让用户看到"在动"） */
+        void onProgress(int done, int total);
 
         /** 全部结束。ok = 有结果的源数 */
         void onAllDone(int ok, int total);
@@ -101,15 +111,25 @@ public class AnimeSearchManager {
         new Thread(() -> {
             int ok = 0;
             int finished = 0;
+            final long deadline = System.currentTimeMillis() + TOTAL_BUDGET_MS;
             for (int i = 0; i < total; i++) {
                 if (cancelled.get()) break;
+                // 先看总预算还剩多少，剩下的慢源不再等
+                long remain = deadline - System.currentTimeMillis();
                 Future<Object[]> f;
                 try {
-                    f = cs.poll(PER_SOURCE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                    if (remain <= 0) {
+                        // 总预算用尽：不再等慢源，但把**已经跑完的**收干净再交付，
+                        // 否则那些刚好在预算边界完成的源会被白白丢掉。
+                        f = cs.poll();
+                        if (f == null) break;
+                    } else {
+                        f = cs.poll(Math.min(remain, PER_SOURCE_TIMEOUT_MS), TimeUnit.MILLISECONDS);
+                    }
                 } catch (InterruptedException e) {
                     break;
                 }
-                if (f == null) continue;      // 预算内没等到 → 跳过（其余继续）
+                if (f == null) continue;      // 预算内没等到 → 跳过
                 Object[] r;
                 try {
                     r = f.get();
@@ -117,6 +137,8 @@ public class AnimeSearchManager {
                     continue;
                 }
                 finished++;
+                final int doneNow = finished;
+                main.post(() -> cb.onProgress(doneNow, total));
                 final AnimeSource src = (AnimeSource) r[0];
                 @SuppressWarnings("unchecked")
                 final List<Subject> subs = (List<Subject>) r[1];

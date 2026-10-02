@@ -9,7 +9,6 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -28,21 +27,30 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 动漫模块主视图（内置一级页面，与文件管理/抽卡分析同款：进 contentFrame，不跳独立 Activity）。
+ * 动漫模块主视图（内置一级页面）。
+ *
+ * <h3>UI 规范（对齐项目其它页面）</h3>
+ * 全项目**不使用原生 Button/EditText 的默认样式** —— GachaView 等页面一律是
+ * {@code TextView + ModuleUiKit.rounded()} 的圆角卡片风格。本页同样遵循：
+ * <ul>
+ *   <li>卡片：{@code rounded(14, colorSurfaceContainerLow, colorOutlineVariant)}</li>
+ *   <li>按钮：{@code btn()} —— 圆角 TextView，不用 android.widget.Button</li>
+ *   <li>分节：{@link ModuleUiKit#sectionHeader}</li>
+ * </ul>
+ *
+ * <h3>参考的两个开源项目</h3>
+ * <ul>
+ *   <li>Animeko 媒体选择器：源与线路**两级展示**、线路用**胶囊按钮**、选中态高亮</li>
+ *   <li>Kazumi 选集页：条目用圆角网格卡片，不用纯文本列表</li>
+ * </ul>
  *
  * <h3>工作流</h3>
  * <pre>
- *   输入关键词 → 多源并发搜索 → 结果按源分组（源按 tier 升序）
- *      → 点击某条 → 解析线路 → 按 tier 排序 → 逐线路尝试首集
- *          → 成功：带请求头唤起 MediaPlayerActivity 播放
- *          → 全失败：列出线路让用户手动选（逃生舱）
+ *   输入关键词 → 多源并发搜索（逐源实时出结果 + 进度）→ 按源分组的卡片
+ *      → 点一条 → 解析线路 → 按 tier 排序 → 逐线路试首集
+ *          → 成功：带请求头唤起统一播放器
+ *          → 全失败：线路胶囊列表（逃生舱）
  * </pre>
- *
- * <h3>两处刻意的设计</h3>
- * <ul>
- *   <li><b>默认不自动拉取源</b>（决策 2）：首次进入是空的，用户点了"导入"才联网。</li>
- *   <li><b>自动选源保留手动兜底</b>：自动失败时给线路列表，而不是死路。</li>
- * </ul>
  */
 public class AnimeView extends LinearLayout {
 
@@ -53,7 +61,8 @@ public class AnimeView extends LinearLayout {
     private EditText etKeyword;
     private LinearLayout resultBox;
     private TextView tvStatus;
-    private final List<AnimeSource> lastResults = new ArrayList<>();
+    private final List<AnimeSource> shownSources = new ArrayList<>();
+    private int searchTotal = 0;
 
     public AnimeView(Activity context) {
         super(context);
@@ -69,24 +78,28 @@ public class AnimeView extends LinearLayout {
     // ══════════════════ UI ══════════════════
 
     private void buildUi() {
-        int pad = dp(12);
+        int pad = dp(14);
 
-        // ── 搜索栏 ──
+        // ── 搜索行：圆角输入框 + 胶囊按钮 ──
         LinearLayout bar = new LinearLayout(ctx);
         bar.setOrientation(HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(pad, pad, pad, dp(6));
+        bar.setPadding(pad, pad, pad, dp(4));
 
         etKeyword = new EditText(ctx);
         etKeyword.setHint("输入番剧名");
         etKeyword.setSingleLine(true);
         etKeyword.setInputType(InputType.TYPE_CLASS_TEXT);
         etKeyword.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        etKeyword.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        etKeyword.setHintTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        etKeyword.setBackground(ModuleUiKit.rounded(ctx, 10,
+                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+        etKeyword.setPadding(dp(12), dp(9), dp(12), dp(9));
         bar.addView(etKeyword, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        Button btnSearch = new Button(ctx);
-        btnSearch.setText("搜索");
-        btnSearch.setAllCaps(false);
+        TextView btnSearch = btn("搜索", color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorPrimary));
         btnSearch.setOnClickListener(v -> doSearch());
         LayoutParams blp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -94,15 +107,14 @@ public class AnimeView extends LinearLayout {
         bar.addView(btnSearch, blp);
         addView(bar);
 
-        // ── 状态行 ──
+        // ── 状态行（小字，次要色）──
         tvStatus = new TextView(ctx);
         tvStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        tvStatus.setTextColor(ModuleUiKit.color(ctx,
-                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tvStatus.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
         tvStatus.setPadding(pad, 0, pad, dp(6));
         addView(tvStatus);
 
-        // ── 结果区（可滚动，占满剩余）──
+        // ── 结果区 ──
         ScrollView sv = new ScrollView(ctx);
         resultBox = new LinearLayout(ctx);
         resultBox.setOrientation(VERTICAL);
@@ -113,15 +125,42 @@ public class AnimeView extends LinearLayout {
         // ── 底部：源管理 ──
         LinearLayout foot = new LinearLayout(ctx);
         foot.setOrientation(HORIZONTAL);
-        foot.setGravity(Gravity.CENTER_VERTICAL);
-        foot.setPadding(pad, dp(6), pad, pad);
-
-        Button btnSrc = new Button(ctx);
-        btnSrc.setText("源管理");
-        btnSrc.setAllCaps(false);
+        foot.setGravity(Gravity.END);
+        foot.setPadding(pad, dp(4), pad, pad);
+        TextView btnSrc = btn("源管理", color(com.google.android.material.R.attr.colorPrimary),
+                color(com.google.android.material.R.attr.colorSurfaceContainerHigh));
         btnSrc.setOnClickListener(v -> showSourceManager());
         foot.addView(btnSrc);
         addView(foot);
+    }
+
+    /** 项目统一的按钮写法（对齐 GachaView.btn）：圆角 TextView，而非原生 Button */
+    private TextView btn(String text, int fg, int bg) {
+        TextView t = new TextView(ctx);
+        t.setText(text);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        t.setTextColor(fg);
+        t.setPadding(dp(16), dp(9), dp(16), dp(9));
+        t.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 10, bg, 0)));
+        t.setClickable(true);
+        t.setFocusable(true);
+        return t;
+    }
+
+    /** 项目统一的卡片写法（对齐 GachaView.card） */
+    private LinearLayout card() {
+        LinearLayout c = new LinearLayout(ctx);
+        c.setOrientation(VERTICAL);
+        int pad = dp(12);
+        c.setPadding(pad, pad, pad, pad);
+        c.setBackground(ModuleUiKit.rounded(ctx, 14,
+                color(com.google.android.material.R.attr.colorSurfaceContainerLow),
+                color(com.google.android.material.R.attr.colorOutlineVariant)));
+        LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(10);
+        c.setLayoutParams(lp);
+        return c;
     }
 
     private void refreshStatus() {
@@ -151,18 +190,25 @@ public class AnimeView extends LinearLayout {
             return;
         }
         resultBox.removeAllViews();
-        lastResults.clear();
+        shownSources.clear();
+        searchTotal = srcs.size();
         searcher.search(srcs, kw, new AnimeSearchManager.Callback() {
             @Override public void onStart(int total) {
-                tvStatus.setText("搜索中… 0/" + total + " 源");
+                tvStatus.setText("搜索中… 0/" + total);
             }
 
             @Override public void onSourceDone(AnimeSource source, List<Subject> subjects) {
-                addSourceResult(source, subjects);
+                addSourceCard(source, subjects);
             }
 
             @Override public void onSourceError(AnimeSource source, String reason) {
-                // 失败不刷屏：只在状态行累计
+                // 失败不刷屏，靠进度行体现
+            }
+
+            /** 实时进度：让用户看到"在动"，而不是干等 */
+            @Override public void onProgress(int done, int total) {
+                tvStatus.setText("搜索中… " + done + "/" + total
+                        + "（已出结果 " + shownSources.size() + " 个源）");
             }
 
             @Override public void onAllDone(int ok, int total) {
@@ -172,43 +218,54 @@ public class AnimeView extends LinearLayout {
         });
     }
 
-    /** 把某个源的结果追加到列表（实时逐源显示） */
-    private void addSourceResult(AnimeSource src, List<Subject> subs) {
-        lastResults.add(src);
-        TextView head = new TextView(ctx);
-        head.setText("▼ " + src.name + "   [tier " + (src.tier >= 0 ? src.tier : "未评测") + "]");
-        head.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        head.setTypeface(null, Typeface.BOLD);
-        head.setPadding(0, dp(10), 0, dp(4));
-        head.setTextColor(ModuleUiKit.color(ctx,
-                com.google.android.material.R.attr.colorPrimary));
-        resultBox.addView(head);
+    /** 一个源 = 一张卡片（源名 + tier 徽标 + 条目） */
+    private void addSourceCard(AnimeSource src, List<Subject> subs) {
+        shownSources.add(src);
+        LinearLayout c = card();
 
+        // 卡片头：源名 + tier 徽标
+        LinearLayout head = new LinearLayout(ctx);
+        head.setOrientation(HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView name = new TextView(ctx);
+        name.setText(src.name);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        name.setTypeface(null, Typeface.BOLD);
+        name.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+        head.addView(name, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView tier = new TextView(ctx);
+        tier.setText(src.tier >= 0 ? ("tier " + src.tier) : "未评测");
+        tier.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tier.setTextColor(color(com.google.android.material.R.attr.colorOnTertiaryContainer));
+        tier.setBackground(ModuleUiKit.rounded(ctx, 6,
+                color(com.google.android.material.R.attr.colorTertiaryContainer), 0));
+        tier.setPadding(dp(6), dp(1), dp(6), dp(1));
+        head.addView(tier);
+        c.addView(head);
+
+        // 条目
         for (final Subject sub : subs) {
             TextView tv = new TextView(ctx);
-            tv.setText("    " + sub.name);
+            tv.setText(sub.name);
             tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-            tv.setPadding(dp(4), dp(8), dp(4), dp(8));
-            tv.setTextColor(ModuleUiKit.color(ctx,
-                    com.google.android.material.R.attr.colorOnSurface));
-            tv.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 8,
-                    ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceVariant),
-                    0)));
+            tv.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+            tv.setPadding(dp(10), dp(10), dp(10), dp(10));
+            tv.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 10,
+                    color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
             LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.bottomMargin = dp(4);
+            lp.topMargin = dp(6);
             tv.setLayoutParams(lp);
             tv.setOnClickListener(v -> autoPlay(src, sub));
-            resultBox.addView(tv);
+            c.addView(tv);
         }
+        resultBox.addView(c);
     }
 
     // ══════════════════ 自动选源播放 ══════════════════
 
-    /**
-     * 点击一条结果后的自动流程：解析线路 → 按 tier 升序 → 逐线路试首集 → 播放。
-     * 全部失败则给出手动线路选择（逃生舱）。
-     */
     private void autoPlay(final AnimeSource src, final Subject sub) {
         tvStatus.setText("解析线路中…（" + src.name + "）");
         new Thread(() -> {
@@ -222,7 +279,6 @@ public class AnimeView extends LinearLayout {
                     });
                     return;
                 }
-                // 按 tier 升序（线路级优先，回退源级）；未评测排最后
                 final List<Channel> sorted = new ArrayList<>(chs);
                 sorted.sort((a, b) -> tierRank(src, a) - tierRank(src, b));
 
@@ -231,7 +287,7 @@ public class AnimeView extends LinearLayout {
                 for (Channel ch : sorted) {
                     if (ch.episodes.isEmpty()) continue;
                     Episode first = ch.episodes.get(0);
-                    ui(() -> tvStatus.setText("尝试线路「" + ch.name + "」tier="
+                    ui(() -> tvStatus.setText("尝试「" + ch.name + "」tier="
                             + (src.tierFor(ch.name) >= 0 ? src.tierFor(ch.name) : "未评测") + " …"));
                     try {
                         PlayLink pl = engine.resolve(src, first, ch.name);
@@ -240,10 +296,9 @@ public class AnimeView extends LinearLayout {
                         ui(() -> play(link, sub, chosen));
                         return;
                     } catch (Throwable ignore) {
-                        // 该线路不可用 → 试下一条
+                        // 换下一条线路
                     }
                 }
-                // 全失败
                 final List<Channel> fallback = sorted;
                 ui(() -> {
                     tvStatus.setText("所有线路都未取到直链（可能需要 WebView 的源）");
@@ -259,13 +314,11 @@ public class AnimeView extends LinearLayout {
         }, "anime-resolve").start();
     }
 
-    /** 排序权重：tier 越小越靠前；未评测(-1)排最后 */
     private int tierRank(AnimeSource src, Channel ch) {
         int t = src.tierFor(ch.name);
         return t < 0 ? 999 : t;
     }
 
-    /** 唤起统一播放器（带请求头） */
     private void play(PlayLink link, Subject sub, Channel ch) {
         if (link == null || link.url == null) {
             ModuleUiKit.toast(ctx, "无可用播放地址");
@@ -282,27 +335,40 @@ public class AnimeView extends LinearLayout {
         }
     }
 
-    /** 逃生舱：手动选线路（自动全失败时） */
+    /**
+     * 逃生舱：手动选线路。
+     * 参考 Animeko 媒体选择器 —— 线路用**胶囊按钮** + tier 标注，而不是纯文本列表。
+     */
     private void showChannelPicker(final AnimeSource src, final Subject sub, List<Channel> chs) {
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(VERTICAL);
-        box.addView(ModuleUiKit.sectionHeader(ctx, "手动选择线路 · " + sub.name));
+        box.addView(ModuleUiKit.sectionHeader(ctx, "选择线路 · " + sub.name));
+
+        TextView hint = new TextView(ctx);
+        hint.setText("自动选源未取到直链，可手动指定线路（tier 越小越优）");
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        hint.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        hint.setPadding(dp(4), 0, dp(4), dp(8));
+        box.addView(hint);
 
         ScrollView sv = new ScrollView(ctx);
         LinearLayout col = new LinearLayout(ctx);
         col.setOrientation(VERTICAL);
         sv.addView(col);
-        box.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260)));
+        box.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(280)));
 
         final Dialog d = ModuleUiKit.glassDialog(ctx, box);
         for (final Channel ch : chs) {
-            TextView tv = new TextView(ctx);
             int t = src.tierFor(ch.name);
-            tv.setText("【" + ch.name + "】 tier=" + (t >= 0 ? t : "未评测")
-                    + "  " + ch.episodes.size() + " 集");
-            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-            tv.setPadding(dp(10), dp(10), dp(10), dp(10));
-            tv.setOnClickListener(v -> {
+            TextView pill = btn("【" + ch.name + "】  tier=" + (t >= 0 ? t : "?")
+                            + "   " + ch.episodes.size() + " 集",
+                    color(com.google.android.material.R.attr.colorPrimary),
+                    color(com.google.android.material.R.attr.colorSurfaceContainerHigh));
+            LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = dp(6);
+            pill.setLayoutParams(lp);
+            pill.setOnClickListener(v -> {
                 d.dismiss();
                 if (ch.episodes.isEmpty()) return;
                 new Thread(() -> {
@@ -315,7 +381,7 @@ public class AnimeView extends LinearLayout {
                     }
                 }).start();
             });
-            col.addView(tv);
+            col.addView(pill);
         }
         d.show();
     }
@@ -327,30 +393,41 @@ public class AnimeView extends LinearLayout {
         box.setOrientation(VERTICAL);
         box.addView(ModuleUiKit.sectionHeader(ctx, "源管理"));
 
+        final Dialog d = ModuleUiKit.glassDialog(ctx, box);
+
         final TextView info = new TextView(ctx);
         info.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        info.setPadding(dp(4), 0, dp(4), dp(8));
+        info.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        info.setPadding(dp(4), 0, dp(4), dp(10));
         info.setText("已导入 " + repo.size() + " 个源");
         box.addView(info);
-
-        final Dialog d = ModuleUiKit.glassDialog(ctx, box);
 
         // 仓库地址（可改）
         TextView lab = new TextView(ctx);
         lab.setText("仓库地址（可改）");
         lab.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        lab.setPadding(dp(4), dp(6), dp(4), dp(2));
+        lab.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        lab.setPadding(dp(4), 0, dp(4), dp(4));
         box.addView(lab);
 
         final EditText etUrl = new EditText(ctx);
         etUrl.setText(repo.repoUrl());
         etUrl.setSingleLine(true);
         etUrl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        etUrl.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        etUrl.setBackground(ModuleUiKit.rounded(ctx, 10,
+                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+        etUrl.setPadding(dp(10), dp(8), dp(10), dp(8));
         box.addView(etUrl);
 
-        Button btnImport = new Button(ctx);
-        btnImport.setText("从该地址导入 / 更新源");
-        btnImport.setAllCaps(false);
+        final TextView btnImport = btn("从该地址导入 / 更新源",
+                color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorPrimary));
+        LayoutParams ilp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        ilp.topMargin = dp(8);
+        btnImport.setLayoutParams(ilp);
+        btnImport.setGravity(Gravity.CENTER);
         btnImport.setOnClickListener(v -> {
             final String url = etUrl.getText().toString().trim();
             repo.setRepoUrl(url);
@@ -377,88 +454,145 @@ public class AnimeView extends LinearLayout {
         });
         box.addView(btnImport);
 
-        // 过滤开关
-        final android.widget.Switch sw = new android.widget.Switch(ctx);
-        sw.setText("启用源过滤（按源屏蔽）");
-        sw.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        sw.setChecked(repo.filterEnabled());
-        sw.setOnCheckedChangeListener((b, checked) -> {
-            repo.setFilterEnabled(checked);
-            refreshStatus();
-        });
-        box.addView(sw);
-
         // 屏蔽列表
         TextView lab2 = new TextView(ctx);
-        lab2.setText("屏蔽的源关键字（点条目可删除）");
+        lab2.setText("屏蔽的源关键字（点条目删除）");
         lab2.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        lab2.setPadding(dp(4), dp(10), dp(4), dp(2));
+        lab2.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        lab2.setPadding(dp(4), dp(12), dp(4), dp(4));
         box.addView(lab2);
 
         final LinearLayout blockCol = new LinearLayout(ctx);
         blockCol.setOrientation(VERTICAL);
         box.addView(blockCol);
+        renderBlocked(blockCol);
 
-        showBlockedInto(blockCol);
+        // 过滤开关（用项目风格的行，而不是原生 Switch）
+        final LinearLayout filterRow = new LinearLayout(ctx);
+        filterRow.setOrientation(HORIZONTAL);
+        filterRow.setGravity(Gravity.CENTER_VERTICAL);
+        LayoutParams flp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        flp.topMargin = dp(12);
+        filterRow.setLayoutParams(flp);
 
-        // 新增屏蔽关键字
+        final TextView swLabel = new TextView(ctx);
+        swLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        swLabel.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        filterRow.addView(swLabel, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        final TextView swBtn = btn("", 0, 0);
+        filterRow.addView(swBtn);
+        box.addView(filterRow);
+
+        final Runnable paintSwitch = () -> {
+            boolean on = repo.filterEnabled();
+            swLabel.setText("启用源过滤（按源屏蔽）");
+            swBtn.setText(on ? "已开启" : "已关闭");
+            swBtn.setTextColor(on
+                    ? color(com.google.android.material.R.attr.colorOnPrimary)
+                    : color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            swBtn.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 10,
+                    on ? color(com.google.android.material.R.attr.colorPrimary)
+                       : color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
+        };
+        paintSwitch.run();
+        swBtn.setOnClickListener(v -> {
+            repo.setFilterEnabled(!repo.filterEnabled());
+            paintSwitch.run();
+            refreshStatus();
+            renderBlocked(blockCol);
+        });
+
+
+        // 新增
         LinearLayout addRow = new LinearLayout(ctx);
         addRow.setOrientation(HORIZONTAL);
+        addRow.setGravity(Gravity.CENTER_VERTICAL);
+        LayoutParams alp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        alp.topMargin = dp(8);
+        addRow.setLayoutParams(alp);
+
         final EditText etNew = new EditText(ctx);
         etNew.setHint("添加屏蔽关键字，如 example.com");
         etNew.setSingleLine(true);
         etNew.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        etNew.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        etNew.setHintTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        etNew.setBackground(ModuleUiKit.rounded(ctx, 10,
+                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+        etNew.setPadding(dp(10), dp(8), dp(10), dp(8));
         addRow.addView(etNew, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        Button btnAdd = new Button(ctx);
-        btnAdd.setText("添加");
-        btnAdd.setAllCaps(false);
+
+        TextView btnAdd = btn("添加", color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorPrimary));
+        LayoutParams ablp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        ablp.leftMargin = dp(8);
+        addRow.addView(btnAdd, ablp);
+        box.addView(addRow);
         btnAdd.setOnClickListener(v -> {
             if (repo.addBlocked(etNew.getText().toString())) {
                 etNew.setText("");
-                showBlockedInto(blockCol);
+                renderBlocked(blockCol);
                 refreshStatus();
             } else {
                 ModuleUiKit.toast(ctx, "已存在或为空");
             }
         });
-        addRow.addView(btnAdd);
-        box.addView(addRow);
 
-        Button btnClose = new Button(ctx);
-        btnClose.setText("关闭");
-        btnClose.setAllCaps(false);
+        TextView btnClose = btn("关闭", color(com.google.android.material.R.attr.colorPrimary),
+                color(com.google.android.material.R.attr.colorSurfaceContainerHigh));
+        LayoutParams clp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.topMargin = dp(14);
+        btnClose.setLayoutParams(clp);
+        btnClose.setGravity(Gravity.CENTER);
         btnClose.setOnClickListener(v -> d.dismiss());
         box.addView(btnClose);
 
         d.show();
     }
 
-    /** 重绘屏蔽列表（提取出来便于删除后刷新） */
-    private void showBlockedInto(LinearLayout blockCol) {
+    private void renderBlocked(LinearLayout blockCol) {
+        if (blockCol == null) return;
         blockCol.removeAllViews();
         Set<String> bl = repo.blocked();
         if (bl.isEmpty()) {
             TextView tv = new TextView(ctx);
             tv.setText("（空 —— 当前不屏蔽任何源）");
             tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            tv.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
             blockCol.addView(tv);
             return;
         }
         for (final String k : bl) {
             TextView tv = new TextView(ctx);
-            tv.setText("• " + k + "    [删除]");
+            tv.setText("• " + k + "       删 除");
             tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            tv.setPadding(dp(10), dp(8), dp(10), dp(8));
+            tv.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+            tv.setPadding(dp(10), dp(9), dp(10), dp(9));
+            tv.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 10,
+                    color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
+            LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = dp(4);
+            tv.setLayoutParams(lp);
             tv.setOnClickListener(v -> {
                 repo.removeBlocked(k);
+                renderBlocked(blockCol);
                 refreshStatus();
-                showBlockedInto(blockCol);
             });
             blockCol.addView(tv);
         }
     }
 
     // ══════════════════ 工具 ══════════════════
+
+    private int color(int attr) {
+        return ModuleUiKit.color(ctx, attr);
+    }
 
     private void ui(Runnable r) {
         ctx.runOnUiThread(r);
@@ -468,7 +602,6 @@ public class AnimeView extends LinearLayout {
         return (int) (getResources().getDisplayMetrics().density * v);
     }
 
-    /** 页面被销毁时停掉搜索 */
     public void onDestroy() {
         try {
             searcher.cancel();
