@@ -915,35 +915,33 @@ public class GachaView extends LinearLayout {
             setStatus("❌ 无法打开登录页");
             return;
         }
-        final android.app.Activity act = (android.app.Activity) ctx;
 
-        LinearLayout box = new LinearLayout(ctx);
+        final LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.VERTICAL);
 
-        TextView tip = new TextView(ctx);
-        tip.setText("请在下方页面登录米游社账号。账号密码只提交给官方网页，本应用不接触。"
-                + "登录成功后会自动返回并生成链接。");
+        final TextView tip = new TextView(ctx);
+        tip.setText("正在创建扫码会话…");
         tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         tip.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
         tip.setLineSpacing(dp(2), 1.25f);
         tip.setPadding(dp(4), dp(2), dp(4), dp(8));
         box.addView(tip);
 
-        final android.webkit.WebView web = new android.webkit.WebView(act);
+        // 官方二维码页面用 WebView 直接加载 —— 无需二维码生成库
+        final android.webkit.WebView web = new android.webkit.WebView((android.app.Activity) ctx);
         LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                (int) (getResources().getDisplayMetrics().heightPixels * 0.58));
+                (int) (getResources().getDisplayMetrics().heightPixels * 0.52));
         box.addView(web, wlp);
 
-        final TextView status2 = new TextView(ctx);
-        status2.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        status2.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
-        status2.setPadding(dp(4), dp(8), dp(4), 0);
-        status2.setText("等待登录…");
-        box.addView(status2);
+        final TextView st2 = new TextView(ctx);
+        st2.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        st2.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+        st2.setPadding(dp(4), dp(8), dp(4), 0);
+        st2.setText("用米游社 App 扫描上方二维码并确认");
+        box.addView(st2);
 
         final android.app.Dialog dialog = ModuleUiKit.glassDialog(ctx, box);
-
         LinearLayout btns = new LinearLayout(ctx);
         btns.setOrientation(LinearLayout.HORIZONTAL);
         btns.setGravity(Gravity.END);
@@ -953,39 +951,93 @@ public class GachaView extends LinearLayout {
         box.addView(btns, blp);
         TextView cancel = btn("取消", color(com.google.android.material.R.attr.colorPrimary),
                 color(com.google.android.material.R.attr.colorSurfaceContainerHighest));
-        cancel.setOnClickListener(v -> {
-            web.destroy();
-            ModuleUiKit.dismissWithAnim(dialog);
-        });
         btns.addView(cancel);
 
-        // ⭐ 关键修正：不自动嗅探 Cookie。
-        // WebView 里可能残留旧的无效 Cookie，自动触发会立刻拿它去换 key，
-        // 返回「登录状态失效」，用户会误以为刚登录就失败。
-        // 改为：页面只负责登录，由用户点下方按钮手动确认后再取 Cookie。
-        MiyousheAuth.setupWebViewQuiet(web, act);
+        final java.util.concurrent.atomic.AtomicBoolean stop =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        cancel.setOnClickListener(v -> {
+            stop.set(true);
+            try { web.destroy(); } catch (Throwable ignored) { }
+            ModuleUiKit.dismissWithAnim(dialog);
+        });
 
-        final TextView btnFinish = btn("我已完成登录，获取链接",
-                color(com.google.android.material.R.attr.colorOnPrimary),
-                color(com.google.android.material.R.attr.colorPrimary));
-        btnFinish.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        flp.topMargin = dp(8);
-        box.addView(btnFinish, flp);
-        btnFinish.setOnClickListener(v -> finishMiyousheLogin(web, dialog, status2));
-
-        // 登录态只做界面提示，不自动继续
-        MiyousheAuth.setLoginWatcher(cookie -> runOnUi(() -> {
-            if (status2.getText().toString().startsWith("等待登录")
-                    || status2.getText().toString().startsWith("检测到")) {
-                status2.setText("已检测到登录态 —— 请点上方按钮继续\nCookie："
-                        + MiyousheAuth.summarize(cookie));
-            }
-        }));
+        // 在子线程创建会话（网络请求不能占主线程）
+        new Thread(() -> {
+            final MiyousheAuth.QrSession sess = MiyousheAuth.createQrLogin(ctx);
+            runOnUi(() -> {
+                if (sess.error != null || sess.url.isEmpty()) {
+                    tip.setText("❌ 创建扫码会话失败：" + sess.error);
+                    st2.setText("可改用「如何获取链接」里的手动方案");
+                    return;
+                }
+                tip.setText("请用米游社 App 扫描下方二维码并确认登录");
+                web.loadUrl(sess.url);
+                startQrPolling(sess.ticket, stop, dialog, web, st2);
+            });
+        }, "HyVqQrCreate").start();
 
         dialog.show();
     }
+
+    /** 轮询扫码状态；确认后换取 authkey */
+    private void startQrPolling(final String ticket,
+                                final java.util.concurrent.atomic.AtomicBoolean stop,
+                                final android.app.Dialog dialog,
+                                final android.webkit.WebView web,
+                                final TextView st2) {
+        new Thread(() -> {
+            int tries = 0;
+            while (!stop.get() && tries++ < 100) {   // 最多约 3 分钟
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                if (stop.get()) return;
+                final MiyousheAuth.QrSession q = MiyousheAuth.queryQrStatus(ctx, ticket);
+                if (q.error != null) {
+                    runOnUi(() -> st2.setText("⚠️ " + q.error));
+                    continue;
+                }
+                if ("Scanned".equalsIgnoreCase(q.status)) {
+                    runOnUi(() -> st2.setText("已扫码，请在手机上确认登录…"));
+                    continue;
+                }
+                if (q.confirmed()) {
+                    final String cookie = MiyousheAuth.cookieFrom(q);
+                    final MiyousheAuth.AuthKeyResult r =
+                            MiyousheAuth.genAuthKey(cookie, "hk4e_cn");
+                    final String roles = MiyousheAuth.queryRoles(cookie);
+                    runOnUi(() -> {
+                        stop.set(true);
+                        try { web.destroy(); } catch (Throwable ignored) { }
+                        ModuleUiKit.dismissWithAnim(dialog);
+                        if (r.authKey != null && !r.authKey.isEmpty()) {
+                            String url = "https://webstatic.mihoyo.com/hk4e/event/"
+                                    + "e20190909gacha-df01aea2/index.html?authkey_ver=1&sign_type=2"
+                                    + "&auth_appid=webview_gacha&lang=zh-cn&game_biz=hk4e_cn"
+                                    + "&authkey=" + r.authKey + "#/log";
+                            String cur = input.getText().toString().trim();
+                            input.setText(cur.isEmpty() ? url : cur + "\n" + url);
+                            setStatus("✅ 已通过米游社扫码登录获取链接，点「解析并导入」开始统计。");
+                        } else {
+                            setStatus("❌ 生成链接失败：" + r.error
+                                    + "\n① 凭证：" + MiyousheAuth.summarize(cookie)
+                                    + "\n② 角色查询：" + summarizeRoles(roles)
+                                    + "\n③ genAuthKey：" + abbreviate(r.raw, 180));
+                        }
+                    });
+                    return;
+                }
+            }
+            runOnUi(() -> st2.setText("⚠️ 等待超时或已取消，请重新扫码。"));
+        }, "HyVqQrPoll").start();
+    }
+
+    /**
+     * 用户手动确认登录完成：读取当前 Cookie → 校验角色 → 生成 authkey。
+     * <p>分步展示结果，便于判断卡在哪一环。</p>
+     */
 
     /** 从角色接口返回里提取「是否成功 / 角色数 / 错误」，用于分步排错 */
     private static String summarizeRoles(String json) {
@@ -996,56 +1048,22 @@ public class GachaView extends LinearLayout {
             if (code != 0) {
                 return "retcode " + code + " " + o.optString("message", "");
             }
-            org.json.JSONArray list = o.optJSONObject("data") == null ? null
-                    : o.optJSONObject("data").optJSONArray("list");
+            org.json.JSONObject data = o.optJSONObject("data");
+            org.json.JSONArray list = data == null ? null : data.optJSONArray("list");
             int n = list == null ? 0 : list.length();
             StringBuilder sb = new StringBuilder("成功，找到 " + n + " 个角色");
             if (n > 0) {
                 org.json.JSONObject r0 = list.optJSONObject(0);
-                if (r0 != null) sb.append("（如 ").append(r0.optString("nickname", "?"))
-                        .append(" / uid ").append(r0.optString("game_uid", "?"))
-                        .append(" / ").append(r0.optString("region", "?")).append("）");
+                if (r0 != null) {
+                    sb.append("（如 ").append(r0.optString("nickname", "?"))
+                      .append(" / uid ").append(r0.optString("game_uid", "?"))
+                      .append(" / ").append(r0.optString("region", "?")).append("）");
+                }
             }
             return sb.toString();
         } catch (Throwable t) {
             return "解析失败：" + abbreviate(json, 90);
         }
-    }
-
-    /**
-     * 用户手动确认登录完成：读取当前 Cookie → 校验角色 → 生成 authkey。
-     * <p>分步展示结果，便于判断卡在哪一环。</p>
-     */
-    private void finishMiyousheLogin(final android.webkit.WebView web,
-                                     final android.app.Dialog dialog,
-                                     final TextView status2) {
-        final String cookie = MiyousheAuth.readCookie();
-        if (!MiyousheAuth.hasLoginCookie(cookie)) {
-            status2.setText("⚠️ 尚未检测到登录态，请先在页面上完成登录。\n当前 Cookie："
-                    + MiyousheAuth.summarize(cookie));
-            return;
-        }
-        status2.setText("正在验证并生成链接…\nCookie 字段：" + MiyousheAuth.summarize(cookie));
-        new Thread(() -> {
-            String roles = MiyousheAuth.queryRoles(cookie);
-            MiyousheAuth.AuthKeyResult r = MiyousheAuth.genAuthKey(cookie, "hk4e_cn");
-            runOnUi(() -> {
-                try { web.destroy(); } catch (Throwable ignored) { }
-                ModuleUiKit.dismissWithAnim(dialog);
-                if (r.authKey != null && !r.authKey.isEmpty()) {
-                    String url = "https://webstatic.mihoyo.com/hk4e/event/e20190909gacha-df01aea2/"
-                            + "index.html?authkey_ver=1&sign_type=2&auth_appid=webview_gacha"
-                            + "&lang=zh-cn&game_biz=hk4e_cn&authkey=" + r.authKey + "#/log";
-                    String cur = input.getText().toString().trim();
-                    input.setText(cur.isEmpty() ? url : cur + "\n" + url);
-                    setStatus("✅ 已通过米游社登录获取链接，点「解析并导入」开始统计。");
-                } else {
-                    setStatus("❌ 生成链接失败：" + r.error
-                            + "\n① 角色查询：" + summarizeRoles(roles)
-                            + "\n② genAuthKey 返回：" + abbreviate(r.raw, 200));
-                }
-            });
-        }, "HyVqGenAuthKey").start();
     }
 
     /** 截断过长文本用于界面显示 */
