@@ -76,6 +76,58 @@ public final class MiyousheAuth {
     @SuppressLint("SetJavaScriptEnabled")
     public static void setupWebView(final WebView web, final Activity host,
                                     final LoginCallback cb) {
+        commonSetup(web);
+
+        web.setWebViewClient(new WebViewClient() {
+            private boolean done = false;
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                String cookie = readCookie();
+                if (hasLoginCookie(cookie)) {
+                    if (watcher != null) watcher.onLoginDetected(cookie);
+                    if (!done) {
+                        done = true;
+                        cb.onFinished(cookie, null);
+                    }
+                }
+            }
+        });
+        web.loadUrl(LOGIN_URL);
+    }
+
+    /**
+     * 仅加载登录页，<b>不做自动嗅探</b>。
+     * <p>因为 WebView 里可能残留旧的无效 Cookie，自动触发会立刻拿它换 key
+     * 并报「登录状态失效」，让用户误以为登录失败。改为由界面上的按钮手动触发。</p>
+     */
+    public static void setupWebViewQuiet(final WebView web, final Activity host) {
+        commonSetup(web);
+        web.setWebViewClient(new WebViewClient());
+        web.loadUrl(LOGIN_URL);
+    }
+
+    /** 登录态观察者（仅用于界面提示，不自动触发换 key） */
+    public interface LoginWatcher {
+        void onLoginDetected(String cookie);
+    }
+
+    private static LoginWatcher watcher;
+
+    public static void setLoginWatcher(LoginWatcher w) {
+        watcher = w;
+    }
+
+    /**
+     * 旧版自动嗅探（保留但不再作为主流程）。
+     * <p>仅当确实需要「登录后自动继续」时使用；注意残留 Cookie 会导致误判。</p>
+     */
+    public static void setupWebViewLegacy(final WebView web, final Activity host,
+                                          final LoginCallback cb) {
+        setupWebView(web, host, cb);
+    }
+
+    private static void commonSetup(WebView web) {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -83,26 +135,9 @@ public final class MiyousheAuth {
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
         s.setUserAgentString(UA);
-
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);
         cm.setAcceptThirdPartyCookies(web, true);
-
-        web.setWebViewClient(new WebViewClient() {
-            private boolean done = false;
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                // 登录成功后通行证通常跳回 user.mihoyo.com 且带上登录 Cookie；
-                // 这里用「Cookie 里出现登录票据」作为判定条件，比判断 URL 更可靠。
-                String cookie = readCookie();
-                if (!done && hasLoginCookie(cookie)) {
-                    done = true;
-                    cb.onFinished(cookie, null);
-                }
-            }
-        });
-        web.loadUrl(LOGIN_URL);
     }
 
     /** 读取 api 域的 Cookie（登录票据通常在这些域下） */

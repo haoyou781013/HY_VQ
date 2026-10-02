@@ -142,41 +142,36 @@ public class GachaView extends LinearLayout {
         ilp.topMargin = dp(8);
         importCard.addView(input, ilp);
 
-        LinearLayout btnRow = new LinearLayout(ctx);
-        btnRow.setOrientation(HORIZONTAL);
-        btnRow.setGravity(Gravity.END);
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+        // ── 操作按钮：双列 2×2 等宽排布 ──
+        android.widget.GridLayout grid = new android.widget.GridLayout(ctx);
+        grid.setColumnCount(2);
+        grid.setAlignmentMode(android.widget.GridLayout.ALIGN_BOUNDS);
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        blp.topMargin = dp(10);
-        importCard.addView(btnRow, blp);
+        glp.topMargin = dp(10);
+        importCard.addView(grid, glp);
 
-        TextView btnAuto = btn("自动获取", color(com.google.android.material.R.attr.colorOnPrimary),
-                color(com.google.android.material.R.attr.colorTertiary));
-        btnAuto.setOnClickListener(v -> doAutoFetch());
-        btnRow.addView(btnAuto);
+        addGridButton(grid, "自动获取",
+                color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorTertiary),
+                v -> doAutoFetch());
+        addGridButton(grid, "米游社登录",
+                color(com.google.android.material.R.attr.colorOnSecondary),
+                color(com.google.android.material.R.attr.colorSecondary),
+                v -> showMiyousheLogin());
+        addGridButton(grid, "如何获取链接",
+                color(com.google.android.material.R.attr.colorPrimary),
+                color(com.google.android.material.R.attr.colorSurfaceContainerHighest),
+                v -> showHowToDialog());
+        addGridButton(grid, "解析并导入",
+                color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorPrimary),
+                v -> doImport());
 
-        TextView btnMys = btn("米游社登录", color(com.google.android.material.R.attr.colorOnSecondary),
-                color(com.google.android.material.R.attr.colorSecondary));
-        btnMys.setOnClickListener(v -> showMiyousheLogin());
-        btnRow.addView(btnMys);
-
-        TextView btnHow = btn("如何获取链接", color(com.google.android.material.R.attr.colorPrimary),
-                color(com.google.android.material.R.attr.colorSurfaceContainerHighest));
-        btnHow.setOnClickListener(v -> showHowToDialog());
-        btnRow.addView(btnHow);
-
-        TextView btnImport = btn("解析并导入", color(com.google.android.material.R.attr.colorOnPrimary),
-                color(com.google.android.material.R.attr.colorPrimary));
-        btnImport.setOnClickListener(v -> doImport());
-        btnRow.addView(btnImport);
-
-        TextView btnPaste = btn("从剪贴板", color(com.google.android.material.R.attr.colorPrimary),
-                color(com.google.android.material.R.attr.colorSurfaceContainerHighest));
-        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        plp.rightMargin = dp(8);
-        btnPaste.setOnClickListener(v -> pasteFromClipboard());
-        btnRow.addView(btnPaste, 0, plp);
+        addGridButton(grid, "从剪贴板粘贴",
+                color(com.google.android.material.R.attr.colorPrimary),
+                color(com.google.android.material.R.attr.colorSurfaceContainerHighest),
+                v -> pasteFromClipboard());
 
         root.addView(importCard);
 
@@ -214,6 +209,21 @@ public class GachaView extends LinearLayout {
         lp.bottomMargin = dp(12);
         c.setLayoutParams(lp);
         return c;
+    }
+
+    /** 往双列网格里加一个等宽按钮（每列 1 权重） */
+    private void addGridButton(android.widget.GridLayout grid, String text,
+                              int fgColor, int bgColor, OnClickListener onClick) {
+        TextView t = btn(text, fgColor, bgColor);
+        t.setGravity(Gravity.CENTER);
+        t.setOnClickListener(onClick);
+        android.widget.GridLayout.LayoutParams lp = new android.widget.GridLayout.LayoutParams();
+        lp.columnSpec = android.widget.GridLayout.spec(
+                android.widget.GridLayout.UNDEFINED, 1f);   // 权重 1 → 等宽
+        lp.width = 0;
+        lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+        lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+        grid.addView(t, lp);
     }
 
     private TextView btn(String text, int fg, int bg) {
@@ -949,37 +959,30 @@ public class GachaView extends LinearLayout {
         });
         btns.addView(cancel);
 
-        MiyousheAuth.setupWebView(web, act, (cookie, err) -> {
-            if (err != null) {
-                status2.setText("❌ 登录失败：" + err);
-                return;
+        // ⭐ 关键修正：不自动嗅探 Cookie。
+        // WebView 里可能残留旧的无效 Cookie，自动触发会立刻拿它去换 key，
+        // 返回「登录状态失效」，用户会误以为刚登录就失败。
+        // 改为：页面只负责登录，由用户点下方按钮手动确认后再取 Cookie。
+        MiyousheAuth.setupWebViewQuiet(web, act);
+
+        final TextView btnFinish = btn("我已完成登录，获取链接",
+                color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorPrimary));
+        btnFinish.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        flp.topMargin = dp(8);
+        box.addView(btnFinish, flp);
+        btnFinish.setOnClickListener(v -> finishMiyousheLogin(web, dialog, status2));
+
+        // 登录态只做界面提示，不自动继续
+        MiyousheAuth.setLoginWatcher(cookie -> runOnUi(() -> {
+            if (status2.getText().toString().startsWith("等待登录")
+                    || status2.getText().toString().startsWith("检测到")) {
+                status2.setText("已检测到登录态 —— 请点上方按钮继续\nCookie："
+                        + MiyousheAuth.summarize(cookie));
             }
-            status2.setText("✅ 已检测到登录态，正在验证…\nCookie 字段："
-                    + MiyousheAuth.summarize(cookie));
-            // 网络请求放子线程；先查角色验证 Cookie，再生成 authkey
-            new Thread(() -> {
-                String roles = MiyousheAuth.queryRoles(cookie);
-                MiyousheAuth.AuthKeyResult r = MiyousheAuth.genAuthKey(cookie, "hk4e_cn");
-                runOnUi(() -> {
-                    try { web.destroy(); } catch (Throwable ignored) { }
-                    ModuleUiKit.dismissWithAnim(dialog);
-                    if (r.authKey != null && !r.authKey.isEmpty()) {
-                        // 拼成与游戏一致的完整链接，便于复用既有解析逻辑
-                        String url = "https://webstatic.mihoyo.com/hk4e/event/e20190909gacha-df01aea2/"
-                                + "index.html?authkey_ver=1&sign_type=2&auth_appid=webview_gacha"
-                                + "&lang=zh-cn&game_biz=hk4e_cn&authkey=" + r.authKey + "#/log";
-                        String cur = input.getText().toString().trim();
-                        input.setText(cur.isEmpty() ? url : cur + "\n" + url);
-                        setStatus("✅ 已通过米游社登录获取链接，点「解析并导入」开始统计。");
-                    } else {
-                        // 分步展示，便于判断卡在哪一环
-                        setStatus("❌ 生成链接失败：" + r.error
-                                + "\n① 角色查询：" + summarizeRoles(roles)
-                                + "\n② genAuthKey 返回：" + abbreviate(r.raw, 200));
-                    }
-                });
-            }, "HyVqGenAuthKey").start();
-        });
+        }));
 
         dialog.show();
     }
@@ -1007,6 +1010,42 @@ public class GachaView extends LinearLayout {
         } catch (Throwable t) {
             return "解析失败：" + abbreviate(json, 90);
         }
+    }
+
+    /**
+     * 用户手动确认登录完成：读取当前 Cookie → 校验角色 → 生成 authkey。
+     * <p>分步展示结果，便于判断卡在哪一环。</p>
+     */
+    private void finishMiyousheLogin(final android.webkit.WebView web,
+                                     final android.app.Dialog dialog,
+                                     final TextView status2) {
+        final String cookie = MiyousheAuth.readCookie();
+        if (!MiyousheAuth.hasLoginCookie(cookie)) {
+            status2.setText("⚠️ 尚未检测到登录态，请先在页面上完成登录。\n当前 Cookie："
+                    + MiyousheAuth.summarize(cookie));
+            return;
+        }
+        status2.setText("正在验证并生成链接…\nCookie 字段：" + MiyousheAuth.summarize(cookie));
+        new Thread(() -> {
+            String roles = MiyousheAuth.queryRoles(cookie);
+            MiyousheAuth.AuthKeyResult r = MiyousheAuth.genAuthKey(cookie, "hk4e_cn");
+            runOnUi(() -> {
+                try { web.destroy(); } catch (Throwable ignored) { }
+                ModuleUiKit.dismissWithAnim(dialog);
+                if (r.authKey != null && !r.authKey.isEmpty()) {
+                    String url = "https://webstatic.mihoyo.com/hk4e/event/e20190909gacha-df01aea2/"
+                            + "index.html?authkey_ver=1&sign_type=2&auth_appid=webview_gacha"
+                            + "&lang=zh-cn&game_biz=hk4e_cn&authkey=" + r.authKey + "#/log";
+                    String cur = input.getText().toString().trim();
+                    input.setText(cur.isEmpty() ? url : cur + "\n" + url);
+                    setStatus("✅ 已通过米游社登录获取链接，点「解析并导入」开始统计。");
+                } else {
+                    setStatus("❌ 生成链接失败：" + r.error
+                            + "\n① 角色查询：" + summarizeRoles(roles)
+                            + "\n② genAuthKey 返回：" + abbreviate(r.raw, 200));
+                }
+            });
+        }, "HyVqGenAuthKey").start();
     }
 
     /** 截断过长文本用于界面显示 */
