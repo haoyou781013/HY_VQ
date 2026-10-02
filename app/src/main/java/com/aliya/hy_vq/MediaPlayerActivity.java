@@ -1,6 +1,7 @@
 package com.aliya.hy_vq;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.graphics.Bitmap;
 import android.media.AudioManager;
 import android.view.GestureDetector;
@@ -15,6 +16,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
@@ -76,6 +78,20 @@ public class MediaPlayerActivity extends Activity {
     /** 续播起点（毫秒） */
     public static final String EXTRA_START_MS = "media_start_ms";
 
+    // ── 动漫模式（播放器内选集用；参考 Kazumi 的选集面板）──
+    /** 集标题数组 */
+    public static final String EXTRA_EP_TITLES = "media_ep_titles";
+    /** 集页面地址数组（切集时用它重新解析拿直链） */
+    public static final String EXTRA_EP_URLS = "media_ep_urls";
+    /** 当前集下标 */
+    public static final String EXTRA_EP_INDEX = "media_ep_index";
+    /** 源配置 JSON（切集解析用） */
+    public static final String EXTRA_SOURCE_JSON = "media_source_json";
+    /** 线路名 */
+    public static final String EXTRA_CHANNEL_NAME = "media_channel_name";
+    /** 显示标题（番剧名 · 线路） */
+    public static final String EXTRA_DISPLAY_TITLE = "media_display_title";
+
     /**
      * 构造「播放单个网络地址」的 Intent —— 在线源（番剧/远程媒体）走这里。
      *
@@ -100,6 +116,18 @@ public class MediaPlayerActivity extends Activity {
     public static android.content.Intent urlIntent(android.content.Context ctx, String url,
                                                    String title, Map<String, String> headers,
                                                    String historyKey, long startMs) {
+        return urlIntent(ctx, url, title, headers, historyKey, startMs, null, null, -1, null, null);
+    }
+
+    /**
+     * 完整版（动漫模块用）：额外带上整条线路的集列表与源配置，
+     * 这样**播放器内部就能选集**，不必退回动漫页。
+     */
+    public static android.content.Intent urlIntent(android.content.Context ctx, String url,
+                                                   String title, Map<String, String> headers,
+                                                   String historyKey, long startMs,
+                                                   String[] epTitles, String[] epUrls, int epIndex,
+                                                   String sourceJson, String channelName) {
         android.content.Intent i = new android.content.Intent(ctx, MediaPlayerActivity.class);
         i.putExtra(EXTRA_URI, url);
         i.putExtra(EXTRA_IS_URI, true);
@@ -115,6 +143,14 @@ public class MediaPlayerActivity extends Activity {
         }
         if (historyKey != null && !historyKey.isEmpty()) i.putExtra(EXTRA_HISTORY_KEY, historyKey);
         if (startMs > 0) i.putExtra(EXTRA_START_MS, startMs);
+        if (epTitles != null && epUrls != null && epTitles.length == epUrls.length && epTitles.length > 0) {
+            i.putExtra(EXTRA_EP_TITLES, epTitles);
+            i.putExtra(EXTRA_EP_URLS, epUrls);
+            i.putExtra(EXTRA_EP_INDEX, epIndex);
+            i.putExtra(EXTRA_DISPLAY_TITLE, title);
+            if (sourceJson != null) i.putExtra(EXTRA_SOURCE_JSON, sourceJson);
+            if (channelName != null) i.putExtra(EXTRA_CHANNEL_NAME, channelName);
+        }
         i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
         return i;
     }
@@ -144,6 +180,15 @@ public class MediaPlayerActivity extends Activity {
 
     // ── 手势（对齐 Kazumi/主流播放器）：水平快进、左半亮度、右半音量、双击暂停、长按加速 ──
     private GestureDetector gesture;
+
+    // ── 动漫模式：播放器内选集 ──
+    private boolean animeMode = false;
+    private String[] epTitles, epUrls;
+    private int epIndex = 0;
+    private String sourceJson, channelName, displayTitle;
+    private LinearLayout errorOverlay;
+    private TextView tvError;
+    private TextView btnEpisodes;
 
     // ── 观看历史（续播 + 进度回写）──
     private com.aliya.hy_vq.anime.WatchHistory watchHistory;
@@ -203,6 +248,16 @@ public class MediaPlayerActivity extends Activity {
         View root = findViewById(R.id.player_root);
 
         // ── 请求头（网络源需要）──
+        // 动漫模式：带上整条线路的集列表，播放器内即可选集
+        epTitles = getIntent().getStringArrayExtra(EXTRA_EP_TITLES);
+        epUrls = getIntent().getStringArrayExtra(EXTRA_EP_URLS);
+        epIndex = getIntent().getIntExtra(EXTRA_EP_INDEX, 0);
+        sourceJson = getIntent().getStringExtra(EXTRA_SOURCE_JSON);
+        channelName = getIntent().getStringExtra(EXTRA_CHANNEL_NAME);
+        displayTitle = getIntent().getStringExtra(EXTRA_DISPLAY_TITLE);
+        animeMode = epTitles != null && epUrls != null && epTitles.length == epUrls.length
+                && epTitles.length > 0;
+
         // 观看历史：续播起点 + 进度回写键
         historyKey = getIntent().getStringExtra(EXTRA_HISTORY_KEY);
         pendingStartMs = getIntent().getLongExtra(EXTRA_START_MS, 0L);
@@ -247,6 +302,7 @@ public class MediaPlayerActivity extends Activity {
                 if (state == Player.STATE_READY) {
                     prepared = true;
                     switching = false;
+                    hideError();
                     // 续播定位（只做一次）
                     if (pendingStartMs > 0) {
                         try {
@@ -280,9 +336,25 @@ public class MediaPlayerActivity extends Activity {
                 switching = false;
                 prepared = false;
                 String msg = error.getErrorCodeName();
+                // 打日志：下次出问题能直接从 logcat 定位（含 cause 链与当前 URL）
+                try {
+                    StringBuilder sb = new StringBuilder("playback error: ").append(msg)
+                            .append(" | media=").append(
+                                    (playlist != null && idx >= 0 && idx < playlist.length)
+                                            ? playlist[idx] : "?")
+                            .append(" | headers=").append(headers == null ? "none" : headers.keySet());
+                    Throwable c = error.getCause();
+                    int depth = 0;
+                    while (c != null && depth++ < 4) {
+                        sb.append(" <- ").append(c.getClass().getSimpleName()).append(": ").append(c.getMessage());
+                        c = c.getCause();
+                    }
+                    android.util.Log.e("HYVQ_PLAYER", sb.toString());
+                } catch (Throwable ignored) {
+                }
                 tvDur.setText("无法播放");
-                ModuleUiKit.toast(MediaPlayerActivity.this,
-                        "播放失败：" + (msg == null ? "未知错误" : msg));
+                // 内嵌显示（不再弹 Toast），并给出可读的说明
+                showError(friendlyError(msg), error);
             }
 
             @Override public void onIsPlayingChanged(boolean isPlaying) {
@@ -298,10 +370,26 @@ public class MediaPlayerActivity extends Activity {
         ImageView btnList = findViewById(R.id.btn_player_list);
         if (btnList != null) btnList.setOnClickListener(v -> showPlaylistPicker());
 
+        // 内嵌错误浮层（用户要求：不要用弹出的界面）
+        errorOverlay = findViewById(R.id.player_error_overlay);
+        tvError = findViewById(R.id.tv_player_error);
+        TextView btnRetry = findViewById(R.id.btn_player_retry);
+        if (btnRetry != null) btnRetry.setOnClickListener(v -> {
+            hideError();
+            if (playlist != null && idx >= 0 && idx < playlist.length) playAt(idx);
+        });
+
+        // 选集按钮：仅动漫模式可用（参考 Kazumi 的选集）
+        btnEpisodes = findViewById(R.id.btn_player_episodes);
+        if (btnEpisodes != null) {
+            btnEpisodes.setVisibility(animeMode ? View.VISIBLE : View.GONE);
+            if (animeMode) btnEpisodes.setOnClickListener(v -> showEpisodePicker());
+        }
+
         // ── 播放器增强：倍速 / 画面比例 / 截图 ──
         tvSpeed = findViewById(R.id.btn_player_speed);
         tvRatio = findViewById(R.id.btn_player_ratio);
-        if (tvSpeed != null) tvSpeed.setOnClickListener(v -> cycleSpeed());
+        if (tvSpeed != null) tvSpeed.setOnClickListener(v -> showSpeedPicker());
         if (tvRatio != null) tvRatio.setOnClickListener(v -> cycleRatio());
         if (tvSpeed != null) tvSpeed.setOnLongClickListener(v -> { captureFrame(); return true; });
 
@@ -328,8 +416,17 @@ public class MediaPlayerActivity extends Activity {
         idx = i;
         final String path = playlist[i];
         String name = baseName(path);
-        tvTitle.setText(name);
-        tvCounter.setText((i + 1) + " / " + playlist.length);
+        // 动漫模式：显示「番剧名 · 线路 · 第N集」，而不是 index.m3u8 这种地址末段
+        if (animeMode && epIndex >= 0 && epIndex < epTitles.length) {
+            String ep = epTitles[epIndex];
+            String head = displayTitle == null || displayTitle.isEmpty()
+                    ? "" : displayTitle + " · ";
+            tvTitle.setText(head + (ep == null || ep.isEmpty() ? ("第 " + (epIndex + 1) + " 集") : ep));
+            tvCounter.setText((epIndex + 1) + " / " + epTitles.length);
+        } else {
+            tvTitle.setText(name);
+            tvCounter.setText((i + 1) + " / " + playlist.length);
+        }
 
         boolean isVideo = isVideoFile(name);
         placeholder.setVisibility(isVideo ? View.GONE : View.VISIBLE);
@@ -606,6 +703,183 @@ public class MediaPlayerActivity extends Activity {
             watchHistory.updateProgress(historyKey, pos, safeDur);
         } catch (Throwable ignored) {
         }
+    }
+
+    // ══════════════ 播放错误：内嵌显示（不用 Toast） ══════════════
+
+    private void showError(String msg, PlaybackException err) {
+        if (errorOverlay == null) return;
+        errorOverlay.setVisibility(View.VISIBLE);
+        if (tvError != null) {
+            String code = err == null ? null : err.getErrorCodeName();
+            tvError.setText(msg + (code == null || code.isEmpty() ? "" : "\n\n" + code));
+        }
+    }
+
+    private void hideError() {
+        if (errorOverlay != null) errorOverlay.setVisibility(View.GONE);
+    }
+
+    /** 把 ExoPlayer 的错误码翻译成用户能懂的话（原始码一并显示在下方） */
+    private String friendlyError(String code) {
+        if (code == null) return "播放失败。";
+        if (code.contains("PARSING_CONTAINER_UNSUPPORTED")) {
+            return "服务器返回的内容不是视频流。\n"
+                    + "常见原因：源站防盗链（缺 Referer）、直链已过期，\n"
+                    + "或该地址其实是个网页。建议换一条线路。";
+        }
+        if (code.contains("PARSING_MANIFEST_UNSUPPORTED")) {
+            return "播放列表格式无法解析（可能是加密或私有格式的 m3u8）。";
+        }
+        if (code.contains("DECODING")) {
+            return "解码失败：该视频的编码格式本机不支持\n（常见于 AV1 或 HEVC 10bit）。";
+        }
+        if (code.contains("NETWORK") || code.contains("IO")) {
+            return "网络读取失败，直链可能已过期。\n建议换线路，或退回动漫页重新解析。";
+        }
+        if (code.contains("BEHIND_LIVE_WINDOW")) {
+            return "直播窗口已过期。";
+        }
+        return "播放失败，可尝试换线路或重试。";
+    }
+
+    // ══════════════ 倍速自选（参考 Kazumi 的面板式选择） ══════════════
+
+    /** 弹出倍速面板，直接选一个值（而不是逐个循环） */
+    private void showSpeedPicker() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(this, "播放速度"));
+
+        android.widget.GridLayout grid = new android.widget.GridLayout(this);
+        grid.setColumnCount(4);
+        box.addView(grid);
+
+        final Dialog d = ModuleUiKit.glassDialog(this, box);
+        for (int i = 0; i < SPEEDS.length; i++) {
+            final int fi = i;
+            boolean cur = (i == speedIdx);
+            TextView t = new TextView(this);
+            t.setText(SPEED_LABELS[i]);
+            t.setTextSize(13);
+            t.setGravity(android.view.Gravity.CENTER);
+            t.setPadding(dpInt(10), dpInt(10), dpInt(10), dpInt(10));
+            t.setTextColor(cur ? ModuleUiKit.color(this,
+                    com.google.android.material.R.attr.colorOnPrimary)
+                    : ModuleUiKit.color(this, com.google.android.material.R.attr.colorOnSurface));
+            t.setBackground(ModuleUiKit.rounded(this, 10, ModuleUiKit.color(this,
+                    cur ? com.google.android.material.R.attr.colorPrimary
+                        : com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+            t.setClickable(true);
+            android.widget.GridLayout.LayoutParams lp = new android.widget.GridLayout.LayoutParams();
+            lp.columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f);
+            lp.width = 0;
+            lp.height = -2;
+            lp.setMargins(dpInt(4), dpInt(4), dpInt(4), dpInt(4));
+            t.setOnClickListener(v -> {
+                speedIdx = fi;
+                try {
+                    if (player != null) player.setPlaybackSpeed(SPEEDS[fi]);
+                    if (tvSpeed != null) tvSpeed.setText(SPEED_LABELS[fi]);
+                } catch (Throwable ignored) {
+                }
+                d.dismiss();
+            });
+            grid.addView(t, lp);
+        }
+        d.show();
+    }
+
+    // ══════════════ 播放器内选集（参考 Kazumi 的选集网格） ══════════════
+
+    /** 网格卡片式选集：当前集高亮 */
+    private void showEpisodePicker() {
+        if (!animeMode) return;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(this, "选集"
+                + (displayTitle == null || displayTitle.isEmpty() ? "" : " · " + displayTitle)));
+
+        ScrollView sv = new ScrollView(this);
+        android.widget.GridLayout grid = new android.widget.GridLayout(this);
+        grid.setColumnCount(4);
+        sv.addView(grid);
+        box.addView(sv, new LinearLayout.LayoutParams(-1, dpInt(320)));
+
+        final Dialog d = ModuleUiKit.glassDialog(this, box);
+        for (int i = 0; i < epTitles.length; i++) {
+            final int fi = i;
+            boolean cur = (i == epIndex);
+            String label = epTitles[i];
+            if (label == null || label.isEmpty()) label = "第 " + (i + 1) + " 集";
+
+            TextView t = new TextView(this);
+            t.setText(label);
+            t.setTextSize(12);
+            t.setGravity(android.view.Gravity.CENTER);
+            t.setMaxLines(2);
+            t.setPadding(dpInt(6), dpInt(12), dpInt(6), dpInt(12));
+            t.setTextColor(cur ? ModuleUiKit.color(this,
+                    com.google.android.material.R.attr.colorOnPrimary)
+                    : ModuleUiKit.color(this, com.google.android.material.R.attr.colorOnSurface));
+            t.setBackground(ModuleUiKit.rounded(this, 10, ModuleUiKit.color(this,
+                    cur ? com.google.android.material.R.attr.colorPrimary
+                        : com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+            t.setClickable(true);
+            android.widget.GridLayout.LayoutParams lp = new android.widget.GridLayout.LayoutParams();
+            lp.columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f);
+            lp.width = 0;
+            lp.height = -2;
+            lp.setMargins(dpInt(4), dpInt(4), dpInt(4), dpInt(4));
+            t.setOnClickListener(v -> {
+                d.dismiss();
+                if (fi == epIndex) return;
+                switchEpisode(fi);
+            });
+            grid.addView(t, lp);
+        }
+        d.show();
+    }
+
+    /**
+     * 切集：用存档的源配置重新解析目标集，拿到新直链**和新请求头**后重启本页。
+     *
+     * <p>为什么要重启 Activity：每集的 Referer 不同，而 ExoPlayer 的
+     * OkHttpDataSource 请求头是在创建时固定的（PlayerCore.create(headers)），
+     * 无法在播放中替换。重启一次最可靠，代价是短暂闪一下。</p>
+     */
+    private void switchEpisode(final int i) {
+        if (epUrls == null || i < 0 || i >= epUrls.length) return;
+        tvTitle.setText("解析中…");
+        showError("正在解析第 " + (i + 1) + " 集…", null);
+        errorOverlay.setVisibility(View.VISIBLE);
+        new Thread(() -> {
+            try {
+                com.aliya.hy_vq.anime.AnimeSource src =
+                        com.aliya.hy_vq.anime.AnimeSource.parse(sourceJson);
+                if (src == null) throw new java.io.IOException("缺少源配置，无法在播放器内切集");
+                com.aliya.hy_vq.anime.AnimeSource.Episode ep =
+                        new com.aliya.hy_vq.anime.AnimeSource.Episode("", epTitles[i], epUrls[i]);
+                com.aliya.hy_vq.anime.AnimeSource.PlayLink pl =
+                        new com.aliya.hy_vq.anime.SourceEngine().resolve(src, ep, channelName);
+                final com.aliya.hy_vq.anime.AnimeSource.PlayLink link = pl;
+                runOnUiThread(() -> {
+                    android.content.Intent ni = urlIntent(this, link.url, displayTitle, link.headers,
+                            epUrls[i], 0L, epTitles, epUrls, i, sourceJson, channelName);
+                    ni.addFlags(android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION);
+                    startActivity(ni);
+                    finish();
+                });
+            } catch (Throwable t) {
+                final String msg = t.getMessage();
+                runOnUiThread(() -> {
+                    hideError();
+                    tvTitle.setText(baseName(playlist != null && idx < playlist.length
+                            ? playlist[idx] : ""));
+                    showError("切换失败：" + msg, null);
+                });
+            }
+        }, "anime-switch-ep").start();
     }
 
     /** 倍速循环切换（Kazumi 的播放器基础功能之一） */

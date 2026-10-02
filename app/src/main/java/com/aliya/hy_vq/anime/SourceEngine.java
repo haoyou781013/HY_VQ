@@ -227,7 +227,7 @@ public class SourceEngine {
      */
     public PlayLink resolve(AnimeSource src, Episode ep, String channelName) throws IOException {
         SearchConfig c = src.search;
-        Map<String, String> headers = headersOf(src, c);
+        Map<String, String> headers = playHeaders(src, ep);
         String html = get(ep.url, ep.url, headers);
 
         PlayLink link = new PlayLink();
@@ -271,6 +271,26 @@ public class SourceEngine {
             }
         }
         throw new IOException("未识别播放数据（可能是需 WebView 的第三方解析源）");
+    }
+
+    /**
+     * 播放阶段（含分片请求）要用的请求头。
+     *
+     * <p><b>为什么必须有这个</b>：源配置里的 referer 大多为空，若因此不带 Referer，
+     * 源站防盗链会返回 HTML 而不是媒体流，ExoPlayer 报
+     * {@code ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED} —— 表现为"同一部番
+     * 有的源能播、有的源报容器不支持"。默认用**播放页自身**作 Referer，
+     * 再兜底一个 UA。</p>
+     */
+    private static Map<String, String> playHeaders(AnimeSource src, Episode ep) {
+        Map<String, String> h = new HashMap<>(headersOf(src, src.search));
+        if (!h.containsKey("Referer") && ep != null && ep.url != null && !ep.url.isEmpty()) {
+            h.put("Referer", ep.url);
+        }
+        if (!h.containsKey("User-Agent")) {
+            h.put("User-Agent", DEFAULT_UA);
+        }
+        return h;
     }
 
     /** 请求头：Referer 为空串时**不要**添加该头（实测某些源带 Referer 反而 400）。 */

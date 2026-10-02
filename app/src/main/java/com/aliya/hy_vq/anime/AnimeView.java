@@ -474,7 +474,26 @@ public class AnimeView extends LinearLayout {
             en.episodeTitle = ep.title == null ? "" : ep.title;
             history.record(en);                        // 先登记，进度由播放器回写
         }
-        Intent i = MediaPlayerActivity.urlIntent(ctx, link.url, title, headers, key, startMs);
+        // 把整条线路的集列表一并传给播放器，这样在播放器内部就能选集
+        // （参考 Kazumi：不必退回列表页）
+        String[] epTitles = null, epUrls = null;
+        int epIndex = -1;
+        if (ch != null && ep != null && ch.episodes != null && !ch.episodes.isEmpty()) {
+            int n = ch.episodes.size();
+            epTitles = new String[n];
+            epUrls = new String[n];
+            for (int k = 0; k < n; k++) {
+                Episode e2 = ch.episodes.get(k);
+                epTitles[k] = (e2.title == null || e2.title.isEmpty())
+                        ? ("第 " + (k + 1) + " 集") : e2.title;
+                epUrls[k] = e2.url;
+                if (e2.url != null && e2.url.equals(ep.url)) epIndex = k;
+            }
+        }
+        Intent i = MediaPlayerActivity.urlIntent(ctx, link.url, title, headers, key, startMs,
+                epTitles, epUrls, epIndex,
+                src != null ? src.rawJson : null,
+                ch != null ? ch.name : null);
         try {
             ctx.startActivity(i);
             tvStatus.setText("已开始播放：" + title);
