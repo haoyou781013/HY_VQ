@@ -5134,7 +5134,7 @@ public class FileManagerModule extends HyVqModule {
             return;
         }
         if (MEDIA_EXTS.contains(ext)) {
-            openWithBuiltInPlayer(path, name, false);   // 视频：全屏 VideoView
+            openWithBuiltInPlayer(path, name, false);   // 视频：全屏播放（Media3 内核）
             return;
         }
         if (isTextFile(name)) {
@@ -5403,8 +5403,10 @@ public class FileManagerModule extends HyVqModule {
         return tv;
     }
 
-    /** 当前音频播放弹窗的播放器（同一时刻只允许一个；关窗即释放） */
-    private android.media.MediaPlayer audioPlayer;
+    /** 当前音频播放弹窗的播放器（同一时刻只允许一个；关窗即释放）。
+     *  已统一到 Media3 内核（见 {@code com.aliya.hy_vq.player.PlayerCore}）——
+     *  ExoPlayer 不依赖 Surface，音频可直接出声，因此音视频共用同一条播放链路。 */
+    private androidx.media3.exoplayer.ExoPlayer audioPlayer;
     private android.os.Handler audioTicker;
 
     /** 音频播放弹窗：原生 MediaPlayer（不依赖 Surface）+ **同目录左右切换**。
@@ -5576,45 +5578,55 @@ public class FileManagerModule extends HyVqModule {
             btnPrev.setColorFilter(idx[0] > 0 ? tintDim : tintDim);
             btnNext.setColorFilter(idx[0] < playlist.size() - 1 ? tintDim : tintDim);
 
-            new Thread(() -> {
-                try {
-                    android.media.MediaPlayer mp = new android.media.MediaPlayer();
-                    if (isUri) {
-                        mp.setDataSource(ctx, Uri.parse(path));
-                    } else {
-                        mp.setDataSource(path);
+            // Media3 是异步准备，不再需要后台线程；也不会阻塞主线程
+            final androidx.media3.exoplayer.ExoPlayer p =
+                    com.aliya.hy_vq.player.PlayerCore.create(ctx);
+            audioPlayer = p;
+            p.addListener(new androidx.media3.common.Player.Listener() {
+                @Override public void onPlaybackStateChanged(int state) {
+                    if (audioPlayer != p) return;      // 期间又切了 → 忽略旧实例回调
+                    if (state == androidx.media3.common.Player.STATE_READY) {
+                        final int dur = (int) Math.max(0, p.getDuration());
+                        runOnUi(() -> {
+                            tvState.setText(isUri ? "播放中（SAF）" : "播放中");
+                            tvDur.setText(fmtMs(dur));
+                            seek.setMax(dur > 0 ? dur : 0);
+                            startAudioTicker(seek, tvPos, btnPlay);
+                            switching[0] = false;
+                        });
+                    } else if (state == androidx.media3.common.Player.STATE_ENDED) {
+                        runOnUi(() -> {
+                            // 循环列表：播完自动下一个，最后一个回到第一个
+                            idx[0] = (idx[0] < playlist.size() - 1) ? idx[0] + 1 : 0;
+                            playRef[0].run();
+                        });
                     }
-                    mp.prepare();
-                    final int dur = mp.getDuration();
-                    if (audioPlayer != null) {          // 期间又切了 → 丢弃本次
-                        try {
-                            mp.release();
-                        } catch (Throwable ignored) {
-                        }
-                        switching[0] = false;
-                        return;
-                    }
-                    mp.setOnCompletionListener(m -> runOnUi(() -> {
-                        // 循环列表：播完自动下一个，最后一个回到第一个
-                        idx[0] = (idx[0] < playlist.size() - 1) ? idx[0] + 1 : 0;
-                        playRef[0].run();
-                    }));
-                    audioPlayer = mp;
-                    mp.start();
+                }
+
+                @Override public void onPlayerError(androidx.media3.common.PlaybackException e) {
+                    if (audioPlayer != p) return;
+                    final String code = e.getErrorCodeName();
                     runOnUi(() -> {
-                        tvState.setText(isUri ? "播放中（SAF）" : "播放中");
-                        tvDur.setText(fmtMs(dur));
-                        seek.setMax(dur > 0 ? dur : 0);
-                        startAudioTicker(seek, tvPos, btnPlay);
-                        switching[0] = false;
-                    });
-                } catch (Throwable t) {
-                    runOnUi(() -> {
-                        tvState.setText("无法播放：" + t.getMessage());
+                        tvState.setText("无法播放：" + (code == null ? "未知错误" : code));
                         switching[0] = false;
                     });
                 }
-            }).start();
+            });
+            try {
+                androidx.media3.common.MediaItem mi =
+                        com.aliya.hy_vq.player.PlayerCore.mediaItem(path, isUri);
+                if (mi == null) {
+                    tvState.setText("无效的播放地址");
+                    switching[0] = false;
+                    return;
+                }
+                p.setMediaItem(mi);
+                p.setPlayWhenReady(true);
+                p.prepare();
+            } catch (Throwable t) {
+                tvState.setText("无法播放：" + t.getMessage());
+                switching[0] = false;
+            }
         };
         final Runnable playCurrent = playRef[0];
 
@@ -5630,7 +5642,7 @@ public class FileManagerModule extends HyVqModule {
                     audioPlayer.pause();
                     btnPlay.setImageResource(R.drawable.ic_play);
                 } else {
-                    audioPlayer.start();
+                    audioPlayer.play();
                     btnPlay.setImageResource(R.drawable.ic_pause);
                 }
             } catch (Throwable ignored) {
@@ -5717,7 +5729,7 @@ public class FileManagerModule extends HyVqModule {
             @Override public void run() {
                 if (audioPlayer == null) return;
                 try {
-                    int pos = audioPlayer.getCurrentPosition();
+                    int pos = (int) Math.max(0, audioPlayer.getCurrentPosition());   // ExoPlayer 返回 long
                     seek.setProgress(pos);
                     tvPos.setText(fmtMs(pos));
                     // 图标随播放状态切换（不使用中文文字）

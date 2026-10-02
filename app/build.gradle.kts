@@ -85,6 +85,14 @@ dependencies {
     // ── JSON 解析 ──
     implementation("com.google.code.gson:gson:2.10.1")
 
+    // ── 媒体播放：Jetpack Media3 / ExoPlayer ──
+    // 版本上限受 compileSdk 33 约束：1.1.1 的 minCompileSdk=33，1.2.0+ 要求 34。
+    // 依赖走本地 Maven 仓库固化（/opt/local-maven），保持项目"离线构建"约定。
+    implementation("androidx.media3:media3-exoplayer:1.1.1")
+    implementation("androidx.media3:media3-ui:1.1.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.1.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.1.1")
+
     // ── 图片加载 ──
     implementation("com.github.bumptech.glide:glide:4.16.0")
     annotationProcessor("com.github.bumptech.glide:compiler:4.16.0")

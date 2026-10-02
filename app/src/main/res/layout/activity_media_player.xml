@@ -1,17 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/player_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <VideoView
+    <!--
+      ExoPlayer 渲染面（Media3 统一内核）。
+      use_controller=false：控制条沿用页面自己那套（player_controls），
+      否则会与内置控制器叠两层 UI。
+      id 保持 video_view 不变，避免动 Java 侧的一堆 findViewById。
+    -->
+    <androidx.media3.ui.PlayerView
         android:id="@+id/video_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_gravity="center" />
+        android:layout_gravity="center"
+        app:resize_mode="fit"
+        app:surface_type="surface_view"
+        app:use_controller="false" />
 
-    <!-- 音频播放时的占位（VideoView 无画面，用此替代黑屏） -->
+    <!-- 音频播放时的占位（无画面，用此替代黑屏） -->
     <LinearLayout
         android:id="@+id/audio_placeholder"
         android:layout_width="match_parent"
