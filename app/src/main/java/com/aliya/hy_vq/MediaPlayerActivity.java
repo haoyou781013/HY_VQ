@@ -1,6 +1,13 @@
 package com.aliya.hy_vq;
 
 import android.app.Activity;
+import android.graphics.Bitmap;
+import android.media.AudioManager;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
+import android.os.Environment;
+import android.view.PixelCopy;
+import android.view.SurfaceView;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -11,17 +18,23 @@ import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
+import androidx.media3.common.C;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
 import com.aliya.hy_vq.module.ModuleUiKit;
 import com.aliya.hy_vq.player.PlayerCore;
 
+import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -58,6 +71,10 @@ public class MediaPlayerActivity extends Activity {
     public static final String EXTRA_IS_URI = "media_is_uri"; // 列表项是否为 content://
     /** 请求头 Bundle（网络播放用）。键值均为 String。 */
     public static final String EXTRA_HEADERS = "media_headers";
+    /** 观看历史的业务键（动漫模块传「集页面地址」），用于回写进度 */
+    public static final String EXTRA_HISTORY_KEY = "media_history_key";
+    /** 续播起点（毫秒） */
+    public static final String EXTRA_START_MS = "media_start_ms";
 
     /**
      * 构造「播放单个网络地址」的 Intent —— 在线源（番剧/远程媒体）走这里。
@@ -71,6 +88,18 @@ public class MediaPlayerActivity extends Activity {
      */
     public static android.content.Intent urlIntent(android.content.Context ctx, String url,
                                                    String title, Map<String, String> headers) {
+        return urlIntent(ctx, url, title, headers, null, 0L);
+    }
+
+    /**
+     * 带观看历史键与续播起点的版本（动漫模块专用：key = 集页面地址）。
+     *
+     * @param historyKey 用于回写进度；null 表示不记录（普通文件播放）
+     * @param startMs    续播起点，0 表示从头
+     */
+    public static android.content.Intent urlIntent(android.content.Context ctx, String url,
+                                                   String title, Map<String, String> headers,
+                                                   String historyKey, long startMs) {
         android.content.Intent i = new android.content.Intent(ctx, MediaPlayerActivity.class);
         i.putExtra(EXTRA_URI, url);
         i.putExtra(EXTRA_IS_URI, true);
@@ -84,6 +113,8 @@ public class MediaPlayerActivity extends Activity {
             }
             i.putExtra(EXTRA_HEADERS, b);
         }
+        if (historyKey != null && !historyKey.isEmpty()) i.putExtra(EXTRA_HISTORY_KEY, historyKey);
+        if (startMs > 0) i.putExtra(EXTRA_START_MS, startMs);
         i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
         return i;
     }
@@ -98,6 +129,37 @@ public class MediaPlayerActivity extends Activity {
     private ImageView btnPlay, btnPrev, btnNext;
     private SeekBar seekBar;
     private TextView tvPos, tvDur, tvTitle, tvCounter, tvAudioName;
+    /** 播放器增强（对齐 Kazumi）：倍速与画面比例用文字按钮循环切换 */
+    private TextView tvSpeed, tvRatio;
+    private static final float[] SPEEDS = {1.0f, 1.25f, 1.5f, 2.0f, 0.5f, 0.75f};
+    private static final String[] SPEED_LABELS = {"1.0×", "1.25×", "1.5×", "2.0×", "0.5×", "0.75×"};
+    private static final int[] RATIOS = {
+            AspectRatioFrameLayout.RESIZE_MODE_FIT,
+            AspectRatioFrameLayout.RESIZE_MODE_FILL,
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+    };
+    private static final String[] RATIO_LABELS = {"适应", "拉伸", "裁剪"};
+    private int speedIdx = 0;
+    private int ratioIdx = 0;
+
+    // ── 手势（对齐 Kazumi/主流播放器）：水平快进、左半亮度、右半音量、双击暂停、长按加速 ──
+    private GestureDetector gesture;
+
+    // ── 观看历史（续播 + 进度回写）──
+    private com.aliya.hy_vq.anime.WatchHistory watchHistory;
+    private String historyKey;
+    private long pendingStartMs = 0L;
+    private final Handler historyHandler = new Handler(Looper.getMainLooper());
+    private final Runnable historyTick = new Runnable() {
+        @Override public void run() {
+            saveHistoryProgress();
+            historyHandler.postDelayed(this, 5000L);
+        }
+    };
+    private float downX, downY;
+    private boolean horizontalMode, verticalMode;
+    private boolean longPressing;
+    private long seekTargetMs = -1;
 
     private String[] playlist;
     private int idx = 0;
@@ -141,6 +203,13 @@ public class MediaPlayerActivity extends Activity {
         View root = findViewById(R.id.player_root);
 
         // ── 请求头（网络源需要）──
+        // 观看历史：续播起点 + 进度回写键
+        historyKey = getIntent().getStringExtra(EXTRA_HISTORY_KEY);
+        pendingStartMs = getIntent().getLongExtra(EXTRA_START_MS, 0L);
+        if (historyKey != null && !historyKey.isEmpty()) {
+            watchHistory = new com.aliya.hy_vq.anime.WatchHistory(this);
+        }
+
         Bundle hb = getIntent().getBundleExtra(EXTRA_HEADERS);
         if (hb != null && !hb.isEmpty()) {
             headers = new HashMap<>();
@@ -178,6 +247,17 @@ public class MediaPlayerActivity extends Activity {
                 if (state == Player.STATE_READY) {
                     prepared = true;
                     switching = false;
+                    // 续播定位（只做一次）
+                    if (pendingStartMs > 0) {
+                        try {
+                            player.seekTo(pendingStartMs);
+                        } catch (Throwable ignored) {
+                        }
+                        pendingStartMs = 0L;
+                    }
+                    // 启动进度回写（每 5 秒）
+                    historyHandler.removeCallbacks(historyTick);
+                    if (watchHistory != null) historyHandler.postDelayed(historyTick, 5000L);
                     int dur = (int) Math.max(0, player.getDuration());
                     seekBar.setMax(dur);
                     tvDur.setText(fmt(dur));
@@ -210,13 +290,20 @@ public class MediaPlayerActivity extends Activity {
             }
         });
 
-        root.setOnClickListener(v -> toggleControls());
+        setupGestures(root);
         btnBack.setOnClickListener(v -> finish());
         btnPlay.setOnClickListener(v -> togglePlay());
         btnPrev.setOnClickListener(v -> step(-1));
         btnNext.setOnClickListener(v -> step(1));
         ImageView btnList = findViewById(R.id.btn_player_list);
         if (btnList != null) btnList.setOnClickListener(v -> showPlaylistPicker());
+
+        // ── 播放器增强：倍速 / 画面比例 / 截图 ──
+        tvSpeed = findViewById(R.id.btn_player_speed);
+        tvRatio = findViewById(R.id.btn_player_ratio);
+        if (tvSpeed != null) tvSpeed.setOnClickListener(v -> cycleSpeed());
+        if (tvRatio != null) tvRatio.setOnClickListener(v -> cycleRatio());
+        if (tvSpeed != null) tvSpeed.setOnLongClickListener(v -> { captureFrame(); return true; });
 
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
@@ -236,6 +323,7 @@ public class MediaPlayerActivity extends Activity {
 
     /** 切到第 i 个并自动播放 */
     private void playAt(int i) {
+        // 切换媒体后 ExoPlayer 会保留 playbackSpeed，按钮文案无需重置
         if (playlist == null || i < 0 || i >= playlist.length || player == null) return;
         idx = i;
         final String path = playlist[i];
@@ -259,10 +347,21 @@ public class MediaPlayerActivity extends Activity {
         btnNext.setAlpha(i < playlist.length - 1 ? 1f : 0.35f);
 
         try {
-            androidx.media3.common.MediaItem mi = PlayerCore.mediaItem(path, isUri);
-            if (mi == null) {
+            // 外挂字幕（对齐 Kazumi）：优先用 ExoPlayer 内建字幕轨道，
+            // 支持 SRT / SSA(ASS) / VTT；ASS 特效需 libass，本项目不做。
+            androidx.media3.common.MediaItem mi;
+            List<androidx.media3.common.MediaItem.SubtitleConfiguration> subs =
+                    findSubtitles(path, isUri);
+            androidx.media3.common.MediaItem base = PlayerCore.mediaItem(path, isUri);
+            if (base == null) {
                 ModuleUiKit.toast(this, "无效的播放地址");
                 return;
+            }
+            if (!subs.isEmpty()) {
+                mi = base.buildUpon().setSubtitleConfigurations(subs).build();
+                ModuleUiKit.toast(this, "已加载 " + subs.size() + " 条字幕");
+            } else {
+                mi = base;
             }
             player.setMediaItem(mi);
             player.setPlayWhenReady(true);
@@ -379,6 +478,261 @@ public class MediaPlayerActivity extends Activity {
         }
     }
 
+    /** 手势区（对齐 Kazumi/主流播放器）：水平快进、左半亮度、右半音量、双击暂停、长按加速 */
+    private void setupGestures(final View root) {
+        gesture = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onSingleTapConfirmed(MotionEvent e) {
+                toggleControls();
+                return true;
+            }
+
+            @Override public boolean onDoubleTap(MotionEvent e) {
+                togglePlay();
+                return true;
+            }
+
+            @Override public void onLongPress(MotionEvent e) {
+                // 长按临时加速到 2×，松手恢复（Kazumi 同款）
+                longPressing = true;
+                try {
+                    if (player != null) player.setPlaybackSpeed(2.0f);
+                    if (tvSpeed != null) tvSpeed.setText("2.0×");
+                } catch (Throwable ignored) {
+                }
+            }
+
+            @Override public boolean onDown(MotionEvent e) {
+                downX = e.getX();
+                downY = e.getY();
+                horizontalMode = verticalMode = false;
+                seekTargetMs = -1;
+                return true;
+            }
+        });
+
+        root.setOnTouchListener((v, ev) -> {
+            gesture.onTouchEvent(ev);
+            switch (ev.getActionMasked()) {
+                case MotionEvent.ACTION_MOVE: {
+                    float dx = ev.getX() - downX;
+                    float dy = ev.getY() - downY;
+                    if (!horizontalMode && !verticalMode) {
+                        if (Math.abs(dx) > dpInt(12) || Math.abs(dy) > dpInt(12)) {
+                            horizontalMode = Math.abs(dx) > Math.abs(dy);
+                            verticalMode = !horizontalMode;
+                        }
+                    }
+                    if (horizontalMode && prepared) {
+                        // 全屏宽 = 2 分钟；滑动中先预览目标时间，抬手才真正 seek
+                        float ratio = dx / Math.max(1f, v.getWidth());
+                        long delta = (long) (ratio * 120_000L);
+                        long target = Math.max(0, Math.min(player.getDuration(),
+                                player.getCurrentPosition() + delta));
+                        seekTargetMs = target;
+                        tvPos.setText(fmt((int) target) + "  ⟶");
+                    } else if (verticalMode) {
+                        float ratio = -dy / Math.max(1f, v.getHeight());
+                        if (downX < v.getWidth() / 2f) {
+                            adjustBrightness(ratio * 1.2f);
+                        } else {
+                            adjustVolume(ratio * 1.2f);
+                        }
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL: {
+                    if (longPressing) {
+                        longPressing = false;
+                        try {
+                            if (player != null) player.setPlaybackSpeed(SPEEDS[speedIdx]);
+                            if (tvSpeed != null) tvSpeed.setText(SPEED_LABELS[speedIdx]);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                    if (horizontalMode && seekTargetMs >= 0 && prepared) {
+                        try {
+                            player.seekTo(seekTargetMs);
+                        } catch (Throwable ignored) {
+                        }
+                        seekTargetMs = -1;
+                    }
+                    horizontalMode = verticalMode = false;
+                    return true;
+                }
+                default:
+                    return false;
+            }
+        });
+    }
+
+    private void adjustBrightness(float delta) {
+        try {
+            WindowManager.LayoutParams lp = getWindow().getAttributes();
+            float cur = lp.screenBrightness;
+            if (cur < 0) cur = 0.5f;              // -1 表示跟随系统
+            cur = Math.max(0.01f, Math.min(1f, cur + delta));
+            lp.screenBrightness = cur;
+            getWindow().setAttributes(lp);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void adjustVolume(float delta) {
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            if (am == null) return;
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int cur = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+            int next = Math.max(0, Math.min(max, cur + Math.round(delta * max)));
+            if (next != cur) {
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private int dpInt(int v) {
+        return (int) (getResources().getDisplayMetrics().density * v);
+    }
+
+    /** 把当前进度回写给观看历史（播放器与动漫模块之间靠 historyKey 解耦） */
+    private void saveHistoryProgress() {
+        if (watchHistory == null || historyKey == null || player == null) return;
+        try {
+            long pos = player.getCurrentPosition();
+            long dur = player.getDuration();
+            long safeDur = dur == androidx.media3.common.C.TIME_UNSET ? 0L : dur;
+            watchHistory.updateProgress(historyKey, pos, safeDur);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 倍速循环切换（Kazumi 的播放器基础功能之一） */
+    private void cycleSpeed() {
+        speedIdx = (speedIdx + 1) % SPEEDS.length;
+        float sp = SPEEDS[speedIdx];
+        try {
+            if (player != null) player.setPlaybackSpeed(sp);
+            if (tvSpeed != null) tvSpeed.setText(SPEED_LABELS[speedIdx]);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 画面比例循环切换：适应 / 拉伸 / 裁剪 */
+    private void cycleRatio() {
+        ratioIdx = (ratioIdx + 1) % RATIOS.length;
+        try {
+            if (playerView != null) playerView.setResizeMode(RATIOS[ratioIdx]);
+            if (tvRatio != null) tvRatio.setText(RATIO_LABELS[ratioIdx]);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 查找同目录的外挂字幕（对齐 Kazumi 的字幕能力）。
+     *
+     * <p>匹配规则：与视频同名前缀的字幕文件，例如
+     * {@code ep01.mp4} ↔ {@code ep01.srt} / {@code ep01.zh.ass} / {@code ep01.chs.vtt}。</p>
+     * <p>只走 ExoPlayer 内建解析：SRT / SSA(ASS) / VTT。ASS 的特效渲染需要 libass，不做。</p>
+     */
+    private List<androidx.media3.common.MediaItem.SubtitleConfiguration> findSubtitles(
+            String mediaPath, boolean isUri) {
+        List<androidx.media3.common.MediaItem.SubtitleConfiguration> out = new ArrayList<>();
+        if (mediaPath == null || isUri) return out;              // 网络流不找本地字幕
+        try {
+            File f = new File(mediaPath);
+            File dir = f.getParentFile();
+            if (dir == null || !dir.isDirectory()) return out;
+            String base = f.getName();
+            int dot = base.lastIndexOf('.');
+            if (dot > 0) base = base.substring(0, dot);
+
+            File[] files = dir.listFiles();
+            if (files == null) return out;
+            for (File sub : files) {
+                String n = sub.getName();
+                String lower = n.toLowerCase(java.util.Locale.ROOT);
+                if (!lower.startsWith(base.toLowerCase(java.util.Locale.ROOT))) continue;
+                String mime = null;
+                if (lower.endsWith(".srt")) mime = MimeTypes.APPLICATION_SUBRIP;
+                else if (lower.endsWith(".ass") || lower.endsWith(".ssa")) mime = MimeTypes.TEXT_SSA;
+                else if (lower.endsWith(".vtt")) mime = MimeTypes.TEXT_VTT;
+                if (mime == null) continue;
+                try {
+                    out.add(new androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(
+                            android.net.Uri.fromFile(sub))
+                            .setMimeType(mime)
+                            .setLanguage(detectLanguage(lower))
+                            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                            .setLabel(n)
+                            .build());
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
+    /** 从文件名猜语言（zh/en/ja），猜不出用 und */
+    private String detectLanguage(String lowerName) {
+        if (lowerName.contains("chs") || lowerName.contains("cht")
+                || lowerName.contains("zh") || lowerName.contains("中文")
+                || lowerName.contains("简") || lowerName.contains("繁")) return "zh";
+        if (lowerName.contains("eng") || lowerName.contains("en.")) return "en";
+        if (lowerName.contains("jpn") || lowerName.contains("jp")) return "ja";
+        return "und";
+    }
+
+    /**
+     * 截图当前画面，存到 /sdcard/Pictures/HY_VQ/。
+     * 用 PixelCopy 从 Surface 取帧（API 24+，本项目 minSdk 28）；
+     * 写外部存储依赖清单里的 MANAGE_EXTERNAL_STORAGE。
+     */
+    private void captureFrame() {
+        try {
+            if (playerView == null) return;
+            android.view.View surfaceView = playerView.getVideoSurfaceView();
+            if (!(surfaceView instanceof SurfaceView)) {
+                ModuleUiKit.toast(this, "当前画面不支持截图");
+                return;
+            }
+            final SurfaceView sv = (SurfaceView) surfaceView;
+            if (sv.getWidth() <= 0 || sv.getHeight() <= 0) {
+                ModuleUiKit.toast(this, "画面尚未就绪");
+                return;
+            }
+            final Bitmap bmp = Bitmap.createBitmap(sv.getWidth(), sv.getHeight(), Bitmap.Config.ARGB_8888);
+            PixelCopy.request(sv, bmp, result -> {
+                if (result != PixelCopy.SUCCESS) {
+                    ModuleUiKit.toast(this, "截图失败（code " + result + "）");
+                    return;
+                }
+                try {
+                    File dir = new File(Environment.getExternalStorageDirectory(), "Pictures/HY_VQ");
+                    if (!dir.exists() && !dir.mkdirs()) {
+                        ModuleUiKit.toast(this, "无法创建截图目录");
+                        return;
+                    }
+                    String name = "HYVQ_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss",
+                            java.util.Locale.CHINA).format(new java.util.Date()) + ".png";
+                    File out = new File(dir, name);
+                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                        bmp.compress(Bitmap.CompressFormat.PNG, 100, fos);
+                    }
+                    ModuleUiKit.toast(this, "已保存：" + name);
+                } catch (Throwable t) {
+                    ModuleUiKit.toast(this, "保存失败：" + t.getMessage());
+                } finally {
+                    bmp.recycle();
+                }
+            }, new Handler(Looper.getMainLooper()));
+        } catch (Throwable t) {
+            ModuleUiKit.toast(this, "截图异常：" + t.getMessage());
+        }
+    }
+
     private String fmt(int ms) {
         if (ms < 0) ms = 0;
         int total = ms / 1000;
@@ -393,15 +747,20 @@ public class MediaPlayerActivity extends Activity {
         }
         updatePlayIcon(false);
         handler.removeCallbacks(ticker);
+        saveHistoryProgress();                       // 离开页面即落盘
+        historyHandler.removeCallbacks(historyTick);
     }
 
     @Override protected void onResume() {
         super.onResume();
         if (prepared) handler.post(ticker);
+        if (watchHistory != null) historyHandler.postDelayed(historyTick, 5000L);
     }
 
     @Override protected void onDestroy() {
         handler.removeCallbacks(ticker);
+        saveHistoryProgress();
+        historyHandler.removeCallbacks(historyTick);
         try {
             if (playerView != null) playerView.setPlayer(null);
             if (player != null) {

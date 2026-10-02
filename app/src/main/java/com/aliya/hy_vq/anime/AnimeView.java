@@ -57,6 +57,8 @@ public class AnimeView extends LinearLayout {
     private final Activity ctx;
     private final SourceRepository repo;
     private final AnimeSearchManager searcher = new AnimeSearchManager();
+    private final WatchHistory history;
+    private LinearLayout continueBox;
 
     private EditText etKeyword;
     private LinearLayout resultBox;
@@ -68,11 +70,13 @@ public class AnimeView extends LinearLayout {
         super(context);
         this.ctx = context;
         this.repo = new SourceRepository(context);
+        this.history = new WatchHistory(context);
         setOrientation(VERTICAL);
         setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         buildUi();
         refreshStatus();
+        refreshContinue();
     }
 
     // ══════════════════ UI ══════════════════
@@ -114,11 +118,14 @@ public class AnimeView extends LinearLayout {
         tvStatus.setPadding(pad, 0, pad, dp(6));
         addView(tvStatus);
 
-        // ── 结果区 ──
+        // ── 结果区（顶部含「继续观看」卡片）──
         ScrollView sv = new ScrollView(ctx);
         resultBox = new LinearLayout(ctx);
         resultBox.setOrientation(VERTICAL);
         resultBox.setPadding(pad, 0, pad, dp(8));
+        continueBox = new LinearLayout(ctx);
+        continueBox.setOrientation(VERTICAL);
+        resultBox.addView(continueBox);
         sv.addView(resultBox);
         addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
@@ -218,6 +225,75 @@ public class AnimeView extends LinearLayout {
         });
     }
 
+    /**
+     * 「继续观看」卡片（对齐 Kazumi）：取最近一条未看完的记录。
+     * 点击后用它存的**源配置 + 集地址重新解析**（不存直链，因为直链会过期）。
+     */
+    private void refreshContinue() {
+        if (continueBox == null) return;
+        continueBox.removeAllViews();
+        final WatchHistory.Entry e = history.latestUnfinished();
+        if (e == null) return;
+
+        LinearLayout c = card();
+        TextView head = new TextView(ctx);
+        head.setText("继续观看");
+        head.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        head.setTypeface(null, Typeface.BOLD);
+        head.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+        c.addView(head);
+
+        TextView body = new TextView(ctx);
+        body.setText(e.subjectName + "\n" + (e.episodeTitle == null || e.episodeTitle.isEmpty()
+                ? "（未命名集）" : e.episodeTitle)
+                + "   " + e.positionText()
+                + (e.channelName == null || e.channelName.isEmpty() ? "" : "   · " + e.channelName));
+        body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        body.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        body.setPadding(dp(10), dp(10), dp(10), dp(10));
+        body.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 10,
+                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
+        LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(6);
+        body.setLayoutParams(lp);
+        body.setOnClickListener(v -> resumeFrom(e));
+        c.addView(body);
+
+        continueBox.addView(c);
+    }
+
+    /** 续播：重建源配置 → 重新解析该集 → 带起点播放 */
+    private void resumeFrom(final WatchHistory.Entry e) {
+        final AnimeSource src = AnimeSource.parse(e.sourceJson);
+        if (src == null) {
+            ModuleUiKit.toast(ctx, "该记录缺少源配置，无法续播");
+            return;
+        }
+        tvStatus.setText("续播解析中…（" + src.name + "）");
+        new Thread(() -> {
+            try {
+                SourceEngine engine = new SourceEngine();
+                Episode ep = new Episode("", e.episodeTitle, e.episodeUrl);
+                PlayLink pl = engine.resolve(src, ep, e.channelName);
+                final PlayLink link = pl;
+                Channel ch = new Channel(e.channelName == null ? "继续观看" : e.channelName);
+                ui(() -> {
+                    Subject sub = new Subject(e.subjectName, e.episodeUrl,
+                            src.name);
+                    play(link, sub, ch, ep, src);
+                });
+            } catch (Throwable t) {
+                final String msg = t.getMessage();
+                ui(() -> {
+                    tvStatus.setText("续播失败（直链需重新解析）：" + msg);
+                    // 退回完整流程：重新解析线路
+                    autoPlay(src, new Subject(e.subjectName, e.episodeUrl, src.name));
+                });
+            }
+        }, "anime-resume").start();
+    }
+
     /** 一个源 = 一张卡片（源名 + tier 徽标 + 条目） */
     private void addSourceCard(AnimeSource src, List<Subject> subs) {
         shownSources.add(src);
@@ -293,16 +369,18 @@ public class AnimeView extends LinearLayout {
                         PlayLink pl = engine.resolve(src, first, ch.name);
                         final PlayLink link = pl;
                         final Channel chosen = ch;
-                        ui(() -> play(link, sub, chosen));
+                        final Episode chosenEp = first;
+                        ui(() -> play(link, sub, chosen, chosenEp, src));
                         return;
                     } catch (Throwable ignore) {
                         // 换下一条线路
                     }
                 }
                 final List<Channel> fallback = sorted;
+                // 纯解析全失败 → 转 WebView 嗅探兜底（原理参考 Animeko）
                 ui(() -> {
-                    tvStatus.setText("所有线路都未取到直链（可能需要 WebView 的源）");
-                    showChannelPicker(src, sub, fallback);
+                    tvStatus.setText("纯解析未取到直链，改用浏览器解析…");
+                    tryWebView(src, sub, fallback);
                 });
             } catch (Throwable t) {
                 final String msg = t.getMessage();
@@ -314,19 +392,89 @@ public class AnimeView extends LinearLayout {
         }, "anime-resolve").start();
     }
 
+    /**
+     * WebView 兜底取链（原理参考 Animeko 的 AndroidWebViewVideoExtractor）。
+     *
+     * <p>适用两类纯解析拿不到的源：第三方解析 iframe（直链在别人手里）、
+     * encrypt=3（解密 JS 在外部脚本）。共同点是"只要 WebView 能播，请求就会露出来"。</p>
+     */
+    private void tryWebView(final AnimeSource src, final Subject sub, final List<Channel> chs) {
+        if (chs == null || chs.isEmpty()) {
+            ui(() -> ModuleUiKit.toast(ctx, "没有可用线路"));
+            return;
+        }
+        final Channel ch = chs.get(0);
+        if (ch.episodes == null || ch.episodes.isEmpty()) {
+            ui(() -> ModuleUiKit.toast(ctx, "该线路没有单集"));
+            return;
+        }
+        final Episode ep = ch.episodes.get(0);
+
+        final WebViewLinkExtractor ex = new WebViewLinkExtractor(ctx);
+        ex.extract(ep.url, src.search.userAgent, ep.url, null,
+                WebViewLinkExtractor.DEFAULT_TIMEOUT_MS, new WebViewLinkExtractor.Callback() {
+                    @Override public void onFound(String url) {
+                        ui(() -> {
+                            PlayLink pl = new PlayLink();
+                            pl.url = url;
+                            pl.channelName = ch.name;
+                            pl.nested = true;
+                            // 分片请求一般需要 Referer（指向播放页）与相同 UA
+                            pl.headers.put("Referer", ep.url);
+                            if (src.search.userAgent != null && !src.search.userAgent.isEmpty()) {
+                                pl.headers.put("User-Agent", src.search.userAgent);
+                            }
+                            tvStatus.setText("浏览器解析成功，开始播放");
+                            play(pl, sub, ch, ep, src);
+                        });
+                    }
+
+                    @Override public void onFailed(String reason) {
+                        ui(() -> {
+                            tvStatus.setText("浏览器解析也失败：" + reason);
+                            showChannelPicker(src, sub, chs);
+                        });
+                    }
+                });
+    }
+
     private int tierRank(AnimeSource src, Channel ch) {
         int t = src.tierFor(ch.name);
         return t < 0 ? 999 : t;
     }
 
     private void play(PlayLink link, Subject sub, Channel ch) {
+        play(link, sub, ch, null, null);
+    }
+
+    /**
+     * 播放并记录观看历史。
+     *
+     * @param ep  当前集（用于 historyKey 与续播定位）；null 表示不记录
+     * @param src 源（把源配置 JSON 一起存，续播时可重新解析拿新直链）
+     */
+    private void play(PlayLink link, Subject sub, Channel ch, Episode ep, AnimeSource src) {
         if (link == null || link.url == null) {
             ModuleUiKit.toast(ctx, "无可用播放地址");
             return;
         }
         Map<String, String> headers = link.headers;
         String title = sub.name + (ch != null ? " · " + ch.name : "");
-        Intent i = MediaPlayerActivity.urlIntent(ctx, link.url, title, headers);
+
+        String key = ep != null && ep.url != null ? ep.url : null;
+        long startMs = 0L;
+        if (key != null) {
+            startMs = history.positionOf(key);         // 上次看到哪
+            WatchHistory.Entry en = new WatchHistory.Entry();
+            en.subjectName = sub.name;
+            en.sourceName = src != null ? src.name : (sub.sourceName == null ? "" : sub.sourceName);
+            en.sourceJson = src != null ? src.rawJson : "";
+            en.channelName = ch != null ? ch.name : "";
+            en.episodeUrl = key;
+            en.episodeTitle = ep.title == null ? "" : ep.title;
+            history.record(en);                        // 先登记，进度由播放器回写
+        }
+        Intent i = MediaPlayerActivity.urlIntent(ctx, link.url, title, headers, key, startMs);
         try {
             ctx.startActivity(i);
             tvStatus.setText("已开始播放：" + title);
@@ -374,8 +522,9 @@ public class AnimeView extends LinearLayout {
                 new Thread(() -> {
                     try {
                         SourceEngine engine = new SourceEngine();
-                        PlayLink pl = engine.resolve(src, ch.episodes.get(0), ch.name);
-                        ui(() -> play(pl, sub, ch));
+                        Episode first = ch.episodes.get(0);
+                        PlayLink pl = engine.resolve(src, first, ch.name);
+                        ui(() -> play(pl, sub, ch, first, src));
                     } catch (Throwable e) {
                         ui(() -> ModuleUiKit.toast(ctx, "该线路也不可用：" + e.getMessage()));
                     }
