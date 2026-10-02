@@ -431,8 +431,15 @@ public final class ModuleUiKit {
         return gd;
     }
 
-    /** 快捷：圆角背景 + 水波纹 */
-    private static android.graphics.drawable.RippleDrawable rippleBg(Context context, GradientDrawable base) {
+    /**
+     * 圆角背景 + 点击水波纹。
+     *
+     * <p><b>为什么必须这样组合</b>：{@code setBackground()} 只能有一个背景。
+     * 若先设 {@link GradientDrawable} 再调 {@code setBackgroundResource(水波纹)}，
+     * 前者会被覆盖。正确做法是把 GradientDrawable 作为 RippleDrawable 的
+     * content 一并设置。</p>
+     */
+    public static android.graphics.drawable.RippleDrawable rippleBg(Context context, GradientDrawable base) {
         int ripple = color(context, com.google.android.material.R.attr.colorOnSurface);
         return new android.graphics.drawable.RippleDrawable(
                 android.content.res.ColorStateList.valueOf(ripple & 0xFFFFFF | 0x1A000000),

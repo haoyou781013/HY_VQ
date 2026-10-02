@@ -357,40 +357,35 @@ public class PermissionCenterView extends LinearLayout {
             t.setPadding(dp(2), 0, dp(2), dp(4));
             addView(t);
         }
-        LinearLayout card = new LinearLayout(ctx);
-        card.setOrientation(VERTICAL);
-        card.setBackground(ModuleUiKit.rounded(ctx, 14,
-                color(R.attr.colorSurfaceContainerHigh), 0));
+        // 每一项独立成卡片（淡色背景 + 边框），不再用「共用一张卡 + 分隔线」——
+        // 后者在项数多时层次不清，边框卡片更容易一眼分辨条目边界。
         for (int i = 0; i < items.size(); i++) {
-            card.addView(buildRow(items.get(i)));
-            if (i < items.size() - 1) {
-                View div = new View(ctx);
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-                lp.leftMargin = dp(16);
-                div.setBackgroundColor(color(R.attr.colorOutlineVariant));
-                card.addView(div, lp);
-            }
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = dp(8);
+            addView(buildRow(items.get(i)), lp);
         }
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        clp.bottomMargin = dp(14);
-        addView(card, clp);
+        View gap = new View(ctx);
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(6));
+        addView(gap, glp);
     }
 
     private View buildRow(final PermItem p) {
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(12), dp(14), dp(12));
-        // 点击水波纹：注意 android.R.attr.selectableItemBackground 是「属性 ID」
-        // 而非「资源 ID」，直接传给 setBackgroundResource 会抛
-        // Resources.NotFoundException。必须先经主题解析拿到真正的资源 ID。
-        android.util.TypedValue tv = new android.util.TypedValue();
-        if (ctx.getTheme().resolveAttribute(
-                android.R.attr.selectableItemBackground, tv, true) && tv.resourceId != 0) {
-            row.setBackgroundResource(tv.resourceId);
-        }
+        row.setPadding(dp(14), dp(13), dp(14), dp(13));
+
+        // 卡片外观：淡色容器背景 + 主色细边框，外面再包一层点击水波纹。
+        // 用 colorPrimaryContainer 作底色可自动跟随主题（蓝主题即淡蓝 #BBDEFB，
+        // 绿主题即淡绿，暗色主题则为深色容器），比写死颜色更协调。
+        // 注意：背景只能设一个，所以必须用 rippleBg 把两者合成，不能分两次设置。
+        android.graphics.drawable.GradientDrawable cardBg = ModuleUiKit.rounded(
+                ctx, 12,
+                color(R.attr.colorPrimaryContainer),   // 淡色背景（跟随主题）
+                color(R.attr.colorPrimary));           // 边框
+        row.setBackground(ModuleUiKit.rippleBg(ctx, cardBg));
 
         LinearLayout col = new LinearLayout(ctx);
         col.setOrientation(VERTICAL);
