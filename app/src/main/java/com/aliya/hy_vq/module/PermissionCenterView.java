@@ -263,8 +263,14 @@ public class PermissionCenterView extends LinearLayout {
         try {
             switch (key) {
                 case "android.permission.MANAGE_EXTERNAL_STORAGE":
-                    return Environment.isExternalStorageManager();
+                    // isExternalStorageManager 是 API 30 引入的，低版本调用会
+                    // NoSuchMethodError —— 必须做版本判断
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        return Environment.isExternalStorageManager();
+                    }
+                    return true;   // API 30 以下无此权限概念，视为已具备
                 case "android.permission.SYSTEM_ALERT_WINDOW":
+                    // canDrawOverlays 为 API 23+，项目 minSdk 28，安全
                     return Settings.canDrawOverlays(ctx);
                 case "moe.shizuku.manager.permission.API_V23":
                     // 由 Shizuku 自身管理，此处只做展示，不在这里判定
@@ -377,7 +383,14 @@ public class PermissionCenterView extends LinearLayout {
         row.setOrientation(HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(14), dp(12), dp(14), dp(12));
-        row.setBackgroundResource(android.R.attr.selectableItemBackground);
+        // 点击水波纹：注意 android.R.attr.selectableItemBackground 是「属性 ID」
+        // 而非「资源 ID」，直接传给 setBackgroundResource 会抛
+        // Resources.NotFoundException。必须先经主题解析拿到真正的资源 ID。
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (ctx.getTheme().resolveAttribute(
+                android.R.attr.selectableItemBackground, tv, true) && tv.resourceId != 0) {
+            row.setBackgroundResource(tv.resourceId);
+        }
 
         LinearLayout col = new LinearLayout(ctx);
         col.setOrientation(VERTICAL);
