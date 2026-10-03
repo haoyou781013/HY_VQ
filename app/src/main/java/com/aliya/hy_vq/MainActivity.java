@@ -283,6 +283,111 @@ public class MainActivity extends AppCompatActivity {
         handler.postDelayed(this::rebuildDrawerModuleSlot, 100);
         // 启动时自动检查更新（可在「设置 → 软件更新」关闭）
         autoCheckUpdateOnLaunch();
+        // 阶段 4：使用条款与免责声明（首次启动强制同意）
+        enforceAgreement();
+    }
+
+    // ══════════════ 阶段 4：告知与合规 ══════════════
+
+    /** 用户是否已同意使用条款（改版时递增版本号即可重新征询） */
+    private static final String KEY_AGREEMENT = "agreement_accepted_v1";
+
+    private void enforceAgreement() {
+        if (prefs.getBoolean(KEY_AGREEMENT, false)) return;
+        showAgreementDialog();
+    }
+
+    /**
+     * 首启协议弹窗：不可取消、点外部不关，必须明确选择。
+     *
+     * <p>之所以把「动漫模块」单列一节而不是塞进免责声明：它引入了本软件
+     * 最特殊的两项外部依赖 —— 第三方内容源与内置浏览器（开启 JavaScript）。
+     * 用户有权在首次使用前就知道。</p>
+     */
+    private void showAgreementDialog() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(this, "使用条款与免责声明"));
+
+        TextView body = new TextView(this);
+        body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        body.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        body.setLineSpacing(0, 1.25f);
+        body.setText(String.join(System.lineSeparator(), new String[]{
+            "一、软件性质",
+            "本软件全部代码由 AI 智能体编写，按「现状」提供，不提供任何形式担保。",
+            "请自行审阅代码并备份重要数据。",
+            "",
+            "二、权限与风险",
+            "涉及文件操作（含 Root 权限）与外部模块动态加载，存在误操作风险。",
+            "因使用造成的损失由使用者自行承担。",
+            "",
+            "三、动漫模块（重要）",
+            "1. 该模块用于聚合第三方网站内容，数据源来自你自行导入的订阅。",
+            "2. 本软件不提供、不存储、不分发任何内容，仅做解析与播放。",
+            "3. 为解析部分加密源，模块会启动内置浏览器并开启 JavaScript，",
+            "   这会扩大安全面。若不接受，请勿使用该模块。",
+            "4. 第三方源随时可能失效（实测约半数规则已失效），属此类工具的",
+            "   固有问题，不代表本软件故障。",
+            "5. 请确保你的使用行为符合当地法律法规。",
+            "",
+            "四、开源",
+            "以 GNU GPL v3.0 协议开源，可自由使用、修改与再分发。"
+        }));
+        ScrollView sv = new ScrollView(this);
+        sv.addView(body);
+        box.addView(sv, new LinearLayout.LayoutParams(-1, dpMain(360)));
+
+        final Dialog dialog = ModuleUiKit.glassDialog(this, box, false);
+        dialog.setCancelable(false);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(-1, -2);
+        alp.topMargin = dpMain(12);
+        actions.setLayoutParams(alp);
+
+        TextView decline = aboutBtn("不同意，退出", ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant), ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorSurfaceContainerHigh));
+        decline.setOnClickListener(v -> {
+            ModuleUiKit.dismissWithAnim(dialog);
+            finishAffinity();
+        });
+        actions.addView(decline, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        TextView accept = aboutBtn("同意并继续", ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnPrimary), ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorPrimary));
+        LinearLayout.LayoutParams acp = new LinearLayout.LayoutParams(0, -2, 1f);
+        acp.leftMargin = dpMain(8);
+        accept.setOnClickListener(v -> {
+            prefs.edit().putBoolean(KEY_AGREEMENT, true).apply();
+            ModuleUiKit.dismissWithAnim(dialog);
+        });
+        actions.addView(accept, acp);
+        box.addView(actions);
+
+        dialog.show();
+    }
+
+    /** 项目统一的按钮写法（圆角 TextView，非原生 Button） */
+    private TextView aboutBtn(String text, int fg, int bg) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        t.setTextColor(fg);
+        t.setGravity(android.view.Gravity.CENTER);
+        t.setPadding(dpMain(12), dpMain(10), dpMain(12), dpMain(10));
+        t.setBackground(ModuleUiKit.rippleBg(this, ModuleUiKit.rounded(this, 10, bg, 0)));
+        t.setClickable(true);
+        t.setFocusable(true);
+        return t;
+    }
+
+    private int dpMain(int v) {
+        return (int) (getResources().getDisplayMetrics().density * v);
     }
 
     private void rebuildDrawerModuleSlot() {
@@ -482,7 +587,13 @@ public class MainActivity extends AppCompatActivity {
                     "",
                     "涉及文件操作（含 Root 权限）与外部模块动态加载，使用前请自行审阅代码并备份重要数据。",
                     "",
-                    "本软件按「现状」提供，不提供任何形式担保；因使用造成的任何损失由使用者自行承担。"
+                    "本软件按「现状」提供，不提供任何形式担保；因使用造成的任何损失由使用者自行承担。",
+                    "",
+                    "【动漫模块】",
+                    "该模块聚合第三方网站内容，数据源来自用户自行导入的订阅；本软件不提供、不存储、不分发任何内容，仅做解析与播放。",
+                    "源由第三方维护，随时可能失效（实测约半数规则已失效），属此类工具的固有问题。",
+                    "为解析部分加密源，模块会启动内置浏览器并开启 JavaScript，这会扩大安全面。",
+                    "请确保使用行为符合当地法律法规。"
             }));
         }
         TextView tvCr = aboutView.findViewById(R.id.tv_about_copyright);

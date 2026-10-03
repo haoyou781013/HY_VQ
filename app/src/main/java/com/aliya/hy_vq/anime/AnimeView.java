@@ -91,6 +91,82 @@ public class AnimeView extends LinearLayout {
         buildUi();
         refreshStatus();
         refreshContinue();
+        // 阶段 4：模块级二次告知（首次进入动漫页时）
+        showModuleNoticeIfNeeded();
+    }
+
+    /** 模块告知是否已确认（与 SourceRepository 共用 anime_prefs） */
+    private static final String KEY_MODULE_NOTICE = "anime_notice_accepted_v1";
+
+    /**
+     * 动漫模块的二次告知（决策 7 的"模块级提醒"）。
+     *
+     * <p>与首启协议的区别：首启协议覆盖全软件；这一条聚焦本模块特有的两件事
+     * ——**第三方数据源**与**内置浏览器会开启 JavaScript**。放在模块入口而不是
+     * 只在首启说一次，是因为用户可能很久以后才第一次点开这个模块。</p>
+     */
+    private void showModuleNoticeIfNeeded() {
+        android.content.SharedPreferences p = ctx.getSharedPreferences(
+                "anime_prefs", android.content.Context.MODE_PRIVATE);
+        if (p.getBoolean(KEY_MODULE_NOTICE, false)) return;
+
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(ctx, "使用前须知"));
+
+        TextView body = new TextView(ctx);
+        body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        body.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        body.setLineSpacing(0, 1.25f);
+        body.setText(String.join(System.lineSeparator(), new String[]{
+            "本模块聚合第三方网站的内容，请注意：",
+            "",
+            "· 数据源来自你自行导入的订阅，本软件不提供、不存储、不分发内容。",
+            "· 源由第三方维护，随时可能失效（实测约半数规则已失效）。",
+            "· 为解析部分加密源，会启动内置浏览器并开启 JavaScript —— ",
+            "  这意味着该页面的脚本会在本机执行，请知悉此风险。",
+            "· 请确保你的使用符合当地法律法规。",
+            "",
+            "继续使用即表示你已知悉上述事项。"
+        }));
+        ScrollView sv = new ScrollView(ctx);
+        sv.addView(body);
+        box.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)));
+
+        final Dialog d = ModuleUiKit.glassDialog(ctx, box, false);
+        d.setCancelable(false);
+
+        LinearLayout actions = new LinearLayout(ctx);
+        actions.setOrientation(HORIZONTAL);
+        LayoutParams alp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        alp.topMargin = dp(12);
+        actions.setLayoutParams(alp);
+
+        TextView decline = btn("我知道了，返回", color(
+                com.google.android.material.R.attr.colorOnSurfaceVariant), color(
+                com.google.android.material.R.attr.colorSurfaceContainerHigh));
+        decline.setGravity(Gravity.CENTER);
+        decline.setOnClickListener(v -> {
+            ModuleUiKit.dismissWithAnim(d);
+            ctx.onBackPressed();
+        });
+        actions.addView(decline, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView accept = btn("同意并继续", color(
+                com.google.android.material.R.attr.colorOnPrimary), color(
+                com.google.android.material.R.attr.colorPrimary));
+        accept.setGravity(Gravity.CENTER);
+        LayoutParams acp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        acp.leftMargin = dp(8);
+        accept.setOnClickListener(v -> {
+            p.edit().putBoolean(KEY_MODULE_NOTICE, true).apply();
+            ModuleUiKit.dismissWithAnim(d);
+        });
+        actions.addView(accept, acp);
+        box.addView(actions);
+
+        d.show();
     }
 
     // ══════════════════ UI ══════════════════
