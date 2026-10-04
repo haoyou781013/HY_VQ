@@ -3537,26 +3537,95 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
 
-                if (bestSrc == null) {
-                    throw new Exception("所有下载源均不可用：" + report);
-                }
-
-                // ── 用最快的源下载 ──
+                // ── 选下载源：测速最快 > 逐个回退 ──
                 java.net.HttpURLConnection conn = null;
                 int code = -1;
+                String dlUrl = "";
+                String dlName = "";
 
-                try {
-                    conn = openRemote(bestUrl, "GET");
-                    code = conn.getResponseCode();
-                } catch (Exception e) {
-                    code = -1;
+                if (bestSrc != null) {
+                    dlUrl = bestUrl;
+                    dlName = bestName;
+                    try {
+                        conn = openRemote(dlUrl, "GET");
+                        code = conn.getResponseCode();
+                    } catch (Exception e) {
+                        code = -1;
+                    }
+                    if (code != 200 && code != 206) {
+                        if (conn != null) { try { conn.disconnect(); } catch (Throwable ignored) {} }
+                        conn = null;
+                        code = -1;
+                    }
                 }
-                if (code == 200 || code == 206) {
-                    final String sn = bestName;
-                    runOnUiThread(() -> tvSource.setText("下载源：" + sn));
-                } else {
-                    throw new Exception("最优源 HTTP " + code + "，测试结果：" + report);
+
+                // 测速源失败 → 逐个回退尝试（不放弃）
+                if (conn == null || (code != 200 && code != 206)) {
+                    final String fallbackNote = bestSrc != null
+                            ? "测速最快源失败，逐个回退中…" : "测速未完成，逐个尝试中…";
+                    runOnUiThread(() -> tvPct.setText(fallbackNote));
+
+                    // 按测速顺序尝试（成功的排前面，失败的也试）
+                    for (SourceTestResult r : tests) {
+                        if (r.url == null || r.url.isEmpty()) continue;
+                        try {
+                            conn = openRemote(r.url, "GET");
+                            code = conn.getResponseCode();
+                            if (code == 200 || code == 206) {
+                                dlUrl = r.url;
+                                dlName = r.name;
+                                break;
+                            }
+                            if (conn != null) { try { conn.disconnect(); } catch (Throwable ignored) {} }
+                            conn = null;
+                        } catch (Exception e) {
+                            conn = null;
+                            code = -1;
+                        }
+                    }
+
+                    // 测速列表里全失败 → 直接用原始 URL 按顺序试
+                    if (conn == null) {
+                        String[] fallbackUrls = {
+                                apkUrl != null ? apkUrl : "",
+                                cnUrl != null ? cnUrl : ""
+                        };
+                        String[] fallbackNames = {"GitHub 直链", "123云盘"};
+                        // 加镜像
+                        java.util.List<String[]> allFallback = new java.util.ArrayList<>();
+                        for (int fi = 0; fi < 2; fi++) {
+                            if (!fallbackUrls[fi].isEmpty())
+                                allFallback.add(new String[]{fallbackNames[fi], fallbackUrls[fi]});
+                        }
+                        for (String mir : GH_MIRRORS) {
+                            String m = apkUrl != null ? mirrorUrl(mir, apkUrl) : null;
+                            if (m != null) allFallback.add(new String[]{"镜像", m});
+                        }
+                        for (String[] fb : allFallback) {
+                            try {
+                                conn = openRemote(fb[1], "GET");
+                                code = conn.getResponseCode();
+                                if (code == 200 || code == 206) {
+                                    dlUrl = fb[1];
+                                    dlName = fb[0];
+                                    break;
+                                }
+                                if (conn != null) { try { conn.disconnect(); } catch (Throwable ignored) {} }
+                                conn = null;
+                            } catch (Exception e) {
+                                conn = null;
+                                code = -1;
+                            }
+                        }
+                    }
                 }
+
+                if (conn == null || (code != 200 && code != 206)) {
+                    throw new Exception("所有下载源均不可用（测试：" + report + "）");
+                }
+
+                final String finalDlName = dlName;
+                runOnUiThread(() -> tvSource.setText("下载源：" + finalDlName));
 
                 // ── 校验 HTTP 状态码 ──
                 if (code != 200 && code != 206) {
