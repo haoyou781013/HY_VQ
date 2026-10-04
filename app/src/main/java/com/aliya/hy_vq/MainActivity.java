@@ -995,6 +995,26 @@ public class MainActivity extends AppCompatActivity {
         // 从其他页面/后台返回：让文件管理在下次加载时恢复原滚动位置
         if (fileManager != null) fileManager.markReturnToForeground();
 
+        // 授权返回后自动重试导出
+        if (pendingExportApk != null) {
+            File apk = pendingExportApk;
+            String ver = pendingExportVer;
+            pendingExportApk = null;
+            pendingExportVer = null;
+            boolean granted = false;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                try {
+                    granted = android.os.Environment.isExternalStorageManager();
+                } catch (Throwable ignored) {
+                }
+            }
+            File base = granted
+                    ? new File(android.os.Environment.getExternalStoragePublicDirectory(
+                            android.os.Environment.DIRECTORY_DOWNLOADS), "HY_VQ")
+                    : getExternalFilesDir(null);
+            doExportCached(apk, ver, base, "HY_VQ-v" + ver + ".apk");
+        }
+
         super.onResume();
         moduleRegistry.notifyResume();
     }
@@ -2083,6 +2103,10 @@ public class MainActivity extends AppCompatActivity {
      * 导出已下载的新版本安装包到公共目录（Download/HY_VQ/）。
      * 供「详情弹窗」与「新版本提示弹窗」调用。
      */
+    /** 授权返回后自动重试导出的参数 */
+    private File pendingExportApk = null;
+    private String pendingExportVer = null;
+
     private void exportCachedApk(final File apk, final String ver) {
         if (apk == null || !apk.exists() || apk.length() == 0) {
             Toast.makeText(this, "安装包不存在，请先下载", Toast.LENGTH_SHORT).show();
@@ -2095,13 +2119,55 @@ public class MainActivity extends AppCompatActivity {
             } catch (Throwable ignored) {
             }
         }
-        final boolean pub = pubVal;
-        final File base = pub
-                ? new File(android.os.Environment.getExternalStoragePublicDirectory(
-                        android.os.Environment.DIRECTORY_DOWNLOADS), "HY_VQ")
-                : getExternalFilesDir(null);
-        final String name = "HY_VQ-v" + ver + ".apk";
 
+        // 未授权 → 弹窗：去授权 / 仅导出到应用专属目录
+        if (!pubVal) {
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.addView(ModuleUiKit.sectionHeader(this, "需要「所有文件访问」权限"));
+            TextView tv = new TextView(this);
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            tv.setLineSpacing(0, 1.45f);
+            tv.setTextColor(ModuleUiKit.color(this,
+                    com.google.android.material.R.attr.colorOnSurface));
+            tv.setPadding(dp2(4), dp2(4), dp2(4), dp2(4));
+            tv.setText("导出到 Download 目录需要「所有文件访问」权限。\n\n"
+                    + "· 去授权 → 导出到 Download/HY_VQ/，文件管理器直接可见\n"
+                    + "· 仅导出 → 导出到应用专属目录，部分机型不易访问");
+            box.addView(tv);
+            LinearLayout pbtns = new LinearLayout(this);
+            pbtns.setOrientation(LinearLayout.HORIZONTAL);
+            pbtns.setGravity(Gravity.END);
+            box.addView(pbtns);
+            final android.app.Dialog pd = ModuleUiKit.glassDialog(this, box);
+            pbtns.addView(updateTextButton("仅导出", v -> {
+                pd.dismiss();
+                doExportCached(apk, ver, getExternalFilesDir(null), "HY_VQ-v" + ver + ".apk");
+            }));
+            pbtns.addView(updateTextButton("去授权", v -> {
+                pd.dismiss();
+                pendingExportApk = apk;
+                pendingExportVer = ver;
+                try {
+                    startActivity(new Intent(
+                            android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            android.net.Uri.parse("package:" + getPackageName())));
+                } catch (Throwable ignored) {
+                    startActivity(new Intent(
+                            android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+                }
+            }));
+            pd.show();
+            return;
+        }
+
+        File base = new File(android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS), "HY_VQ");
+        doExportCached(apk, ver, base, "HY_VQ-v" + ver + ".apk");
+    }
+
+    /** 实际执行复制（后台线程） */
+    private void doExportCached(final File apk, final String ver, final File base, final String name) {
         new Thread(() -> {
             try {
                 if (base != null && !base.exists() && !base.mkdirs()) {
