@@ -172,7 +172,7 @@
                         android:textColor="?attr/colorOnTertiaryContainer" />
                 </LinearLayout>
 
-                <!-- 抽卡分析（原神祈愿记录；粘贴抽卡链接按 uid 融合统计） -->
+                <!-- 原神帮助（含抽卡分析入口） -->
                 <LinearLayout
                     android:id="@+id/nav_gacha"
                     android:layout_width="match_parent"
@@ -191,7 +191,7 @@
                         android:layout_width="22dp"
                         android:layout_height="22dp"
                         android:src="@drawable/ic_star"
-                        android:contentDescription="抽卡分析"
+                        android:contentDescription="原神帮助"
                         app:tint="?attr/colorOnSurfaceVariant" />
 
                     <TextView
@@ -199,7 +199,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="14dp"
-                        android:text="抽卡分析"
+                        android:text="原神帮助"
                         android:textAppearance="?attr/textAppearanceBodyLarge"
                         android:textColor="?attr/colorOnSurfaceVariant" />
 

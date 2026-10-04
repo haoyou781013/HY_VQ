@@ -139,6 +139,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int PAGE_EMOJI = 10;
     /** 抽卡分析（原神祈愿记录） */
     private static final int PAGE_GACHA = 11;
+    /** 原神帮助页（含抽卡分析入口） */
+    private static final int PAGE_GENSHIN_HELP = 13;
     private static final int PAGE_ANIME = 12;      // 动漫（多源聚合搜索）
     private static final int PAGE_MODULE_BASE = 100;
 
@@ -158,6 +160,8 @@ public class MainActivity extends AppCompatActivity {
     private FileManagerModule fileManager;
     /** 抽卡分析页（懒建，仅首次进入时创建） */
     private com.aliya.hy_vq.gacha.GachaView gachaView;
+    /** 原神帮助页（懒建） */
+    private View genshinHelpView;
 
     // ── 模块系统 ──
     private ModuleRegistry moduleRegistry = new ModuleRegistry();
@@ -454,10 +458,11 @@ public class MainActivity extends AppCompatActivity {
             if (fmIcon != null) fmIcon.setColorFilter(fmTint);
             if (fmText != null) fmText.setTextColor(fmTint);
         }
-        // 抽卡分析一级入口选中态
+        // 原神帮助一级入口选中态
         View navGacha = binding.navView.findViewById(R.id.nav_gacha);
         if (navGacha != null) {
-            boolean gSelected = currentPageIndex == PAGE_GACHA;
+            boolean gSelected = currentPageIndex == PAGE_GENSHIN_HELP
+                    || currentPageIndex == PAGE_GACHA;
             navGacha.setBackgroundResource(gSelected
                     ? R.drawable.bg_nav_item_selected : R.drawable.bg_nav_item_default);
             ImageView gIcon = navGacha.findViewById(R.id.nav_gacha_icon);
@@ -875,6 +880,117 @@ public class MainActivity extends AppCompatActivity {
      * <p>粘贴原神祈愿链接 → 解析 authkey → 拉取 API → 按 uid 融合本地存档 → 统计。
      * 页面本身常驻实例，切换回来时保留输入内容与上次结果。</p>
      */
+    /**
+     * 原神帮助页：含「抽卡分析」入口按钮，点击进入抽卡分析。
+     * 侧边栏入口从直连抽卡改为先到本页（2026-10-03）。
+     */
+    private void switchToGenshinHelp() {
+        if (genshinHelpView == null) {
+            genshinHelpView = buildGenshinHelpView();
+        }
+        currentModuleId = null;
+        switchContent(genshinHelpView, PAGE_GENSHIN_HELP);
+        resetToolbar();
+        binding.toolbarTitle.setText("原神帮助");
+        updateDrawerSelection();
+    }
+
+    /** 构建原神帮助页（程序化 UI，对齐项目卡片风格） */
+    private View buildGenshinHelpView() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp2(14);
+        root.setPadding(pad, pad, pad, pad);
+
+        // 标题
+        TextView title = new TextView(this);
+        title.setText("原神帮助");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurface));
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.bottomMargin = dp2(4);
+        title.setLayoutParams(tlp);
+        root.addView(title);
+
+        // 说明
+        TextView desc = new TextView(this);
+        desc.setText("原神相关的实用工具集合，目前提供祈愿记录分析功能。");
+        desc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        desc.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.bottomMargin = dp2(16);
+        desc.setLayoutParams(dlp);
+        root.addView(desc);
+
+        // 抽卡分析入口卡片
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        card.setPadding(dp2(14), dp2(14), dp2(14), dp2(14));
+        card.setBackground(ModuleUiKit.rounded(this, 12,
+                ModuleUiKit.color(this, com.google.android.material.R.attr.colorSurfaceContainerLow),
+                ModuleUiKit.color(this, com.google.android.material.R.attr.colorOutlineVariant)));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.bottomMargin = dp2(10);
+        card.setLayoutParams(clp);
+
+        // 图标
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_star);
+        icon.setColorFilter(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorPrimary));
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp2(36), dp2(36));
+        ilp.rightMargin = dp2(14);
+        icon.setLayoutParams(ilp);
+        card.addView(icon);
+
+        // 文字区
+        LinearLayout textCol = new LinearLayout(this);
+        textCol.setOrientation(LinearLayout.VERTICAL);
+        textCol.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView cardTitle = new TextView(this);
+        cardTitle.setText("抽卡分析");
+        cardTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        cardTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        cardTitle.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurface));
+        textCol.addView(cardTitle);
+
+        TextView cardDesc = new TextView(this);
+        cardDesc.setText("粘贴祈愿链接，按 UID 融合统计抽卡记录");
+        cardDesc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        cardDesc.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        textCol.addView(cardDesc);
+
+        card.addView(textCol);
+
+        // BETA 徽标
+        TextView beta = new TextView(this);
+        beta.setText("BETA");
+        beta.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        beta.setPadding(dp2(6), dp2(2), dp2(6), dp2(2));
+        beta.setBackground(ModuleUiKit.rounded(this, 6,
+                ModuleUiKit.color(this, com.google.android.material.R.attr.colorTertiaryContainer), 0));
+        beta.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnTertiaryContainer));
+        card.addView(beta);
+
+        // 点击 → 抽卡分析
+        card.setOnClickListener(v -> switchToGacha());
+
+        root.addView(card);
+        return root;
+    }
+
     private void switchToGacha() {
         if (gachaView == null) {
             gachaView = new com.aliya.hy_vq.gacha.GachaView(this);
@@ -1303,12 +1419,12 @@ public class MainActivity extends AppCompatActivity {
                 binding.drawerLayout.postDelayed(this::openFileManager, 160);
             });
         }
-        // 抽卡分析（原神祈愿记录）
+        // 原神帮助（含抽卡分析入口）
         View gachaBtn = binding.navView.findViewById(R.id.nav_gacha);
         if (gachaBtn != null) {
             gachaBtn.setOnClickListener(v -> {
                 binding.drawerLayout.closeDrawers();
-                binding.drawerLayout.postDelayed(this::switchToGacha, 160);
+                binding.drawerLayout.postDelayed(this::switchToGenshinHelp, 160);
             });
         }
         // 动漫（多源聚合搜索）
