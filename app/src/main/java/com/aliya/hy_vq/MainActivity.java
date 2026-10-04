@@ -2107,7 +2107,7 @@ public class MainActivity extends AppCompatActivity {
                         : com.google.android.material.R.attr.colorOnSurface));
         wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
         box.addView(wv, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp2(380)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp2(340)));
 
         LinearLayout btns = new LinearLayout(this);
         btns.setOrientation(LinearLayout.HORIZONTAL);
