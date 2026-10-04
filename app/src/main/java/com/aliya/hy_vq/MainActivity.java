@@ -482,6 +482,34 @@ public class MainActivity extends AppCompatActivity {
             if (aIcon != null) aIcon.setColorFilter(aTint);
             if (aText != null) aText.setTextColor(aTint);
         }
+        // 鸣潮表情包选中态
+        View navEmoji = binding.navView.findViewById(R.id.nav_emoji);
+        if (navEmoji != null) {
+            boolean eSel = currentPageIndex == PAGE_EMOJI;
+            navEmoji.setBackgroundResource(eSel
+                    ? R.drawable.bg_nav_item_selected : R.drawable.bg_nav_item_default);
+            ImageView eIcon = navEmoji.findViewById(R.id.nav_emoji_icon);
+            TextView eText = navEmoji.findViewById(R.id.nav_emoji_text);
+            int eTint = resolveAttr(eSel
+                    ? com.google.android.material.R.attr.colorOnPrimaryContainer
+                    : com.google.android.material.R.attr.colorOnSurfaceVariant);
+            if (eIcon != null) eIcon.setColorFilter(eTint);
+            if (eText != null) eText.setTextColor(eTint);
+        }
+        // 实用软件分享选中态
+        View navShare = binding.navView.findViewById(R.id.nav_share);
+        if (navShare != null) {
+            boolean sSel = currentPageIndex == PAGE_SHARE;
+            navShare.setBackgroundResource(sSel
+                    ? R.drawable.bg_nav_item_selected : R.drawable.bg_nav_item_default);
+            ImageView sIcon = navShare.findViewById(R.id.nav_share_icon);
+            TextView sText = navShare.findViewById(R.id.nav_share_text);
+            int sTint = resolveAttr(sSel
+                    ? com.google.android.material.R.attr.colorOnPrimaryContainer
+                    : com.google.android.material.R.attr.colorOnSurfaceVariant);
+            if (sIcon != null) sIcon.setColorFilter(sTint);
+            if (sText != null) sText.setTextColor(sTint);
+        }
         if (drawerModuleSlot != null) {
             for (int i = 0; i < drawerModuleSlot.getChildCount(); i++) {
                 View item = drawerModuleSlot.getChildAt(i);
