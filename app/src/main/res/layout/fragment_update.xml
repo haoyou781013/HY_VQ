@@ -25,13 +25,16 @@
                 android:layout_height="62dp"
                 app:cardCornerRadius="18dp"
                 app:cardElevation="0dp"
-                app:cardBackgroundColor="?attr/colorPrimaryContainer">
+                app:cardBackgroundColor="?attr/colorPrimaryContainer"
+                android:clipToOutline="true">
                 <ImageView
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:src="@mipmap/ic_launcher"
                     android:contentDescription="HY_VQ"
-                    android:padding="10dp" />
+                    android:scaleType="centerCrop"
+                    android:padding="6dp"
+                    android:clipToOutline="true" />
             </com.google.android.material.card.MaterialCardView>
 
             <LinearLayout
@@ -94,14 +97,17 @@
                     android:layout_height="44dp"
                     app:cardCornerRadius="14dp"
                     app:cardElevation="0dp"
-                    app:cardBackgroundColor="?attr/colorPrimaryContainer">
+                    app:cardBackgroundColor="?attr/colorPrimaryContainer"
+                    android:clipToOutline="true">
                     <ImageView
                         android:id="@+id/iv_upd_status_icon"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:src="@drawable/ic_refresh"
                         android:contentDescription="状态"
-                        android:padding="10dp"
+                        android:scaleType="centerInside"
+                        android:padding="9dp"
+                        android:clipToOutline="true"
                         app:tint="?attr/colorPrimary" />
                 </com.google.android.material.card.MaterialCardView>
 
