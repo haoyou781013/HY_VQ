@@ -6130,7 +6130,9 @@ public class FileManagerModule extends HyVqModule {
     private static boolean containsGarbled(String name) {
         for (int i = 0; i < name.length(); i++) {
             char c = name.charAt(i);
-            if (c < 0x20) return true;
+            // 只跳过常见的合法控制字符：Tab(0x09) / 换行(0x0A) / 回车(0x0D)
+            // 以及 NUL(0x00)，其余 <0x20 视为乱码
+            if (c < 0x20 && c != '\t' && c != '\n' && c != '\r' && c != '\0') return true;
         }
         return false;
     }
