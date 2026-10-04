@@ -3340,10 +3340,22 @@ public class MainActivity extends AppCompatActivity {
         }
 
         java.util.List<SourceTestResult> results = new java.util.ArrayList<>();
+        long deadline = System.currentTimeMillis() + 15000;   // 总预算 15s
         for (int i = 0; i < targets.size(); i++) {
             try {
-                java.util.concurrent.Future<SourceTestResult> f = cs.poll(8, java.util.concurrent.TimeUnit.SECONDS);
+                long remain = deadline - System.currentTimeMillis();
+                if (remain <= 0) break;
+                java.util.concurrent.Future<SourceTestResult> f =
+                        cs.poll(Math.min(remain, 15000), java.util.concurrent.TimeUnit.MILLISECONDS);
                 if (f != null) results.add(f.get());
+            } catch (Exception ignored) { }
+        }
+        // 预算用尽后，把已完成但没轮到的收完（不丢慢源）
+        for (int i = 0; i < targets.size(); i++) {
+            try {
+                java.util.concurrent.Future<SourceTestResult> f = cs.poll();
+                if (f != null) results.add(f.get());
+                else break;
             } catch (Exception ignored) { }
         }
         pool.shutdownNow();
@@ -3512,13 +3524,16 @@ public class MainActivity extends AppCompatActivity {
                 final String bestName = best != null ? best.name : "";
                 final String bestUrl = best != null ? best.url : "";
                 final long bestSpeed = best != null ? best.speedBps : 0;
+                final int testCount = tests.size();
+                final int okCount = (int) tests.stream().filter(SourceTestResult::ok).count();
                 runOnUiThread(() -> {
                     testPb.setVisibility(android.view.View.GONE);
                     if (bestSrc != null) {
-                        tvTest.setText("测速完成 · 最快：" + bestName + "（" + fmtSpeed(bestSpeed) + "）");
+                        tvTest.setText("测速完成（" + okCount + "/" + testCount + " 可用）· 最快："
+                                + bestName + "（" + fmtSpeed(bestSpeed) + "）");
                         tvPct.setText("使用 " + bestName + " 下载中…");
                     } else {
-                        tvTest.setText("所有源均不可用：" + report);
+                        tvTest.setText("所有源不可用（" + okCount + "/" + testCount + "）：\n" + report);
                     }
                 });
 
