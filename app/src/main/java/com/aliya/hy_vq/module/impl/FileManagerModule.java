@@ -94,6 +94,10 @@ public class FileManagerModule extends HyVqModule {
     // ── 全量功能基础设施（2026-08-16 用户规划落地） ──
     /** 隐藏文件（.开头）显示开关：⋮菜单实时切换，reload 时过滤 */
     private static boolean showHidden = false;
+    /** 网格视图开关（默认列表） */
+    private boolean gridMode = false;
+    /** 最近打开文件（路径，最新在前，最多 20 条） */
+    private final java.util.List<String> recentFiles = new java.util.ArrayList<>();
     /** 回收站目录：保留原路径层级（.HyVqTrash/storage/emulated/0/DCIM/a.jpg），
      *  恢复 = 移回 TRASH_DIR 相对路径对应的原绝对路径；隐藏目录天然被分类扫描跳过 */
     private static final String TRASH_DIR =
@@ -184,6 +188,8 @@ public class FileManagerModule extends HyVqModule {
     // ── 浏览状态持久化键（2026-09-06 补齐：排序/隐藏文件/双窗格路径原为纯内存，重启即回默认） ──
     private static final String PREF_SORT_MODE = "sort_mode";
     private static final String PREF_SHOW_HIDDEN = "show_hidden";
+    private static final String PREF_GRID_MODE = "grid_mode";
+    private static final String PREF_RECENT_FILES = "recent_files";
     // 注：历史上有 last_path_l / last_path_r / active_pane 三项（用于恢复上次目录），
     // 按用户要求「重启回到存储根」已停用，偏好文件中的旧键值忽略即可。
     /** 撤销快照合并控制：连续输入（<600ms 且位置连续）合并为一次快照 */
@@ -295,6 +301,14 @@ public class FileManagerModule extends HyVqModule {
         android.content.SharedPreferences sp = fmPrefs();
         sortMode = Math.max(SORT_NAME, Math.min(SORT_TIME, sp.getInt(PREF_SORT_MODE, SORT_NAME)));
         showHidden = sp.getBoolean(PREF_SHOW_HIDDEN, false);
+        gridMode = sp.getBoolean(PREF_GRID_MODE, false);
+        recentFiles.clear();
+        String rf = sp.getString(PREF_RECENT_FILES, "");
+        if (!rf.isEmpty()) {
+            for (String path : rf.split("\n")) {
+                if (!path.isEmpty()) recentFiles.add(path);
+            }
+        }
     }
 
     /** 路径是否可恢复：SAF 内容 URI / 分类伪路径直接放行；普通路径要求仍存在 */
@@ -308,7 +322,11 @@ public class FileManagerModule extends HyVqModule {
     private void persistState() {
         if (ctx == null || paneL == null || paneR == null) return;
         // 只持久化用户偏好；路径不再保存（重启固定回存储根，保存无意义且徒增写盘）
+        StringBuilder rfb = new StringBuilder();
+        for (String path : recentFiles) rfb.append(path).append('\n');
         fmPrefs().edit()
+                .putBoolean(PREF_GRID_MODE, gridMode)
+                .putString(PREF_RECENT_FILES, rfb.toString())
                 .putInt(PREF_SORT_MODE, sortMode)
                 .putBoolean(PREF_SHOW_HIDDEN, showHidden)
                 .apply();
@@ -1186,7 +1204,11 @@ public class FileManagerModule extends HyVqModule {
     /** 构建单窗格：独立 RecyclerView + 适配器 + 滚动监听（滚动即激活本窗格，对齐 MT） */
     private View buildPane(final Pane p) {
         RecyclerView rv = new RecyclerView(ctx);
-        rv.setLayoutManager(new LinearLayoutManager(ctx));
+        if (gridMode) {
+            rv.setLayoutManager(new androidx.recyclerview.widget.GridLayoutManager(ctx, 3));
+        } else {
+            rv.setLayoutManager(new LinearLayoutManager(ctx));
+        }
         rv.setPadding(0, dp(2), 0, 0);
         p.list = rv;
         p.adapter = new FileListAdapter(ctx, p.entries, p.selected, makeListener(p));
@@ -1519,7 +1541,17 @@ public class FileManagerModule extends HyVqModule {
     }
 
     /** 符号链接：跟随进入（目录）或打开（文件） */
+    /** 记录最近打开的文件 */
+    private void recordRecent(String path) {
+        if (path == null || path.isEmpty()) return;
+        recentFiles.remove(path);
+        recentFiles.add(0, path);
+        while (recentFiles.size() > 20) recentFiles.remove(recentFiles.size() - 1);
+        persistState();
+    }
+
     private void openLink(Pane p, FileEntry e) {
+        recordRecent(e.path);
         File f = new File(e.path);
         if (f.isDirectory()) {
             p.path = e.path;
@@ -5816,6 +5848,22 @@ public class FileManagerModule extends HyVqModule {
             popup.dismiss();
             addBookmark();
         });
+        addMenuRow(panel, gridMode ? "切换到列表视图" : "切换到网格视图",
+                R.drawable.ic_preview, v -> {
+                    popup.dismiss();
+                    gridMode = !gridMode;
+                    persistState();
+                    reloadAll();
+                    ModuleUiKit.toast(ctx, gridMode ? "已切换到网格视图" : "已切换到列表视图");
+                });
+        addMenuRow(panel, "最近文件", R.drawable.ic_doc, v -> {
+            popup.dismiss();
+            showRecentFiles();
+        });
+        addMenuRow(panel, "存储分析", R.drawable.ic_info, v -> {
+            popup.dismiss();
+            showStorageAnalysis();
+        });
         addMenuRow(panel, queuedTasks > 0 ? "任务队列（" + queuedTasks + "）" : "任务队列",
                 android.R.drawable.ic_menu_manage, v -> {
                     popup.dismiss();
@@ -6318,6 +6366,232 @@ public class FileManagerModule extends HyVqModule {
     }
 
     /** 书签列表对话框：点击进入、长按删除 */
+    /**
+     * 存储分析：扫描当前目录树，按一级子目录统计占用与文件数。
+     * 后台线程扫描，UI 线程刷新。
+     */
+    private void showStorageAnalysis() {
+        final Pane p = active != null ? active : paneL;
+        final File rootDir = new File(p.path);
+        if (!rootDir.isDirectory()) {
+            ModuleUiKit.toast(ctx, "当前路径不可用");
+            return;
+        }
+        final android.app.Dialog progress = ModuleUiKit.glassDialog(ctx, buildProgressView("正在分析存储…"));
+        progress.show();
+
+        new Thread(() -> {
+            final java.util.List<String[]> results = new java.util.ArrayList<>(); // [name, sizeStr, countStr]
+            long[] total = {0};
+            try {
+                File[] children = rootDir.listFiles();
+                if (children != null) {
+                    for (File child : children) {
+                        long size = dirSize(child);
+                        int count = countFiles(child);
+                        total[0] += size;
+                        results.add(new String[]{child.getName(), FileOps.formatSize(size), String.valueOf(count),
+                                child.isDirectory() ? "📁" : "📄"});
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            // 按大小降序
+            results.sort((a, b) -> Long.compare(parseSize(b[1]), parseSize(a[1])));
+
+            handler.post(() -> {
+                progress.dismiss();
+                showStorageResult(rootDir.getAbsolutePath(), total[0], results);
+            });
+        }, "storage-analysis").start();
+    }
+
+    private View buildProgressView(String text) {
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(24), dp(24), dp(24), dp(24));
+        TextView tv = new TextView(ctx);
+        tv.setText(text);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        box.addView(tv);
+        return box;
+    }
+
+    /** 递归统计目录大小 */
+    private long dirSize(File f) {
+        if (f == null || !f.exists()) return 0;
+        if (f.isFile()) return f.length();
+        long total = 0;
+        File[] children = f.listFiles();
+        if (children != null) {
+            for (File c : children) total += dirSize(c);
+        }
+        return total;
+    }
+
+    /** 递归统计文件数 */
+    private int countFiles(File f) {
+        if (f == null || !f.exists()) return 0;
+        if (f.isFile()) return 1;
+        int count = 0;
+        File[] children = f.listFiles();
+        if (children != null) {
+            for (File c : children) count += countFiles(c);
+        }
+        return count;
+    }
+
+    /** 解析 "1.5 GB" 格式为字节数（排序用） */
+    private long parseSize(String s) {
+        try {
+            String[] parts = s.split(" ");
+            double v = Double.parseDouble(parts[0]);
+            String unit = parts.length > 1 ? parts[1].toUpperCase() : "B";
+            switch (unit) {
+                case "KB": return (long)(v * 1024);
+                case "MB": return (long)(v * 1024 * 1024);
+                case "GB": return (long)(v * 1024 * 1024 * 1024);
+                case "TB": return (long)(v * 1024L * 1024 * 1024 * 1024);
+                default: return (long) v;
+            }
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /** 存储分析结果弹窗 */
+    private void showStorageResult(String path, long totalSize, java.util.List<String[]> items) {
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(ctx, "存储分析"));
+
+        TextView meta = new TextView(ctx);
+        meta.setText(path + "\n合计 " + FileOps.formatSize(totalSize) + " · " + items.size() + " 项");
+        meta.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        meta.setTextColor(ModuleUiKit.color(ctx,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        meta.setPadding(dp(4), 0, dp(4), dp(8));
+        box.addView(meta);
+
+        ScrollView sv = new ScrollView(ctx);
+        LinearLayout col = new LinearLayout(ctx);
+        col.setOrientation(LinearLayout.VERTICAL);
+        sv.addView(col);
+        box.addView(sv, new LinearLayout.LayoutParams(-1, dp(400)));
+
+        for (String[] item : items) {
+            LinearLayout row = new LinearLayout(ctx);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(8), dp(6), dp(8), dp(6));
+
+            TextView icon = new TextView(ctx);
+            icon.setText(item[3]);
+            icon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+            row.addView(icon);
+
+            TextView name = new TextView(ctx);
+            name.setText(item[0]);
+            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            name.setMaxLines(1);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            name.setPadding(dp(8), 0, 0, 0);
+            name.setLayoutParams(new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            row.addView(name);
+
+            TextView size = new TextView(ctx);
+            size.setText(item[1]);
+            size.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            size.setTextColor(ModuleUiKit.color(ctx,
+                    com.google.android.material.R.attr.colorPrimary));
+            size.setPadding(dp(4), 0, 0, 0);
+            row.addView(size);
+
+            TextView count = new TextView(ctx);
+            count.setText(item[2] + " 个");
+            count.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            count.setTextColor(ModuleUiKit.color(ctx,
+                    com.google.android.material.R.attr.colorOnSurfaceVariant));
+            count.setPadding(dp(8), 0, 0, 0);
+            row.addView(count);
+
+            col.addView(row);
+        }
+
+        final android.app.Dialog d = ModuleUiKit.glassDialog(ctx, box);
+        d.show();
+    }
+
+    /** 最近打开的文件列表（最多 20 条） */
+    private void showRecentFiles() {
+        if (recentFiles.isEmpty()) {
+            ModuleUiKit.toast(ctx, "暂无最近打开的文件");
+            return;
+        }
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(ctx, "最近打开的文件"));
+        ScrollView sv = new ScrollView(ctx);
+        LinearLayout col = new LinearLayout(ctx);
+        col.setOrientation(LinearLayout.VERTICAL);
+        sv.addView(col);
+        box.addView(sv, new LinearLayout.LayoutParams(-1, dp(360)));
+
+        for (final String path : recentFiles) {
+            File f = new File(path);
+            boolean exists = f.exists();
+            LinearLayout row = new LinearLayout(ctx);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+
+            TextView icon = new TextView(ctx);
+            icon.setText(exists ? "📄" : "❌");
+            icon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+            row.addView(icon);
+
+            LinearLayout textCol = new LinearLayout(ctx);
+            textCol.setOrientation(LinearLayout.VERTICAL);
+            textCol.setPadding(dp(10), 0, 0, 0);
+            textCol.setLayoutParams(new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            TextView name = new TextView(ctx);
+            name.setText(f.getName());
+            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            name.setMaxLines(1);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            textCol.addView(name);
+
+            TextView pathView = new TextView(ctx);
+            pathView.setText(path);
+            pathView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            pathView.setMaxLines(1);
+            pathView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            pathView.setTextColor(ModuleUiKit.color(ctx,
+                    com.google.android.material.R.attr.colorOnSurfaceVariant));
+            textCol.addView(pathView);
+
+            row.addView(textCol);
+            row.setOnClickListener(v -> {
+                if (exists) {
+                    // 跳转到文件所在目录
+                    File parent = f.getParentFile();
+                    if (parent != null && parent.isDirectory()) {
+                        Pane target = active != null ? active : paneL;
+                        target.path = parent.getAbsolutePath();
+                        reload(target);
+                    }
+                }
+            });
+            col.addView(row);
+        }
+
+        final android.app.Dialog d = ModuleUiKit.glassDialog(ctx, box);
+        d.show();
+    }
+
     private void showBookmarks() {
         final android.content.SharedPreferences sp = fmPrefs();
         final java.util.Set<String> set = new java.util.LinkedHashSet<>(
