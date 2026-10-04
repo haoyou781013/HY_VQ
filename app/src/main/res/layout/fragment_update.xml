@@ -31,9 +31,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:src="@mipmap/ic_launcher"
-                    android:contentDescription="HY_VQ"
+                    android:contentDescription="应用图标"
                     android:scaleType="centerCrop"
-                    android:padding="6dp"
                     android:clipToOutline="true" />
             </com.google.android.material.card.MaterialCardView>
 
