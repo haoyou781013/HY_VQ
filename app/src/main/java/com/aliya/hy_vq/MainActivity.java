@@ -1297,6 +1297,11 @@ public class MainActivity extends AppCompatActivity {
             switchToHome();
             return true;
         }
+        if (currentPageIndex == PAGE_GACHA) {
+            // 抽卡分析 → 返回原神帮助
+            switchToGenshinHelp();
+            return true;
+        }
         if (currentPageIndex == PAGE_SETTINGS) {
             switchToHome();
             return true;
