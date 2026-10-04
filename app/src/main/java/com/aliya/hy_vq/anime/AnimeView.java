@@ -69,10 +69,15 @@ public class AnimeView extends LinearLayout {
             new java.util.LinkedHashMap<>();
     /** 当前选中的源名（null = 还没选中） */
     private String currentSource = null;
-    private LinearLayout tabBar;
     private LinearLayout listBox;
-    private TextView tvStatusTabHint;
-    private android.widget.HorizontalScrollView tabScroll;
+    // ── 两段式（方案 B：元数据搜索 → 选中后再查源）──
+    /** 第二段：选源器头部（返回 + 番剧名），Stage1 隐藏 */
+    private LinearLayout stageHeader;
+    private TextView stageTitle;
+    /** 当前选中的元数据条目（Stage2 上下文） */
+    private AnimeMetadata.Entry currentEntry;
+    /** 选源器是否正在加载 */
+    private volatile boolean selectorLoading;
 
     private EditText etKeyword;
     private LinearLayout resultBox;
@@ -208,25 +213,31 @@ public class AnimeView extends LinearLayout {
         tvStatus.setPadding(pad, 0, pad, dp(6));
         addView(tvStatus);
 
-        // ── 源 Tab 栏（Kazumi 方案：源做 Tab，一次只看一个源）──
-        tvStatusTabHint = new TextView(ctx);
-        tvStatusTabHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        tvStatusTabHint.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
-        tvStatusTabHint.setPadding(pad, 0, pad, dp(2));
-        tvStatusTabHint.setVisibility(View.GONE);
-        addView(tvStatusTabHint);
+        // ── Stage2 头部：返回 + 番剧名（内嵌，不跳页）──
+        stageHeader = new LinearLayout(ctx);
+        stageHeader.setOrientation(HORIZONTAL);
+        stageHeader.setGravity(Gravity.CENTER_VERTICAL);
+        stageHeader.setPadding(pad, dp(6), pad, dp(6));
+        stageHeader.setVisibility(View.GONE);
 
-        android.widget.HorizontalScrollView hsv = new android.widget.HorizontalScrollView(ctx);
-        hsv.setHorizontalScrollBarEnabled(false);
-        tabBar = new LinearLayout(ctx);
-        tabBar.setOrientation(HORIZONTAL);
-        tabBar.setPadding(pad, 0, pad, dp(6));
-        hsv.addView(tabBar);
-        hsv.setVisibility(View.GONE);
-        addView(hsv);
-        this.tabScroll = hsv;
+        TextView backBtn = btn("← 返回", color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorPrimary));
+        backBtn.setOnClickListener(v -> backToStage1());
+        stageHeader.addView(backBtn);
 
-        // ── 结果区（顶部含「继续观看」卡片，下方只渲染当前源）──
+        stageTitle = new TextView(ctx);
+        stageTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        stageTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        stageTitle.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        stageTitle.setMaxLines(1);
+        stageTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LayoutParams stlp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        stlp.leftMargin = dp(10);
+        stageTitle.setLayoutParams(stlp);
+        stageHeader.addView(stageTitle);
+        addView(stageHeader);
+
+        // ── 结果区（Stage1：继续观看 + 元数据卡片；Stage2：选源器）──
         ScrollView sv = new ScrollView(ctx);
         resultBox = new LinearLayout(ctx);
         resultBox.setOrientation(VERTICAL);
@@ -302,42 +313,193 @@ public class AnimeView extends LinearLayout {
             ModuleUiKit.toast(ctx, "请输入番剧名");
             return;
         }
-        List<AnimeSource> srcs = repo.active();
-        if (srcs.isEmpty()) {
-            ModuleUiKit.toast(ctx, repo.isEmpty() ? "还没有源，请先导入" : "所有源都被屏蔽了");
+        backToStage1();
+        listBox.removeAllViews();
+        tvStatus.setText("搜索中…（元数据库）");
+
+        new Thread(() -> {
+            List<AnimeMetadata.Entry> entries = AnimeMetadata.search(kw, (list, route) ->
+                    ui(() -> renderMetadata(list)));
+            ui(() -> {
+                if (entries == null || entries.isEmpty()) {
+                    listBox.removeAllViews();
+                    TextView empty = new TextView(ctx);
+                    empty.setText("没有找到相关番剧，换个关键词试试");
+                    empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                    empty.setPadding(dp(4), dp(14), dp(4), dp(4));
+                    empty.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+                    listBox.addView(empty);
+                    tvStatus.setText("0 条结果");
+                } else {
+                    renderMetadata(entries);
+                    tvStatus.setText(entries.size() + " 部 · 点任意一部查看可用源");
+                }
+            });
+        }, "meta-search").start();
+    }
+
+    /** 渲染元数据卡片（封面 + 标题 + 评分 + 集数 + 标签） */
+    private void renderMetadata(final List<AnimeMetadata.Entry> entries) {
+        if (listBox == null) return;
+        listBox.removeAllViews();
+        for (final AnimeMetadata.Entry e : entries) {
+            listBox.addView(buildMetadataCard(e));
+        }
+    }
+
+    /** 单条元数据卡片 */
+    private View buildMetadataCard(final AnimeMetadata.Entry e) {
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(HORIZONTAL);
+        row.setPadding(dp(8), dp(8), dp(8), dp(8));
+        row.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 14,
+                color(com.google.android.material.R.attr.colorSurfaceContainerLow),
+                color(com.google.android.material.R.attr.colorOutlineVariant))));
+        LayoutParams rlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.bottomMargin = dp(8);
+        row.setLayoutParams(rlp);
+        row.setClickable(true);
+        row.setFocusable(true);
+
+        // 封面（无封面时用色块占位）
+        android.widget.ImageView cover = new android.widget.ImageView(ctx);
+        cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        cover.setBackground(ModuleUiKit.rounded(ctx, 8,
+                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+        LayoutParams clp = new LayoutParams(dp(56), dp(78));
+        row.addView(cover, clp);
+        if (e.cover != null && !e.cover.isEmpty()) {
+            loadCover(cover, e.cover);
+        }
+
+        // 文字区
+        LinearLayout text = new LinearLayout(ctx);
+        text.setOrientation(VERTICAL);
+        LayoutParams tlp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        tlp.leftMargin = dp(10);
+        text.setLayoutParams(tlp);
+
+        TextView title = new TextView(ctx);
+        title.setText(e.title);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        title.setMaxLines(2);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        text.addView(title);
+
+        if (e.nativeTitle != null && !e.nativeTitle.isEmpty()
+                && !e.nativeTitle.equals(e.title)) {
+            TextView sub = new TextView(ctx);
+            sub.setText(e.nativeTitle);
+            sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            sub.setMaxLines(1);
+            sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            sub.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            LayoutParams slp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            slp.topMargin = dp(2);
+            sub.setLayoutParams(slp);
+            text.addView(sub);
+        }
+
+        // 评分 + 集数 + 标签
+        LinearLayout meta = new LinearLayout(ctx);
+        meta.setOrientation(HORIZONTAL);
+        meta.setGravity(Gravity.CENTER_VERTICAL);
+        LayoutParams mlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        mlp.topMargin = dp(6);
+        meta.setLayoutParams(mlp);
+
+        if (e.score >= 0) {
+            TextView sc = new TextView(ctx);
+            sc.setText("★ " + e.scoreText());
+            sc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            sc.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+            meta.addView(sc);
+        }
+        if (e.episodes > 0) {
+            TextView ep = new TextView(ctx);
+            ep.setText("  " + e.episodes + " 集");
+            ep.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            ep.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            meta.addView(ep);
+        }
+        if (e.tags != null && !e.tags.isEmpty()) {
+            TextView tg = new TextView(ctx);
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < Math.min(3, e.tags.size()); i++) {
+                if (i > 0) sb.append(" · ");
+                sb.append(e.tags.get(i));
+            }
+            tg.setText("  " + sb);
+            tg.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            tg.setMaxLines(1);
+            tg.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            tg.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            LayoutParams glp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            tg.setLayoutParams(glp);
+            tg.setGravity(Gravity.END);
+            meta.addView(tg);
+        }
+        text.addView(meta);
+
+        row.addView(text);
+        row.setOnClickListener(v -> openSourceSelector(e));
+        return row;
+    }
+
+    /** 异步加载封面（简单缓存，避免重复下载） */
+    private final java.util.Map<String, android.graphics.Bitmap> coverCache =
+            new java.util.HashMap<>();
+    private void loadCover(final android.widget.ImageView target, final String url) {
+        android.graphics.Bitmap cached = coverCache.get(url);
+        if (cached != null) {
+            target.setImageBitmap(cached);
             return;
         }
-        listBox.removeAllViews();
-        resultsBySource.clear();
-        sourceByName.clear();
-        shownSources.clear();
-        currentSource = null;
-        refreshSourceTabs();
-        searchTotal = srcs.size();
-        searcher.search(srcs, kw, new AnimeSearchManager.Callback() {
-            @Override public void onStart(int total) {
-                tvStatus.setText("搜索中… 0/" + total);
+        target.setImageResource(android.R.color.darker_gray);
+        new Thread(() -> {
+            try {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                        new java.net.URL(url).openConnection();
+                c.setConnectTimeout(6000);
+                c.setReadTimeout(8000);
+                c.setRequestProperty("User-Agent",
+                        "Mozilla/5.0 (Linux; Android 13) Chrome/120 Mobile");
+                java.io.InputStream in = c.getInputStream();
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+                in.close();
+                c.disconnect();
+                byte[] data = bos.toByteArray();
+                final android.graphics.Bitmap bmp =
+                        android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length);
+                if (bmp != null) {
+                    coverCache.put(url, bmp);
+                    ui(() -> {
+                        if (target.getTag() == null || target.getTag().equals(url)) {
+                            target.setImageBitmap(bmp);
+                        }
+                    });
+                }
+            } catch (Throwable ignored) {
             }
+        }, "cover-load").start();
+        target.setTag(url);
+    }
 
-            @Override public void onSourceDone(AnimeSource source, List<Subject> subjects) {
-                addSourceCard(source, subjects);
-            }
-
-            @Override public void onSourceError(AnimeSource source, String reason) {
-                // 失败不刷屏，靠进度行体现
-            }
-
-            /** 实时进度：让用户看到"在动"，而不是干等 */
-            @Override public void onProgress(int done, int total) {
-                tvStatus.setText("搜索中… " + done + "/" + total
-                        + "（已出结果 " + shownSources.size() + " 个源）");
-            }
-
-            @Override public void onAllDone(int ok, int total) {
-                tvStatus.setText("完成： " + ok + "/" + total + " 个源有结果"
-                        + (ok == 0 ? "（源规则可能已失效，实测失效率很高）" : ""));
-            }
-        });
+    /** 回到第一段（元数据列表） */
+    private void backToStage1() {
+        currentEntry = null;
+        selectorLoading = false;
+        if (stageHeader != null) stageHeader.setVisibility(View.GONE);
+        if (continueBox != null) continueBox.setVisibility(View.VISIBLE);
+        if (listBox != null) listBox.removeAllViews();
     }
 
     /**
@@ -413,77 +575,171 @@ public class AnimeView extends LinearLayout {
      * 收到一个源的结果：**先缓存，不直接全渲染**（Kazumi 方案）。
      * 第一个出结果的源自动选中并展示，其余等用户点 Tab。
      */
-    private void addSourceCard(AnimeSource src, List<Subject> subs) {
-        shownSources.add(src);
-        resultsBySource.put(src.name, subs);
-        sourceByName.put(src.name, src);
-        refreshSourceTabs();
-        if (currentSource == null) {
-            showSource(src.name);          // 第一个出结果的直接展示，不等其它源
+    // ══════════════════ Stage 2：选源器（内嵌，Animeko 风格） ══════════════════
+
+    /**
+     * 第二段：对选中的番剧查可用源，并以 Animeko 式「源行 + 线路胶囊」展示。
+     * 只有用户选中番剧后才查源 —— 搜索阶段只打元数据库（1 个请求）。
+     */
+    private void openSourceSelector(final AnimeMetadata.Entry entry) {
+        final List<AnimeSource> srcs = repo.active();
+        if (srcs.isEmpty()) {
+            ModuleUiKit.toast(ctx, repo.isEmpty() ? "还没有源，请先导入" : "所有源都被屏蔽了");
+            return;
         }
-        return;
+        currentEntry = entry;
+        selectorLoading = true;
+
+        // 切到 Stage2
+        if (stageHeader != null) {
+            stageHeader.setVisibility(View.VISIBLE);
+            stageTitle.setText(entry.title);
+        }
+        if (continueBox != null) continueBox.setVisibility(View.GONE);
+        listBox.removeAllViews();
+        tvStatus.setText("正在聚合该番剧的可用源…");
+
+        // 关键词：原名（日文）优先，其次中文名
+        final String kw = entry.searchKeyword();
+
+        // 第一步：并发搜源
+        searcher.search(srcs, kw, new AnimeSearchManager.Callback() {
+            @Override public void onStart(int total) {
+                ui(() -> tvStatus.setText("搜索播放源… 0/" + total));
+            }
+            @Override public void onSourceDone(final AnimeSource source, List<Subject> subjects) {
+                // 第二步：拿到该源的番剧条目后，取它的线路
+                if (subjects == null || subjects.isEmpty()) return;
+                new Thread(() -> {
+                    try {
+                        SourceEngine engine = new SourceEngine();
+                        List<Channel> chs = engine.channels(source, subjects.get(0));
+                        if (chs != null && !chs.isEmpty()) {
+                            ui(() -> addSelectorRow(source, subjects.get(0), chs));
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }, "fetch-channels").start();
+            }
+            @Override public void onSourceError(AnimeSource source, String reason) { }
+            @Override public void onProgress(int done, int total) {
+                ui(() -> tvStatus.setText("聚合中… " + done + "/" + total));
+            }
+            @Override public void onAllDone(int ok, int total) {
+                ui(() -> {
+                    selectorLoading = false;
+                    if (listBox.getChildCount() == 0) {
+                        tvStatus.setText("没有源能提供这部番剧（" + ok + "/" + total
+                                + " 源有搜索结果）");
+                        TextView tip = new TextView(ctx);
+                        tip.setText("试试换个关键词，或在「源管理」检查源是否失效");
+                        tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                        tip.setPadding(dp(4), dp(14), dp(4), dp(4));
+                        tip.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+                        listBox.addView(tip);
+                    } else {
+                        tvStatus.setText(listBox.getChildCount() + " 个源可用 · 点线路播放");
+                    }
+                });
+            }
+        });
     }
 
-    /** 源 Tab 栏：每个有结果的源一个 Tab，显示名字与条数 */
-    private void refreshSourceTabs() {
-        if (tabBar == null) return;
-        tabBar.removeAllViews();
-        boolean any = !resultsBySource.isEmpty();
-        if (tabScroll != null) tabScroll.setVisibility(any ? View.VISIBLE : View.GONE);
-        if (tvStatusTabHint != null) {
-            tvStatusTabHint.setVisibility(any ? View.VISIBLE : View.GONE);
-            tvStatusTabHint.setText(any
-                    ? "点标签切换源（数字＝该源搜到的条数）" : "");
-        }
-        int i = 0;
-        for (java.util.Map.Entry<String, List<Subject>> e : resultsBySource.entrySet()) {
-            final String key = e.getKey();
-            boolean sel = key.equals(currentSource);
-            TextView t = new TextView(ctx);
-            t.setText(key + " " + e.getValue().size());
-            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            t.setPadding(dp(12), dp(7), dp(12), dp(7));
-            t.setTextColor(sel
+    /**
+     * 追加一行「源 + 线路胶囊」（Animeko 媒体选择器样式）。
+     * 线路按 tier 升序，未评测排最后；点胶囊即解析播放。
+     */
+    private void addSelectorRow(final AnimeSource src, final Subject sub,
+                                final List<Channel> chs) {
+        if (listBox == null) return;
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(VERTICAL);
+        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        row.setBackground(ModuleUiKit.rounded(ctx, 14,
+                color(com.google.android.material.R.attr.colorSurfaceContainerLow),
+                color(com.google.android.material.R.attr.colorOutlineVariant)));
+        LayoutParams rlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.bottomMargin = dp(8);
+        row.setLayoutParams(rlp);
+
+        // 源名 + tier
+        LinearLayout head = new LinearLayout(ctx);
+        head.setOrientation(HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView name = new TextView(ctx);
+        name.setText(src.name);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        name.setTypeface(null, android.graphics.Typeface.BOLD);
+        name.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        head.addView(name);
+
+        TextView tier = new TextView(ctx);
+        tier.setText(src.tier >= 0 ? ("  tier " + src.tier) : "  未评测");
+        tier.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tier.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        head.addView(tier);
+        row.addView(head);
+
+        // 线路胶囊（按 tier 升序）
+        List<Channel> sorted = new ArrayList<>(chs);
+        sorted.sort((a, b) -> tierRank(src, a) - tierRank(src, b));
+
+        LinearLayout pills = new LinearLayout(ctx);
+        pills.setOrientation(HORIZONTAL);
+        pills.setGravity(Gravity.START);
+        LayoutParams plp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        plp.topMargin = dp(8);
+        pills.setLayoutParams(plp);
+
+        int idx = 0;
+        for (final Channel ch : sorted) {
+            if (ch.episodes == null || ch.episodes.isEmpty()) continue;
+            int t = src.tierFor(ch.name);
+            TextView pill = new TextView(ctx);
+            String label = (ch.name == null || ch.name.isEmpty() ? "线路" : ch.name)
+                    + (t >= 0 ? ("  t" + t) : "");
+            pill.setText(label);
+            pill.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            pill.setPadding(dp(10), dp(6), dp(10), dp(6));
+            pill.setTextColor(idx == 0
                     ? color(com.google.android.material.R.attr.colorOnPrimary)
-                    : color(com.google.android.material.R.attr.colorOnSurfaceVariant));
-            t.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 16,
-                    color(sel ? com.google.android.material.R.attr.colorPrimary
-                              : com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
+                    : color(com.google.android.material.R.attr.colorOnSurface));
+            pill.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 14,
+                    color(idx == 0 ? com.google.android.material.R.attr.colorPrimary
+                            : com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
             LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
-            if (i++ > 0) lp.leftMargin = dp(6);
-            t.setLayoutParams(lp);
-            t.setOnClickListener(v -> showSource(key));
-            tabBar.addView(t);
+            if (idx > 0) lp.leftMargin = dp(6);
+            pill.setLayoutParams(lp);
+            pill.setOnClickListener(v -> playFromSelector(src, sub, ch));
+            pills.addView(pill);
+            idx++;
+            if (idx >= 8) break;   // 胶囊上限，避免一行爆掉
         }
+        row.addView(pills);
+        listBox.addView(row);
     }
 
-    /** 只渲染当前源的条目 */
-    private void showSource(String key) {
-        currentSource = key;
-        listBox.removeAllViews();
-        List<Subject> subs = resultsBySource.get(key);
-        AnimeSource src = sourceByName.get(key);
-        if (subs != null) {
-            for (final Subject sub : subs) {
-                TextView tv = new TextView(ctx);
-                tv.setText(sub.name);
-                tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-                tv.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
-                tv.setPadding(dp(10), dp(12), dp(10), dp(12));
-                tv.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 10,
-                        color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
-                LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT);
-                lp.bottomMargin = dp(6);
-                tv.setLayoutParams(lp);
-                tv.setOnClickListener(v -> {
-                    if (src != null) autoPlay(src, sub);
+    /** 从选源器点线路：解析直链 → 播放（失败则 WebView 兜底 → 手动选线） */
+    private void playFromSelector(final AnimeSource src, final Subject sub, final Channel ch) {
+        tvStatus.setText("解析「" + ch.name + "」…");
+        new Thread(() -> {
+            try {
+                SourceEngine engine = new SourceEngine();
+                Episode first = ch.episodes.get(0);
+                PlayLink pl = engine.resolve(src, first, ch.name);
+                final PlayLink link = pl;
+                ui(() -> play(link, sub, ch, first, src));
+            } catch (Throwable t) {
+                ui(() -> {
+                    tvStatus.setText("该线路解析失败，尝试浏览器解析…");
+                    tryWebView(src, sub, java.util.Collections.singletonList(ch));
                 });
-                listBox.addView(tv);
             }
-        }
-        refreshSourceTabs();          // 更新选中态
+        }, "selector-play").start();
     }
 
     // ══════════════════ 自动选源播放 ══════════════════
