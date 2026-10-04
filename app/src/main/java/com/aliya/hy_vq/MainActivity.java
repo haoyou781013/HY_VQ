@@ -2079,6 +2079,55 @@ public class MainActivity extends AppCompatActivity {
         return ui == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     }
 
+    /**
+     * 导出已下载的新版本安装包到公共目录（Download/HY_VQ/）。
+     * 供「详情弹窗」与「新版本提示弹窗」调用。
+     */
+    private void exportCachedApk(final File apk, final String ver) {
+        if (apk == null || !apk.exists() || apk.length() == 0) {
+            Toast.makeText(this, "安装包不存在，请先下载", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        boolean pubVal = false;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            try {
+                pubVal = android.os.Environment.isExternalStorageManager();
+            } catch (Throwable ignored) {
+            }
+        }
+        final boolean pub = pubVal;
+        final File base = pub
+                ? new File(android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS), "HY_VQ")
+                : getExternalFilesDir(null);
+        final String name = "HY_VQ-v" + ver + ".apk";
+
+        new Thread(() -> {
+            try {
+                if (base != null && !base.exists() && !base.mkdirs()) {
+                    throw new java.io.IOException("无法创建目录 " + base.getAbsolutePath());
+                }
+                File dst = new File(base, name);
+                try (java.io.FileInputStream in = new java.io.FileInputStream(apk);
+                     java.io.FileOutputStream out = new java.io.FileOutputStream(dst)) {
+                    byte[] buf = new byte[8192];
+                    int r;
+                    while ((r = in.read(buf)) > 0) out.write(buf, 0, r);
+                }
+                final String path = dst.getAbsolutePath();
+                final long size = dst.length();
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "已导出：" + path + "（" + fmtSize(size) + "）",
+                            Toast.LENGTH_LONG).show();
+                });
+            } catch (Throwable t) {
+                final String msg = t.getMessage();
+                runOnUiThread(() ->
+                        Toast.makeText(this, "导出失败：" + msg, Toast.LENGTH_LONG).show());
+            }
+        }, "export-apk").start();
+    }
+
     /** 版本详情弹窗：完整更新日志 + 下载/安装/重装 */
     private void showReleaseDetail(final ReleaseInfo ri, boolean isCurrent, boolean hasCache) {
         LinearLayout box = new LinearLayout(this);
@@ -2131,6 +2180,15 @@ public class MainActivity extends AppCompatActivity {
                         startUpdate(ri.apkUrl, ri.apkCnUrl, null, ri.apkSize, ri.ver, null);
                     }
                 }));
+        // 有缓存时提供导出选项（不安装，仅保存到公共目录）
+        File cached = updateCacheFileByVer(ri.ver);
+        if (cached.exists() && cached.length() > 0) {
+            final File fc = cached;
+            btns.addView(updateTextButton("导出", v -> {
+                d.dismiss();
+                exportCachedApk(fc, ri.ver);
+            }));
+        }
         d.show();
     }
 
@@ -2378,6 +2436,13 @@ public class MainActivity extends AppCompatActivity {
             if (hasCache) verifyAndInstall(cached, null, null);
             else startUpdate(ri.apkUrl, ri.apkCnUrl, null, ri.apkSize, ri.ver, null);
         }));
+        // 有缓存时提供导出选项
+        if (hasCache) {
+            btns.addView(updateTextButton("导出", v -> {
+                dialog.dismiss();
+                exportCachedApk(cached, ri.ver);
+            }));
+        }
         dialog.show();
     }
 
