@@ -253,7 +253,7 @@ public class FileManagerModule extends HyVqModule {
     private Pane active;
     private boolean multiMode = false;
 
-    private TextView pathText, statusText;
+    private TextView pathText;
     /** ⭐ v2.8.0 ROOT 顶栏按钮（状态着色：已授权=主色） */
     private ImageView rootBtn;
     /** 上一次已知的 root 状态，用于状态变化时只刷新一次 UI */
@@ -362,8 +362,7 @@ public class FileManagerModule extends HyVqModule {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         body.addView(buildClipBar());
         body.addView(buildOpBar());
-        body.addView(buildStatusBar());
-        // ⭐10 底部导航栏（Amaze 风格：文件/分类/回收站/网络/更多，全局视图切换）
+        // ⭐10 底部导航栏（Amaze 风格：文件/分类/回收站/更多，全局视图切换）
         body.addView(buildBottomNav());
         rootContainer.addView(body);
 
@@ -1275,33 +1274,11 @@ public class FileManagerModule extends HyVqModule {
     }
 
     /** 底部状态栏：活跃窗格的文件夹数 · 文件数 · 存储 */
-    private View buildStatusBar() {
-        // 对齐项目卡片风格：圆角 14 + SurfaceContainerLow 底 + OutlineVariant 描边
-        LinearLayout bar = new LinearLayout(ctx);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER);
-        int bg = ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerLow);
-        android.graphics.drawable.GradientDrawable g = ModuleUiKit.rounded(ctx, 14, bg,
-                ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOutlineVariant));
-        bar.setBackground(g);
-        int pad = dp(6);
-        bar.setPadding(pad, dp(4), pad, dp(4));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(4);
-        bar.setLayoutParams(lp);
 
-        statusText = new TextView(ctx);
-        statusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        statusText.setTextColor(ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant));
-        statusText.setGravity(Gravity.CENTER);
-        bar.addView(statusText);
-        return bar;
-    }
 
     // ════════════════════════════════════════════════════════════════
     // ⭐10 底部导航栏 + FAB（参考 Amaze/MaterialFiles 现代布局）：
-    // 底部导航 = 文件 / 分类 / 回收站 / 网络 / 更多 全局视图切换；
+    // 底部导航 = 文件 / 分类 / 回收站 / 更多 全局视图切换；
     // FAB = 右下角悬浮新建（新建文件/文件夹，Material 规范）。
     // ════════════════════════════════════════════════════════════════
 
@@ -1312,7 +1289,7 @@ public class FileManagerModule extends HyVqModule {
     /** FAB 悬浮新建按钮 */
     private ImageView fabNew;
 
-    /** 构建底部导航栏：文件（内部存储根）/分类（分类选择）/回收站/网络（FTP）/更多（⋮菜单） */
+    /** 构建底部导航栏：文件（内部存储根）/分类（分类选择）/回收站/更多（⋮菜单） */
     private View buildBottomNav() {
         bottomNav = new LinearLayout(ctx);
         bottomNav.setOrientation(LinearLayout.HORIZONTAL);
@@ -1336,7 +1313,6 @@ public class FileManagerModule extends HyVqModule {
             active.path = PREFIX_TRASH;
             reload(active);
         });
-        addNavTab("网络", R.drawable.ic_network, v -> showNetworkMenu(v));
         addNavTab("更多", R.drawable.ic_more_vert, v -> showMoreMenu(v));
         addNewButtonToNav();
         // 底部栏整体淡入 + 轻微上移（平滑过渡，避免生硬出现）
@@ -1401,7 +1377,7 @@ public class FileManagerModule extends HyVqModule {
         navTabs.add(tab);
     }
 
-    /** 更新底部导航高亮：文件=真实路径，分类=cat://，回收站=trash://，网络/更多不常驻高亮 */
+    /** 更新底部导航高亮：文件=真实路径，分类=cat://，回收站=trash://，更多不常驻高亮 */
     private void updateBottomNav() {
         if (bottomNav == null) return;
         String p = active == null ? "" : active.path;
@@ -1493,7 +1469,6 @@ public class FileManagerModule extends HyVqModule {
         active = p;
         if (pathText != null) {
             pathText.setText(p.path);
-            updateStatus();
             updateBottomNav();
         }
     }
@@ -1723,7 +1698,6 @@ public class FileManagerModule extends HyVqModule {
         playStaggerAnimation(p.list);
         if (p == active && pathText != null) {
             pathText.setText(p.path);
-            updateStatus();
             updateBottomNav();
         }
         updateClipBar();
@@ -1887,29 +1861,6 @@ public class FileManagerModule extends HyVqModule {
         return new File(dest, name).exists();
     }
 
-    private void updateStatus() {
-        if (statusText == null || active == null) return;
-        if (multiMode) {
-            statusText.setText("已选 " + active.selected.size() + " 项");
-            return;
-        }
-        // 分类视图：显示分类名 + 命中数；回收站：显示文件数
-        if (active.path.startsWith(PREFIX_CAT)) {
-            String catId = active.path.substring(PREFIX_CAT.length());
-            String title = catId;
-            for (String[] c : CATEGORIES) if (c[0].equals(catId)) title = c[1];
-            statusText.setText(title + "分类 · " + active.entries.size() + " 项");
-            return;
-        }
-        if (active.path.startsWith(PREFIX_TRASH)) {
-            statusText.setText("回收站 · " + active.entries.size() + " 项（删除后 30 天自动清理预留）");
-            return;
-        }
-        statusText.setText("文件夹 " + active.lastResult.dirCount() + " · 文件 "
-                + active.lastResult.fileCount() + " · 存储 "
-                + FileOps.storageInfo(new File(active.path)));
-    }
-
     private void updateClipBar() {
         if (clipInfo == null || clipBar == null) return;
         boolean has = !clipboard.isEmpty();
@@ -1922,9 +1873,6 @@ public class FileManagerModule extends HyVqModule {
     private void updateOpBar() {
         if (opBar == null) return;
         opBar.setVisibility(multiMode ? View.VISIBLE : View.GONE);
-        if (multiMode && statusText != null) {
-            statusText.setText("已选 " + active.selected.size() + " 项");
-        }
     }
 
     // ── 长按菜单（MT 风格固定菜单：所有功能可见，当前场景不可用的置灰禁用） ──
@@ -2104,7 +2052,6 @@ public class FileManagerModule extends HyVqModule {
         if (opBar != null) opBar.setVisibility(View.GONE);
         // 退出多选恢复 FAB 与活跃窗格状态栏
         if (fabNew != null) fabNew.setVisibility(View.VISIBLE);
-        updateStatus();
     }
 
     private void selectAll() {
@@ -6225,7 +6172,6 @@ public class FileManagerModule extends HyVqModule {
                     p.entries.addAll(found);
                     sortEntries(p);
                     p.adapter.setData(p.entries);
-                    if (p == active) updateStatus();
                 }
             });
         });
@@ -6660,46 +6606,6 @@ public class FileManagerModule extends HyVqModule {
      *  ⭐ 安全修复：原实现 USER/PASS 无条件返回 230，同一局域网任何设备都能免密读写全盘。 */
     private static final String FTP_USER = "hyvq";
     private static volatile String ftpPass = "";
-
-    private void showNetworkMenu(View anchor) {
-        LinearLayout panel = new LinearLayout(ctx);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        int surface = ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerHigh);
-        int stroke = ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOutlineVariant);
-        android.graphics.drawable.GradientDrawable gd = ModuleUiKit.rounded(ctx, 14,
-                (surface & 0x00FFFFFF) | 0xF2000000, stroke);
-        panel.setBackground(gd);
-        int p4 = dp(4);
-        panel.setPadding(p4, p4, p4, p4);
-        final PopupWindow popup = new PopupWindow(panel,
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true);
-        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-        popup.setElevation(dp(8));
-
-        addMenuRow(panel, ftpRunning ? "FTP：停止服务器" : "FTP：启动服务器",
-                android.R.drawable.ic_menu_upload, v -> {
-                    popup.dismiss();
-                    if (ftpRunning) stopFtpServer();
-                    else startFtpServer();
-                });
-        // ⭐ HTTP 文件服务：浏览器原生支持，手机/电脑都无需安装客户端
-        addMenuRow(panel, httpRunning ? "HTTP：停止服务（浏览器可开）" : "HTTP：启动服务（浏览器可开）",
-                android.R.drawable.ic_menu_share, v -> {
-                    popup.dismiss();
-                    if (httpRunning) stopHttpServer();
-                    else startHttpServer();
-                });
-        addMenuRow(panel, "使用说明", android.R.drawable.ic_menu_info_details, v -> {
-            popup.dismiss();
-            showFtpHelp();
-        });
-        // ⭐10 方向自适应：底部导航「网络」Tab 触发时向上弹（避免出屏）
-        if (anchorNearBottom(anchor)) {
-            popup.showAtLocation(anchor, Gravity.BOTTOM | Gravity.END, dp(12), dp(96));
-        } else {
-            popup.showAsDropDown(anchor, -dp(104), dp(2));
-        }
-    }
 
     /** ⭐ FTP使用说明：Dialog 展示完整步骤（可滚动），替代 toast（toast 显示短/内容不全/无法滚动，用户反馈后改造） */
     private void showFtpHelp() {
