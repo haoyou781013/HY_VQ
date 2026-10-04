@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 侧边栏单条模块入口模板 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/drawer_item_root"
     android:layout_width="match_parent"
     android:layout_height="48dp"
@@ -19,7 +20,7 @@
         android:layout_height="22dp"
         android:src="@drawable/ic_chat"
         android:contentDescription="模块"
-        android:tint="?attr/colorOnSurfaceVariant" />
+        app:tint="?attr/colorOnSurfaceVariant" />
 
     <TextView
         android:id="@+id/drawer_item_text"

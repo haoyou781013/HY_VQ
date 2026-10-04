@@ -71,6 +71,6 @@
             android:layout_height="22dp"
             android:src="@drawable/ic_download"
             android:contentDescription="下载"
-            android:tint="?attr/colorPrimary" />
+            app:tint="?attr/colorPrimary" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

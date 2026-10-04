@@ -28,7 +28,7 @@
                 android:src="@drawable/ic_chat"
                 android:contentDescription="添加"
                 android:padding="10dp"
-                android:tint="?attr/colorTertiary" />
+                app:tint="?attr/colorTertiary" />
         </com.google.android.material.card.MaterialCardView>
 
         <LinearLayout

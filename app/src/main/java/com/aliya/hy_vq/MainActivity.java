@@ -1109,7 +1109,7 @@ public class MainActivity extends AppCompatActivity {
      */
     private boolean goBack() {
         if (binding == null) return false;
-        if (binding.drawerLayout.isDrawerOpen(Gravity.START)) {
+        if (binding.drawerLayout.isDrawerOpen(androidx.core.view.GravityCompat.START)) {
             binding.drawerLayout.closeDrawers();
             return true;
         }

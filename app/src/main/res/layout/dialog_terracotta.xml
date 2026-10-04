@@ -29,7 +29,7 @@
                 android:contentDescription="联机"
                 android:padding="10dp"
                 android:src="@drawable/ic_chat"
-                android:tint="?attr/colorOnSecondaryContainer" />
+                app:tint="?attr/colorOnSecondaryContainer" />
         </com.google.android.material.card.MaterialCardView>
 
         <LinearLayout

@@ -115,7 +115,7 @@
                         android:layout_height="22dp"
                         android:src="@drawable/ic_home"
                         android:contentDescription="首页"
-                        android:tint="?attr/colorOnPrimaryContainer" />
+                        app:tint="?attr/colorOnPrimaryContainer" />
 
                     <TextView
                         android:id="@+id/nav_home_text"
@@ -147,7 +147,7 @@
                         android:layout_height="22dp"
                         android:src="@drawable/ic_folder"
                         android:contentDescription="文件管理"
-                        android:tint="?attr/colorOnSurfaceVariant" />
+                        app:tint="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/nav_filemgr_text"
@@ -192,7 +192,7 @@
                         android:layout_height="22dp"
                         android:src="@drawable/ic_star"
                         android:contentDescription="抽卡分析"
-                        android:tint="?attr/colorOnSurfaceVariant" />
+                        app:tint="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/nav_gacha_text"
@@ -237,7 +237,7 @@
                         android:layout_height="22dp"
                         android:src="@drawable/ic_video"
                         android:contentDescription="动漫"
-                        android:tint="?attr/colorOnSurfaceVariant" />
+                        app:tint="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/nav_anime_text"
@@ -282,7 +282,7 @@
                         android:layout_height="22dp"
                         android:src="@drawable/ic_emoji"
                         android:contentDescription="鸣潮表情包"
-                        android:tint="?attr/colorOnSurfaceVariant" />
+                        app:tint="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/nav_emoji_text"
@@ -314,7 +314,7 @@
                         android:layout_height="22dp"
                         android:src="@drawable/ic_download"
                         android:contentDescription="实用软件分享"
-                        android:tint="?attr/colorOnSurfaceVariant" />
+                        app:tint="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/nav_share_text"
@@ -395,7 +395,7 @@
                         android:layout_height="20dp"
                         android:src="@drawable/ic_settings"
                         android:contentDescription="设置"
-                        android:tint="?attr/colorOnSurfaceVariant" />
+                        app:tint="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:layout_width="wrap_content"

@@ -31,7 +31,7 @@
                 android:contentDescription="创建房间"
                 android:padding="9dp"
                 android:src="@drawable/ic_home"
-                android:tint="?attr/colorOnPrimaryContainer" />
+                app:tint="?attr/colorOnPrimaryContainer" />
         </com.google.android.material.card.MaterialCardView>
 
         <LinearLayout
@@ -62,7 +62,7 @@
             android:layout_height="20dp"
             android:contentDescription="进入"
             android:src="@drawable/ic_chevron_right"
-            android:tint="?attr/colorOnSurfaceVariant" />
+            app:tint="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
 
     <!-- 加入房间 -->
@@ -91,7 +91,7 @@
                 android:contentDescription="加入房间"
                 android:padding="9dp"
                 android:src="@drawable/ic_mine"
-                android:tint="?attr/colorOnTertiaryContainer" />
+                app:tint="?attr/colorOnTertiaryContainer" />
         </com.google.android.material.card.MaterialCardView>
 
         <LinearLayout
@@ -122,7 +122,7 @@
             android:layout_height="20dp"
             android:contentDescription="进入"
             android:src="@drawable/ic_chevron_right"
-            android:tint="?attr/colorOnSurfaceVariant" />
+            app:tint="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
 
     <TextView

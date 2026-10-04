@@ -100,7 +100,7 @@
                     android:src="@drawable/ic_network"
                     android:contentDescription="开源仓库"
                     android:padding="9dp"
-                    android:tint="?attr/colorPrimary" />
+                    app:tint="?attr/colorPrimary" />
             </com.google.android.material.card.MaterialCardView>
 
             <LinearLayout
@@ -147,7 +147,7 @@
                     android:src="@drawable/ic_doc"
                     android:contentDescription="开源许可证"
                     android:padding="9dp"
-                    android:tint="?attr/colorOnSecondaryContainer" />
+                    app:tint="?attr/colorOnSecondaryContainer" />
             </com.google.android.material.card.MaterialCardView>
 
             <LinearLayout
@@ -204,7 +204,7 @@
                     android:src="@drawable/ic_refresh"
                     android:contentDescription="检查更新"
                     android:padding="9dp"
-                    android:tint="?attr/colorTertiary" />
+                    app:tint="?attr/colorTertiary" />
             </com.google.android.material.card.MaterialCardView>
 
             <LinearLayout
@@ -252,7 +252,7 @@
                     android:src="@drawable/ic_star"
                     android:contentDescription="致谢"
                     android:padding="9dp"
-                    android:tint="?attr/colorSecondary" />
+                    app:tint="?attr/colorSecondary" />
             </com.google.android.material.card.MaterialCardView>
 
             <LinearLayout

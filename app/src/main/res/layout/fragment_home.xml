@@ -119,7 +119,7 @@
                                 android:src="@drawable/ic_download"
                                 android:contentDescription="软件分享"
                                 android:padding="11dp"
-                                android:tint="@color/card_discover_icon" />
+                                app:tint="@color/card_discover_icon" />
                         </com.google.android.material.card.MaterialCardView>
 
                         <TextView
@@ -180,7 +180,7 @@
                                 android:src="@drawable/ic_chat"
                                 android:contentDescription="朋友圈"
                                 android:padding="11dp"
-                                android:tint="@color/card_moments_icon" />
+                                app:tint="@color/card_moments_icon" />
                         </com.google.android.material.card.MaterialCardView>
 
                         <TextView
@@ -249,7 +249,7 @@
                                 android:src="@drawable/ic_mine"
                                 android:contentDescription="我的"
                                 android:padding="11dp"
-                                android:tint="@color/card_mine_card_icon" />
+                                app:tint="@color/card_mine_card_icon" />
                         </com.google.android.material.card.MaterialCardView>
 
                         <TextView

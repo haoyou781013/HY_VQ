@@ -37,7 +37,7 @@
             android:src="@drawable/ic_audio"
             android:alpha="0.9"
             android:contentDescription="音频"
-            android:tint="#42A5F5" />
+            app:tint="#42A5F5" />
 
         <TextView
             android:id="@+id/tv_audio_name"
@@ -120,7 +120,7 @@
             android:src="@drawable/ic_arrow_back"
             android:contentDescription="返回"
             android:padding="8dp"
-            android:tint="#FFFFFF" />
+            app:tint="#FFFFFF" />
 
         <TextView
             android:id="@+id/tv_player_counter"
@@ -205,7 +205,7 @@
                     android:src="@drawable/ic_skip_previous"
                     android:contentDescription="上一个"
                     android:padding="9dp"
-                    android:tint="#FFFFFF" />
+                    app:tint="#FFFFFF" />
 
                 <ImageView
                     android:id="@+id/btn_player_play"
@@ -215,7 +215,7 @@
                     android:src="@drawable/ic_pause"
                     android:contentDescription="播放/暂停"
                     android:padding="10dp"
-                    android:tint="#FFFFFF" />
+                    app:tint="#FFFFFF" />
 
                 <ImageView
                     android:id="@+id/btn_player_next"
@@ -224,7 +224,7 @@
                     android:src="@drawable/ic_skip_next"
                     android:contentDescription="下一个"
                     android:padding="9dp"
-                    android:tint="#FFFFFF" />
+                    app:tint="#FFFFFF" />
             </LinearLayout>
 
             <!-- 右下角：倍速 / 画面比例（文字按钮，省去新图标；对齐 Kazumi 的播放器控制项） -->
@@ -281,7 +281,7 @@
                 android:src="@drawable/ic_menu"
                 android:contentDescription="选择文件"
                 android:padding="9dp"
-                android:tint="#FFFFFF" />
+                app:tint="#FFFFFF" />
         </FrameLayout>
     </LinearLayout>
 </FrameLayout>

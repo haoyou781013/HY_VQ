@@ -34,7 +34,7 @@
                     android:contentDescription="服务器"
                     android:padding="10dp"
                     android:src="@drawable/ic_chat"
-                    android:tint="?attr/colorTertiary" />
+                    app:tint="?attr/colorTertiary" />
             </com.google.android.material.card.MaterialCardView>
 
             <LinearLayout
@@ -420,7 +420,7 @@
                         android:layout_height="20dp"
                         android:contentDescription="帮助"
                         android:src="@drawable/ic_settings"
-                        android:tint="?attr/colorPrimary" />
+                        app:tint="?attr/colorPrimary" />
 
                     <TextView
                         android:layout_width="0dp"
@@ -438,7 +438,7 @@
                         android:contentDescription="展开"
                         android:rotation="180"
                         android:src="@drawable/ic_chevron_right"
-                        android:tint="?attr/colorOnSurfaceVariant" />
+                        app:tint="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
 
                 <!-- 说明内容（默认展开） -->

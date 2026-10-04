@@ -102,7 +102,7 @@
                         android:src="@drawable/ic_refresh"
                         android:contentDescription="状态"
                         android:padding="10dp"
-                        android:tint="?attr/colorPrimary" />
+                        app:tint="?attr/colorPrimary" />
                 </com.google.android.material.card.MaterialCardView>
 
                 <LinearLayout
@@ -375,7 +375,7 @@
                 android:layout_height="18dp"
                 android:src="@drawable/ic_chevron_right"
                 android:contentDescription="导出"
-                android:tint="?attr/colorOnSurfaceVariant" />
+                app:tint="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
 
         <!-- ══════════ ⑦ 更新提醒（原设置页「通知管理」并入） ══════════ -->

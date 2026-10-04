@@ -66,6 +66,9 @@ android {
         
     }
     
+    lint {
+        lintConfig = file("lint.xml")
+    }
 }
 
 dependencies {

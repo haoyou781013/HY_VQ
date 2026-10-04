@@ -21,7 +21,7 @@
             android:src="@drawable/ic_arrow_back"
             android:contentDescription="返回"
             android:padding="8dp"
-            android:tint="?attr/colorOnSurface" />
+            app:tint="?attr/colorOnSurface" />
 
         <TextView
             android:layout_width="0dp"

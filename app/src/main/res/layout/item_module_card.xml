@@ -26,7 +26,7 @@
             android:layout_height="36dp"
             android:src="@drawable/ic_chat"
             android:contentDescription="模块图标"
-            android:tint="?attr/colorPrimary"
+            app:tint="?attr/colorPrimary"
             android:padding="4dp" />
 
         <!-- 模块信息 -->
