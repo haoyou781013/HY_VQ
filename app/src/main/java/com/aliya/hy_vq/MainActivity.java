@@ -3518,7 +3518,12 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams crlp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         crlp.topMargin = dp2(12);
-        TextView btnCancel = updateTextButton("取消下载", v -> cancelled.set(true));
+        // pd 声明在按钮之后，用 holder 让回调能拿到弹窗
+        final android.app.Dialog[] pdHolder = new android.app.Dialog[1];
+        TextView btnCancel = updateTextButton("取消下载", v -> {
+            cancelled.set(true);
+            if (pdHolder[0] != null && pdHolder[0].isShowing()) pdHolder[0].dismiss();
+        });
         cancelRow.addView(btnCancel);
         box.addView(cancelRow, crlp);
 
@@ -3527,6 +3532,7 @@ public class MainActivity extends AppCompatActivity {
         final android.app.Dialog pd = ModuleUiKit.glassDialog(this, box, false);
         pd.setCancelable(false);
         pd.setOnDismissListener(d -> updateFlowBusy = false);
+        pdHolder[0] = pd;
         pd.show();
 
         // ── 后台测速（仅展示，不阻塞下载）──
@@ -3676,6 +3682,11 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     tvPct.setText("已取消");
                 }
+                // 失败/取消后弹出关闭按钮（原来不关弹窗，用户被困住）
+                cancelRow.removeAllViews();
+                cancelRow.addView(updateTextButton("关闭", v -> {
+                    if (pdHolder[0] != null && pdHolder[0].isShowing()) pdHolder[0].dismiss();
+                }));
             });
         }).start();
     }
