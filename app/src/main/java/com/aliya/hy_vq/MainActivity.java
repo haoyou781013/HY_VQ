@@ -1658,7 +1658,7 @@ public class MainActivity extends AppCompatActivity {
      *  每个版本自带<b>精确</b>下载直链（browser_download_url）。
      *  不再依赖 latest.json，也不会出现「latest 前缀 + 旧文件名」导致的 404。 */
     private static final String REMOTE_RELEASES =
-            "https://api.github.com/repos/" + GH_OWNER + "/" + GH_REPO + "/releases?per_page=30";
+            "https://api.github.com/repos/" + GH_OWNER + "/" + GH_REPO + "/releases?per_page=100";
 
     /** 打开远程只读连接（无鉴权）。
      *  某些 CDN 会 302 跳转，故手动跟随（最多 5 跳），不依赖 HttpURLConnection 自动跟随。
