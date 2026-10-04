@@ -3282,6 +3282,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** 带进度的下载：进度条实时刷新，完成后校验 MD5 再拉起安装器 */
+    /** 格式化剩余时间（秒 → 可读字符串） */
+    private static String fmtEta(long seconds) {
+        if (seconds < 0) return "—";
+        if (seconds < 60) return seconds + " 秒";
+        if (seconds < 3600) return (seconds / 60) + " 分 " + (seconds % 60) + " 秒";
+        return (seconds / 3600) + " 时 " + ((seconds % 3600) / 60) + " 分";
+    }
+
     /** 格式化速度（bytes/s → 可读字符串） */
     private static String fmtSpeed(long bytesPerSec) {
         if (bytesPerSec <= 0) return "—";
@@ -3369,34 +3377,55 @@ public class MainActivity extends AppCompatActivity {
         return results;
     }
 
-    /** 测单个源：Range GET 前 64KB，计时 */
+    /**
+     * 测单个源：HEAD 请求测连通性 + TTFB（参考 CDN 文章：测速要轻量，优先 HEAD）。
+     * 超时 5 秒快速失败，不拖垮整体。
+     */
     private SourceTestResult testOneSource(String name, String url) {
         long start = System.currentTimeMillis();
+        java.net.HttpURLConnection conn = null;
+        try {
+            conn = openRemote(url, "HEAD");
+            int code = conn.getResponseCode();
+            long ttfb = System.currentTimeMillis() - start;
+            // HEAD 成功：用 TTFB 近似速度（TTFB 越短越快）
+            if (code == 200 || code == 206 || code == 301 || code == 302) {
+                // 补一次小 Range GET 测实际速度（16KB，2秒超时）
+                long speed = measureSpeed(url);
+                conn.disconnect();
+                return new SourceTestResult(name, url, ttfb, speed, null);
+            }
+            conn.disconnect();
+            return new SourceTestResult(name, url, -1, 0, "HTTP " + code);
+        } catch (Exception e) {
+            if (conn != null) { try { conn.disconnect(); } catch (Throwable ignored) {} }
+            return new SourceTestResult(name, url, -1, 0, e.getMessage());
+        }
+    }
+
+    /** 小 Range GET 测速（16KB，2秒超时） */
+    private long measureSpeed(String url) {
         try {
             java.net.HttpURLConnection conn = openRemote(url, "GET");
-            conn.setRequestProperty("Range", "bytes=0-65535");
+            conn.setRequestProperty("Range", "bytes=0-16383");
+            conn.setReadTimeout(2000);
             int code = conn.getResponseCode();
-            if (code != 200 && code != 206) {
-                conn.disconnect();
-                return new SourceTestResult(name, url, -1, 0, "HTTP " + code);
-            }
-            long ttfb = System.currentTimeMillis() - start;
-            // 读取响应体测速
-            byte[] buf = new byte[8192];
+            if (code != 200 && code != 206) { conn.disconnect(); return 0; }
+            byte[] buf = new byte[4096];
             long total = 0;
-            long readStart = System.currentTimeMillis();
+            long t0 = System.currentTimeMillis();
             java.io.InputStream in = conn.getInputStream();
             int n;
-            while ((n = in.read(buf)) > 0 && total < 65536) {
+            while ((n = in.read(buf)) > 0 && total < 16384) {
                 total += n;
+                if (System.currentTimeMillis() - t0 > 2000) break;  // 2秒上限
             }
             in.close();
             conn.disconnect();
-            long elapsed = System.currentTimeMillis() - readStart;
-            long speed = elapsed > 0 ? (total * 1000 / elapsed) : 0;
-            return new SourceTestResult(name, url, ttfb, speed, null);
+            long elapsed = Math.max(1, System.currentTimeMillis() - t0);
+            return total * 1000 / elapsed;
         } catch (Exception e) {
-            return new SourceTestResult(name, url, -1, 0, e.getMessage());
+            return 0;
         }
     }
 
@@ -3500,141 +3529,87 @@ public class MainActivity extends AppCompatActivity {
         pd.setOnDismissListener(d -> updateFlowBusy = false);
         pd.show();
 
+        // ── 后台测速（仅展示，不阻塞下载）──
+        new Thread(() -> {
+            runOnUiThread(() -> tvTest.setText("测速中…"));
+            java.util.List<SourceTestResult> tests = testAllSources(apkUrl, cnUrl);
+            StringBuilder sb = new StringBuilder();
+            SourceTestResult best = null;
+            for (SourceTestResult r : tests) {
+                if (r.ok()) {
+                    sb.append(r.name).append(" ").append(fmtSpeed(r.speedBps)).append(" · ");
+                    if (best == null) best = r;
+                } else {
+                    sb.append(r.name).append(" ✗ · ");
+                }
+            }
+            final String rep = sb.length() > 0 ? sb.substring(0, sb.length() - 3) : "测试超时";
+            final int okN = (int) tests.stream().filter(SourceTestResult::ok).count();
+            final SourceTestResult bst = best;
+            runOnUiThread(() -> {
+                if (bst != null) {
+                    tvTest.setText("测速 " + okN + "/" + tests.size() + " · 最快：" + bst.name
+                            + " · " + rep);
+                } else {
+                    tvTest.setText("测速 " + okN + "/" + tests.size() + " · " + rep);
+                }
+            });
+        }, "speed-test").start();
+
+        // ── 下载线程：立即开始，串行回退（GitHub → 镜像 → 123云盘）──
         new Thread(() -> {
             String err = null;
             final File tmp = new File(target.getParentFile(), target.getName() + ".part");
             try {
-                // ── 第 0 步：并行测速所有源，选最快的 ──
-                java.util.List<SourceTestResult> tests = testAllSources(apkUrl, cnUrl);
-                StringBuilder testReport = new StringBuilder();
-                SourceTestResult best = null;
-                for (SourceTestResult r : tests) {
-                    if (r.ok()) {
-                        testReport.append(r.name).append(" ")
-                                  .append(fmtSpeed(r.speedBps))
-                                  .append(" · ");
-                        if (best == null) best = r;   // 已按速度降序
-                    } else {
-                        testReport.append(r.name).append(" ✗ ").append(r.error).append(" · ");
-                    }
-                }
-                final String report = testReport.length() > 0
-                        ? testReport.substring(0, testReport.length() - 3) : "无可用源";
-                final SourceTestResult bestSrc = best;
-                final String bestName = best != null ? best.name : "";
-                final String bestUrl = best != null ? best.url : "";
-                final long bestSpeed = best != null ? best.speedBps : 0;
-                final int testCount = tests.size();
-                final int okCount = (int) tests.stream().filter(SourceTestResult::ok).count();
-                runOnUiThread(() -> {
-                    testPb.setVisibility(android.view.View.GONE);
-                    if (bestSrc != null) {
-                        tvTest.setText("测速完成（" + okCount + "/" + testCount + " 可用）· 最快："
-                                + bestName + "（" + fmtSpeed(bestSpeed) + "）");
-                        tvPct.setText("使用 " + bestName + " 下载中…");
-                    } else {
-                        tvTest.setText("所有源不可用（" + okCount + "/" + testCount + "）：\n" + report);
-                    }
-                });
-
-                // ── 选下载源：测速最快 > 逐个回退 ──
                 java.net.HttpURLConnection conn = null;
                 int code = -1;
-                String dlUrl = "";
+                StringBuilder tried = new StringBuilder();
                 String dlName = "";
 
-                if (bestSrc != null) {
-                    dlUrl = bestUrl;
-                    dlName = bestName;
-                    try {
-                        conn = openRemote(dlUrl, "GET");
-                        code = conn.getResponseCode();
-                    } catch (Exception e) {
-                        code = -1;
+                // 构建尝试列表
+                java.util.List<String[]> attempts = new java.util.ArrayList<>();
+                if (apkUrl != null && !apkUrl.isEmpty()) {
+                    attempts.add(new String[]{"GitHub 直链", apkUrl});
+                    for (String mir : GH_MIRRORS) {
+                        String m = mirrorUrl(mir, apkUrl);
+                        if (m != null) attempts.add(new String[]{
+                            "镜像 " + mir.replace("https://", "").replace("/", ""), m});
                     }
-                    if (code != 200 && code != 206) {
+                }
+                if (cnUrl != null && !cnUrl.isEmpty()) {
+                    attempts.add(new String[]{"123云盘", cnUrl});
+                }
+
+                for (String[] att : attempts) {
+                    final String tryName = att[0];
+                    runOnUiThread(() -> tvPct.setText("尝试 " + tryName + "…"));
+                    try {
+                        conn = openRemote(att[1], "GET");
+                        code = conn.getResponseCode();
+                        if (code == 200 || code == 206) {
+                            dlName = att[0];
+                            break;
+                        }
+                        tried.append(att[0]).append(" HTTP ").append(code).append(" · ");
                         if (conn != null) { try { conn.disconnect(); } catch (Throwable ignored) {} }
+                        conn = null;
+                    } catch (Exception e) {
+                        tried.append(att[0]).append(" ✗ ").append(e.getMessage()).append(" · ");
                         conn = null;
                         code = -1;
                     }
                 }
 
-                // 测速源失败 → 逐个回退尝试（不放弃）
                 if (conn == null || (code != 200 && code != 206)) {
-                    final String fallbackNote = bestSrc != null
-                            ? "测速最快源失败，逐个回退中…" : "测速未完成，逐个尝试中…";
-                    runOnUiThread(() -> tvPct.setText(fallbackNote));
-
-                    // 按测速顺序尝试（成功的排前面，失败的也试）
-                    for (SourceTestResult r : tests) {
-                        if (r.url == null || r.url.isEmpty()) continue;
-                        try {
-                            conn = openRemote(r.url, "GET");
-                            code = conn.getResponseCode();
-                            if (code == 200 || code == 206) {
-                                dlUrl = r.url;
-                                dlName = r.name;
-                                break;
-                            }
-                            if (conn != null) { try { conn.disconnect(); } catch (Throwable ignored) {} }
-                            conn = null;
-                        } catch (Exception e) {
-                            conn = null;
-                            code = -1;
-                        }
-                    }
-
-                    // 测速列表里全失败 → 直接用原始 URL 按顺序试
-                    if (conn == null) {
-                        String[] fallbackUrls = {
-                                apkUrl != null ? apkUrl : "",
-                                cnUrl != null ? cnUrl : ""
-                        };
-                        String[] fallbackNames = {"GitHub 直链", "123云盘"};
-                        // 加镜像
-                        java.util.List<String[]> allFallback = new java.util.ArrayList<>();
-                        for (int fi = 0; fi < 2; fi++) {
-                            if (!fallbackUrls[fi].isEmpty())
-                                allFallback.add(new String[]{fallbackNames[fi], fallbackUrls[fi]});
-                        }
-                        for (String mir : GH_MIRRORS) {
-                            String m = apkUrl != null ? mirrorUrl(mir, apkUrl) : null;
-                            if (m != null) allFallback.add(new String[]{"镜像", m});
-                        }
-                        for (String[] fb : allFallback) {
-                            try {
-                                conn = openRemote(fb[1], "GET");
-                                code = conn.getResponseCode();
-                                if (code == 200 || code == 206) {
-                                    dlUrl = fb[1];
-                                    dlName = fb[0];
-                                    break;
-                                }
-                                if (conn != null) { try { conn.disconnect(); } catch (Throwable ignored) {} }
-                                conn = null;
-                            } catch (Exception e) {
-                                conn = null;
-                                code = -1;
-                            }
-                        }
-                    }
+                    throw new Exception("所有源失败：" + tried);
                 }
 
-                if (conn == null || (code != 200 && code != 206)) {
-                    throw new Exception("所有下载源均不可用（测试：" + report + "）");
-                }
+                final String useName = dlName;
+                runOnUiThread(() -> {
+                    tvSource.setText("下载源：" + useName);
+                    tvPct.setText("下载中…");
+                });
 
-                final String finalDlName = dlName;
-                runOnUiThread(() -> tvSource.setText("下载源：" + finalDlName));
-
-                // ── 校验 HTTP 状态码 ──
-                if (code != 200 && code != 206) {
-                    if (code == 401) {
-                        throw new Exception("国内源认证失败（HTTP 401）。"
-                                + "请在「软件更新」页从 GitHub 手动下载，或稍后重试。\n明细：" + report);
-                    }
-                    throw new Exception("下载失败（HTTP " + code + "）测试结果：" + report);
-                }
                 long total = expectSize > 0 ? expectSize : conn.getContentLength();
                 long done = 0;
                 int lastPct = -1;
@@ -3651,67 +3626,55 @@ public class MainActivity extends AppCompatActivity {
                         fos.write(buf, 0, n);
                         done += n;
                         long now = System.currentTimeMillis();
-                        // 每 400ms 刷新一次，避免过于频繁地更新 UI
                         if (now - lastSampleTime >= 400) {
-                            long dt = now - lastSampleTime;
-                            long db = done - lastSampleDone;
-                            double bps = dt > 0 ? (db * 1000.0 / dt) : 0;
+                            final int pct = total > 0 ? (int)(done * 100 / total) : 0;
+                            final long speed = lastSampleTime > t0
+                                    ? (done - lastSampleDone) * 1000 / (now - lastSampleTime) : 0;
+                            final long eta = speed > 0 ? (total - done) / speed : -1;
+                            final long d = done, sp = speed, et = eta;
+                            runOnUiThread(() -> {
+                                tvPct.setText(pct + "%");
+                                pb.setProgress(pct);
+                                tvSpeed.setText("下载速度：" + fmtSpeed(sp));
+                                tvSize.setText("已下载：" + fmtSize(d)
+                                        + (total > 0 ? " / " + fmtSize(total) : ""));
+                                tvEta.setText(et >= 0 ? "剩余时间：" + fmtEta(et) : "剩余时间：—");
+                            });
                             lastSampleTime = now;
                             lastSampleDone = done;
-                            final int fp = total > 0 ? (int) Math.min(100, done * 100 / total) : -1;
-                            final long fd = done, ft = total;
-                            final double fbps = bps;
-                            runOnUiThread(() -> {
-                                if (fp >= 0) {
-                                    pb.setProgress(fp);
-                                    tvPct.setText(fp + "%");
-                                } else {
-                                    tvPct.setText("下载中…");
-                                }
-                                tvSize.setText("已下载：" + fmtSize(fd)
-                                        + (ft > 0 ? " / " + fmtSize(ft) : ""));
-                                tvSpeed.setText("下载速度：" + humanSpeed(fbps)
-                                        + "　（平均 " + humanSpeed(
-                                        fd * 1000.0 / Math.max(1, now - t0)) + "）");
-                                if (fbps > 1 && ft > fd) {
-                                    long sec = (long) ((ft - fd) / fbps);
-                                    tvEta.setText("剩余时间：" + humanDuration(sec));
-                                } else {
-                                    tvEta.setText("剩余时间：估算中…");
-                                }
-                            });
                         }
                     }
                 }
                 conn.disconnect();
-                if (tmp.length() <= 0) throw new Exception("下载内容为空");
-                if (expectMd5 != null && !expectMd5.isEmpty()) {
-                    String actual = md5Of(tmp);
-                    if (!expectMd5.equalsIgnoreCase(actual)) {
-                        throw new Exception("MD5 校验不通过，安装包可能被篡改或下载不完整");
-                    }
+
+                if (cancelled.get()) {
+                    //noinspection ResultOfMethodCallIgnored
+                    tmp.delete();
+                    err = "已取消";
+                } else if (!tmp.renameTo(target)) {
+                    throw new Exception("无法写入目标文件");
+                } else {
+                    final long fsz = target.length();
+                    runOnUiThread(() -> {
+                        tvPct.setText("100%");
+                        pb.setProgress(100);
+                        tvSize.setText("已下载：" + fmtSize(fsz));
+                        tvSpeed.setText("下载完成");
+                        tvEta.setText("剩余时间：0s");
+                        verifyAndInstall(target, expectMd5, null);
+                    });
+                    return;
                 }
-                //noinspection ResultOfMethodCallIgnored
-                if (target.exists()) target.delete();
-                if (!tmp.renameTo(target)) throw new Exception("无法写入缓存目录");
-            } catch (Exception e) {
-                err = e.getMessage();
-                //noinspection ResultOfMethodCallIgnored
-                if (tmp.exists()) tmp.delete();
+            } catch (Throwable t) {
+                err = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
             }
             final String ferr = err;
-            final File ftarget = target;
             runOnUiThread(() -> {
-                if (pd.isShowing()) pd.dismiss();
-                if (ferr != null) {
-                    Toast.makeText(this, "下载失败：" + ferr, Toast.LENGTH_LONG).show();
+                if (ferr != null && !ferr.equals("已取消")) {
+                    tvPct.setText("下载失败");
+                    tvSpeed.setText("错误：" + ferr);
                 } else {
-                    cleanUpdateCache(ftarget);   // 只保留刚下载的这版
-                    renderUpdateView();
-                    if (prefs.getBoolean(PREF_NOTIFY_DOWNLOAD_DONE, true)) {
-                        Toast.makeText(this, "更新包已下载并校验完成", Toast.LENGTH_SHORT).show();
-                    }
-                    installApk(ftarget);
+                    tvPct.setText("已取消");
                 }
             });
         }).start();
