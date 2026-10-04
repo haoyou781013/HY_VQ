@@ -1994,6 +1994,9 @@ public class MainActivity extends AppCompatActivity {
         boxLatest.addView(buildReleaseRow(latest, compareVersion(latest.ver, curVer) == 0));
         if (current != null) {
             boxCurrent.addView(buildReleaseRow(current, true));
+        } else if (compareVersion(latest.ver, curVer) == 0) {
+            // 当前版本 = 最新版：上面的循环跳过了 latest，直接复用它（含 body）
+            boxCurrent.addView(buildReleaseRow(latest, true));
         } else {
             ReleaseInfo local = new ReleaseInfo();
             local.ver = curVer;
