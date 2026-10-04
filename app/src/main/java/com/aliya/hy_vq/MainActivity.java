@@ -3282,6 +3282,112 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** 带进度的下载：进度条实时刷新，完成后校验 MD5 再拉起安装器 */
+    /** 格式化速度（bytes/s → 可读字符串） */
+    private static String fmtSpeed(long bytesPerSec) {
+        if (bytesPerSec <= 0) return "—";
+        if (bytesPerSec >= 1048576) return String.format("%.1f MB/s", bytesPerSec / 1048576.0);
+        if (bytesPerSec >= 1024) return String.format("%.0f KB/s", bytesPerSec / 1024.0);
+        return bytesPerSec + " B/s";
+    }
+
+    /** 下载源测试结果 */
+    private static class SourceTestResult {
+        final String name;      // 显示名
+        final String url;       // 实际下载 URL
+        final long ttfbMs;      // 首字节耗时（ms），-1=失败
+        final long speedBps;    // 下载速度（bytes/s），0=未测出
+        final String error;     // 失败原因
+
+        SourceTestResult(String name, String url, long ttfbMs, long speedBps, String error) {
+            this.name = name;
+            this.url = url;
+            this.ttfbMs = ttfbMs;
+            this.speedBps = speedBps;
+            this.error = error;
+        }
+
+        boolean ok() { return ttfbMs >= 0 && error == null; }
+    }
+
+    /**
+     * 并行测速所有下载源（GitHub直链 + 镜像×2 + 123云盘）。
+     * 每个源发一个 Range GET（取前 64KB），测 TTFB + 速度。
+     * 返回按速度降序（失败排最后）。
+     */
+    private java.util.List<SourceTestResult> testAllSources(String apkUrl, String cnUrl) {
+        java.util.List<String[]> targets = new java.util.ArrayList<>();
+        if (apkUrl != null && !apkUrl.isEmpty()) {
+            targets.add(new String[]{"GitHub 直链", apkUrl});
+            for (String mir : GH_MIRRORS) {
+                String m = mirrorUrl(mir, apkUrl);
+                if (m != null) {
+                    String host = mir.replace("https://", "").replace("/", "");
+                    targets.add(new String[]{"镜像 " + host, m});
+                }
+            }
+        }
+        if (cnUrl != null && !cnUrl.isEmpty()) {
+            targets.add(new String[]{"123云盘", cnUrl});
+        }
+
+        java.util.concurrent.ExecutorService pool =
+                java.util.concurrent.Executors.newFixedThreadPool(Math.min(targets.size(), 6));
+        java.util.concurrent.CompletionService<SourceTestResult> cs =
+                new java.util.concurrent.ExecutorCompletionService<>(pool);
+
+        for (String[] t : targets) {
+            cs.submit(() -> testOneSource(t[0], t[1]));
+        }
+
+        java.util.List<SourceTestResult> results = new java.util.ArrayList<>();
+        for (int i = 0; i < targets.size(); i++) {
+            try {
+                java.util.concurrent.Future<SourceTestResult> f = cs.poll(8, java.util.concurrent.TimeUnit.SECONDS);
+                if (f != null) results.add(f.get());
+            } catch (Exception ignored) { }
+        }
+        pool.shutdownNow();
+
+        // 按速度降序（失败排最后）
+        results.sort((a, b) -> {
+            if (a.ok() && !b.ok()) return -1;
+            if (!a.ok() && b.ok()) return 1;
+            return Long.compare(b.speedBps, a.speedBps);
+        });
+        return results;
+    }
+
+    /** 测单个源：Range GET 前 64KB，计时 */
+    private SourceTestResult testOneSource(String name, String url) {
+        long start = System.currentTimeMillis();
+        try {
+            java.net.HttpURLConnection conn = openRemote(url, "GET");
+            conn.setRequestProperty("Range", "bytes=0-65535");
+            int code = conn.getResponseCode();
+            if (code != 200 && code != 206) {
+                conn.disconnect();
+                return new SourceTestResult(name, url, -1, 0, "HTTP " + code);
+            }
+            long ttfb = System.currentTimeMillis() - start;
+            // 读取响应体测速
+            byte[] buf = new byte[8192];
+            long total = 0;
+            long readStart = System.currentTimeMillis();
+            java.io.InputStream in = conn.getInputStream();
+            int n;
+            while ((n = in.read(buf)) > 0 && total < 65536) {
+                total += n;
+            }
+            in.close();
+            conn.disconnect();
+            long elapsed = System.currentTimeMillis() - readStart;
+            long speed = elapsed > 0 ? (total * 1000 / elapsed) : 0;
+            return new SourceTestResult(name, url, ttfb, speed, null);
+        } catch (Exception e) {
+            return new SourceTestResult(name, url, -1, 0, e.getMessage());
+        }
+    }
+
     private void downloadWithProgress(final String apkUrl, final String cnUrl, final String expectMd5,
                                       final long expectSize, final File target,
                                       final android.app.Dialog dialog) {
@@ -3345,6 +3451,23 @@ public class MainActivity extends AppCompatActivity {
         tvEta.setText("剩余时间：—");
         box.addView(tvEta);
 
+        // ── 源测试区域（并行测速 + 选最快）──
+        final TextView tvTest = new TextView(this);
+        tvTest.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tvTest.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tvTest.setPadding(pad, dp2(8), pad, 0);
+        tvTest.setText("正在测试下载源…");
+        box.addView(tvTest);
+
+        final android.widget.ProgressBar testPb = new android.widget.ProgressBar(
+                this, null, android.R.attr.progressBarStyleHorizontal);
+        testPb.setMax(0);   // indeterminate
+        LinearLayout.LayoutParams tplp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp2(4));
+        tplp.topMargin = dp2(4);
+        box.addView(testPb, tplp);
+
         // ── 取消按钮（大文件下载时很有用）──
         final java.util.concurrent.atomic.AtomicBoolean cancelled =
                 new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -3369,71 +3492,64 @@ public class MainActivity extends AppCompatActivity {
             String err = null;
             final File tmp = new File(target.getParentFile(), target.getName() + ".part");
             try {
-                // ⭐ 主源尝试必须包在 try 里：GitHub 不可达时 openRemote 会**抛异常**
-                // （而非返回非 200），若不加保护将直接跳到外层 catch，**回退逻辑永远执行不到**。
-                // ⭐ 三级回退：GitHub 直链 → 国内加速镜像（公开）→ 123云盘（需凭据）
+                // ── 第 0 步：并行测速所有源，选最快的 ──
+                java.util.List<SourceTestResult> tests = testAllSources(apkUrl, cnUrl);
+                StringBuilder testReport = new StringBuilder();
+                SourceTestResult best = null;
+                for (SourceTestResult r : tests) {
+                    if (r.ok()) {
+                        testReport.append(r.name).append(" ")
+                                  .append(fmtSpeed(r.speedBps))
+                                  .append(" · ");
+                        if (best == null) best = r;   // 已按速度降序
+                    } else {
+                        testReport.append(r.name).append(" ✗ ").append(r.error).append(" · ");
+                    }
+                }
+                final String report = testReport.length() > 0
+                        ? testReport.substring(0, testReport.length() - 3) : "无可用源";
+                final SourceTestResult bestSrc = best;
+                final String bestName = best != null ? best.name : "";
+                final String bestUrl = best != null ? best.url : "";
+                final long bestSpeed = best != null ? best.speedBps : 0;
+                runOnUiThread(() -> {
+                    testPb.setVisibility(android.view.View.GONE);
+                    if (bestSrc != null) {
+                        tvTest.setText("测速完成 · 最快：" + bestName + "（" + fmtSpeed(bestSpeed) + "）");
+                        tvPct.setText("使用 " + bestName + " 下载中…");
+                    } else {
+                        tvTest.setText("所有源均不可用：" + report);
+                    }
+                });
+
+                if (bestSrc == null) {
+                    throw new Exception("所有下载源均不可用：" + report);
+                }
+
+                // ── 用最快的源下载 ──
                 java.net.HttpURLConnection conn = null;
                 int code = -1;
-                String mainErr = null;
-                StringBuilder tried = new StringBuilder();
 
-                // ── 第 1 级：GitHub 直链 ──
                 try {
-                    conn = openRemote(apkUrl, "GET");
+                    conn = openRemote(bestUrl, "GET");
                     code = conn.getResponseCode();
                 } catch (Exception e) {
-                    mainErr = e.getMessage();
+                    code = -1;
                 }
-                if (code == 200) {
-                    runOnUiThread(() -> tvSource.setText("下载源：GitHub 直链"));
+                if (code == 200 || code == 206) {
+                    final String sn = bestName;
+                    runOnUiThread(() -> tvSource.setText("下载源：" + sn));
                 } else {
-                    tried.append("主源 HTTP ").append(code)
-                         .append(mainErr != null ? "(" + mainErr + ")" : "");
-                    if (conn != null) {
-                        try { conn.disconnect(); } catch (Throwable ignored) { }
-                    }
-
-                    // ── 第 2 级：国内加速镜像（公开通道，不需要凭据） ──
-                    for (String mir : GH_MIRRORS) {
-                        String m = mirrorUrl(mir, apkUrl);
-                        if (m == null) break;
-                        final String host = mir.replace("https://", "").replace("/", "");
-                        runOnUiThread(() -> {
-                    tvPct.setText("直链不可用，尝试镜像…");
-                    tvSource.setText("下载源：镜像 " + host);
-                });
-                        try {
-                            conn = openRemote(m, "GET");
-                            code = conn.getResponseCode();
-                        } catch (Exception e) {
-                            code = -1;
-                            conn = null;
-                        }
-                        if (code == 200) break;
-                        tried.append(" · ").append(host).append(" HTTP ").append(code);
-                        if (conn != null) {
-                            try { conn.disconnect(); } catch (Throwable ignored) { }
-                        }
-                    }
-
-                    // ── 第 3 级：123云盘（需凭据） ──
-                    if (code != 200 && cnUrl != null && !cnUrl.isEmpty()) {
-                        runOnUiThread(() -> {
-                            tvPct.setText("镜像均不可用，切换国内备用源…");
-                            tvSource.setText("下载源：123云盘（国内备用源）");
-                        });
-                        conn = openRemote(cnUrl, "GET");
-                        code = conn.getResponseCode();
-                        if (code != 200) tried.append(" · 国内源 HTTP ").append(code);
-                    }
+                    throw new Exception("最优源 HTTP " + code + "，测试结果：" + report);
                 }
-                if (code != 200) {
-                    // 网盘 401 时给出可操作的提示（而非只甩一个 HTTP 码）
+
+                // ── 校验 HTTP 状态码 ──
+                if (code != 200 && code != 206) {
                     if (code == 401) {
                         throw new Exception("国内源认证失败（HTTP 401）。"
-                                + "请在「软件更新」页从 GitHub 手动下载，或稍后重试。\n明细：" + tried);
+                                + "请在「软件更新」页从 GitHub 手动下载，或稍后重试。\n明细：" + report);
                     }
-                    throw new Exception("下载失败 " + tried);
+                    throw new Exception("下载失败（HTTP " + code + "）测试结果：" + report);
                 }
                 long total = expectSize > 0 ? expectSize : conn.getContentLength();
                 long done = 0;
