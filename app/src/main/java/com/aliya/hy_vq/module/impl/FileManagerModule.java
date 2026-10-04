@@ -843,7 +843,7 @@ public class FileManagerModule extends HyVqModule {
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(8), dp(6), dp(6), dp(6));
             row.setClickable(true);
-            android.graphics.drawable.GradientDrawable g = ModuleUiKit.rounded(ctx, 0,
+            android.graphics.drawable.GradientDrawable g = ModuleUiKit.rounded(ctx, 14,
                     ModuleUiKit.color(ctx,
                             com.google.android.material.R.attr.colorSurfaceContainerLow),
                     ModuleUiKit.color(ctx,
@@ -1160,7 +1160,7 @@ public class FileManagerModule extends HyVqModule {
         bar.setText("⚠ 未开启「所有文件访问」：虚拟视图可浏览，读写受限，点此授权");
         bar.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         bar.setTextColor(ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOnErrorContainer));
-        bar.setBackground(ModuleUiKit.rounded(ctx, 10,
+        bar.setBackground(ModuleUiKit.rounded(ctx, 14,
                 ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorErrorContainer), 0));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1276,12 +1276,27 @@ public class FileManagerModule extends HyVqModule {
 
     /** 底部状态栏：活跃窗格的文件夹数 · 文件数 · 存储 */
     private View buildStatusBar() {
+        // 对齐项目卡片风格：圆角 14 + SurfaceContainerLow 底 + OutlineVariant 描边
+        LinearLayout bar = new LinearLayout(ctx);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER);
+        int bg = ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerLow);
+        android.graphics.drawable.GradientDrawable g = ModuleUiKit.rounded(ctx, 14, bg,
+                ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOutlineVariant));
+        bar.setBackground(g);
+        int pad = dp(6);
+        bar.setPadding(pad, dp(4), pad, dp(4));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(4);
+        bar.setLayoutParams(lp);
+
         statusText = new TextView(ctx);
         statusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         statusText.setTextColor(ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant));
         statusText.setGravity(Gravity.CENTER);
-        statusText.setPadding(0, dp(6), 0, dp(2));
-        return statusText;
+        bar.addView(statusText);
+        return bar;
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -2439,7 +2454,7 @@ public class FileManagerModule extends HyVqModule {
                         ? ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorPrimaryContainer)
                         : ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerLow);
                 android.graphics.drawable.GradientDrawable g = ModuleUiKit.rounded(ctx, 0, rowBg, 0);
-                g.setCornerRadii(new float[]{dp(12), dp(12), dp(12), dp(12), dp(12), dp(12), dp(12), dp(12)});
+                g.setCornerRadii(new float[]{dp(14), dp(14), dp(14), dp(14), dp(14), dp(14), dp(14), dp(14)});
                 g.setStroke(dp(1), ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOutlineVariant));
                 row.setBackground(g);
             }
@@ -2590,7 +2605,7 @@ public class FileManagerModule extends HyVqModule {
                             ? ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorPrimaryContainer)
                             : ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerLow);
                     android.graphics.drawable.GradientDrawable g = ModuleUiKit.rounded(ctx, 0, rowBg, 0);
-                    g.setCornerRadii(new float[]{dp(12), dp(12), dp(12), dp(12), dp(12), dp(12), dp(12), dp(12)});
+                    g.setCornerRadii(new float[]{dp(14), dp(14), dp(14), dp(14), dp(14), dp(14), dp(14), dp(14)});
                     g.setStroke(dp(1), ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOutlineVariant));
                     qrow.setBackground(g);
                 }
@@ -2852,7 +2867,7 @@ public class FileManagerModule extends HyVqModule {
                     ? ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorPrimaryContainer)
                     : ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerLow);
             android.graphics.drawable.GradientDrawable g = ModuleUiKit.rounded(ctx, 0, rowBg, 0);
-            g.setCornerRadii(new float[]{dp(12), dp(12), dp(12), dp(12), dp(12), dp(12), dp(12), dp(12)});
+            g.setCornerRadii(new float[]{dp(14), dp(14), dp(14), dp(14), dp(14), dp(14), dp(14), dp(14)});
             g.setStroke(dp(1), ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOutlineVariant));
             row.setBackground(g);
         }
@@ -5193,7 +5208,7 @@ public class FileManagerModule extends HyVqModule {
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
         row.setPadding(dp(10), dp(10), dp(10), dp(10));
         if (enabled) {
-            row.setBackground(ModuleUiKit.rounded(ctx, 12,
+            row.setBackground(ModuleUiKit.rounded(ctx, 14,
                     ModuleUiKit.color(ctx,
                             com.google.android.material.R.attr.colorSurfaceContainerLow),
                     ModuleUiKit.color(ctx,
@@ -5264,7 +5279,7 @@ public class FileManagerModule extends HyVqModule {
                 row.setOrientation(LinearLayout.HORIZONTAL);
                 row.setGravity(android.view.Gravity.CENTER_VERTICAL);
                 row.setPadding(dp(10), dp(10), dp(10), dp(10));
-                row.setBackground(ModuleUiKit.rounded(ctx, 12,
+                row.setBackground(ModuleUiKit.rounded(ctx, 14,
                         ModuleUiKit.color(ctx,
                                 com.google.android.material.R.attr.colorSurfaceContainerLow),
                         ModuleUiKit.color(ctx,
@@ -6836,7 +6851,7 @@ public class FileManagerModule extends HyVqModule {
         LinearLayout cred = new LinearLayout(ctx);
         cred.setOrientation(LinearLayout.VERTICAL);
         cred.setPadding(dp(12), dp(10), dp(12), dp(10));
-        cred.setBackground(ModuleUiKit.rounded(ctx, 12, container, 0));
+        cred.setBackground(ModuleUiKit.rounded(ctx, 14, container, 0));
         TextView tvCred = new TextView(ctx);
         tvCred.setText("用户名：" + FTP_USER + "\n密　码：" + ftpPass);
         tvCred.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
@@ -7276,7 +7291,7 @@ public class FileManagerModule extends HyVqModule {
         LinearLayout cred = new LinearLayout(ctx);
         cred.setOrientation(LinearLayout.VERTICAL);
         cred.setPadding(dp(12), dp(10), dp(12), dp(10));
-        cred.setBackground(ModuleUiKit.rounded(ctx, 12, container, 0));
+        cred.setBackground(ModuleUiKit.rounded(ctx, 14, container, 0));
         TextView tvCred = new TextView(ctx);
         tvCred.setText("用户名：" + FTP_USER + "\n密　码：" + httpPass);
         tvCred.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);

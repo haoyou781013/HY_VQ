@@ -286,10 +286,13 @@ public class FileListAdapter extends RecyclerView.Adapter<FileListAdapter.VH> {
 
     private GradientDrawable makeBg(int fill, boolean checked) {
         GradientDrawable gd = new GradientDrawable();
-        gd.setCornerRadius(dp(12));
+        gd.setCornerRadius(dp(14));
         gd.setColor(fill);
+        // 统一描边：选中=主色，未选中=OutlineVariant（对齐项目卡片风格）
         if (checked) {
             gd.setStroke(dp(1), ModuleUiKit.color(context, com.google.android.material.R.attr.colorPrimary));
+        } else {
+            gd.setStroke(dp(1), ModuleUiKit.color(context, com.google.android.material.R.attr.colorOutlineVariant));
         }
         return gd;
     }
