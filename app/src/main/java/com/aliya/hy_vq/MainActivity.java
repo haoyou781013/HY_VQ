@@ -1201,7 +1201,31 @@ public class MainActivity extends AppCompatActivity {
         params.width = getResources().getDisplayMetrics().widthPixels / 2;
         binding.navView.setLayoutParams(params);
 
+        // 抽屉打开时在内容区加触摸拦截，防止文件管理的滑动/拖拽监听
+        // 与 DrawerLayout 遮罩竞争导致概率性点击穿透
         binding.drawerLayout.addDrawerListener(new DrawerLayout.SimpleDrawerListener() {
+            @Override
+            public void onDrawerOpened(View drawerView) {
+                if (contentFrame != null) {
+                    contentFrame.setClickable(true);
+                    contentFrame.setFocusable(true);
+                    contentFrame.setOnTouchListener((v, ev) -> true); // 消费一切
+                }
+            }
+
+            @Override
+            public void onDrawerClosed(View drawerView) {
+                if (contentFrame != null) {
+                    contentFrame.setClickable(false);
+                    contentFrame.setFocusable(false);
+                    contentFrame.setOnTouchListener(null);
+                }
+                ViewGroup blurTarget = contentFrame != null ? (ViewGroup) contentFrame.getParent() : null;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && blurTarget != null) {
+                    blurTarget.setRenderEffect(null);
+                }
+            }
+
             @Override
             public void onDrawerSlide(View drawerView, float offset) {
                 // 侧边栏滑出时对主内容区动态模糊（Android 12+）
@@ -1214,13 +1238,6 @@ public class MainActivity extends AppCompatActivity {
                     } else {
                         blurTarget.setRenderEffect(null);
                     }
-                }
-            }
-            @Override
-            public void onDrawerClosed(View drawerView) {
-                ViewGroup blurTarget = contentFrame != null ? (ViewGroup) contentFrame.getParent() : null;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && blurTarget != null) {
-                    blurTarget.setRenderEffect(null);
                 }
             }
         });
