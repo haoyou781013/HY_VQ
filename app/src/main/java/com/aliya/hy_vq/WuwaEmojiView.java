@@ -221,10 +221,14 @@ public class WuwaEmojiView {
         curSlug = c != null ? c.optString("slug", "") : "";
 
         Drawable d = null;
-        try {
-            ImageDecoder.Source src = ImageDecoder.createSource(bytes);
-            d = ImageDecoder.decodeDrawable(src);
-        } catch (Throwable t) {
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            try {
+                ImageDecoder.Source src = ImageDecoder.createSource(bytes);
+                d = ImageDecoder.decodeDrawable(src);
+            } catch (Throwable ignored) {
+            }
+        }
+        if (d == null) {
             try {
                 d = Drawable.createFromStream(new java.io.ByteArrayInputStream(bytes), "emoji");
             } catch (Throwable ignored) {

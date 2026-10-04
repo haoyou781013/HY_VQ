@@ -618,9 +618,11 @@ public class MainActivity extends AppCompatActivity {
     /** 选择导出目录：优先公共 Download（需「所有文件访问」），否则回退应用专属外部目录 */
     private File exportTargetDir() {
         boolean pub = false;
-        try {
-            pub = android.os.Environment.isExternalStorageManager();
-        } catch (Throwable ignored) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            try {
+                pub = android.os.Environment.isExternalStorageManager();
+            } catch (Throwable ignored) {
+            }
         }
         File base = pub
                 ? android.os.Environment.getExternalStoragePublicDirectory(
@@ -645,10 +647,14 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         final boolean pub;
-        try {
-            pub = android.os.Environment.isExternalStorageManager();
-        } catch (Throwable t) {
-            return;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            try {
+                pub = android.os.Environment.isExternalStorageManager();
+            } catch (Throwable t) {
+                return;
+            }
+        } else {
+            pub = false;
         }
         final File dst = new File(base, "HY_VQ-v" + baseVersionName() + ".apk");
         final boolean exists = dst.exists() && dst.length() > 0;

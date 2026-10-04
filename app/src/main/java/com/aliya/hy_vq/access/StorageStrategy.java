@@ -31,7 +31,8 @@ public final class StorageStrategy {
             StorageManager sm = ctx.getSystemService(StorageManager.class);
             if (sm != null) {
                 for (StorageVolume vol : sm.getStorageVolumes()) {
-                    File dir = vol.getDirectory();
+                    File dir = android.os.Build.VERSION.SDK_INT >= 30
+                            ? vol.getDirectory() : null;
                     String label = vol.getDescription(ctx);
                     if (dir == null) continue;
                     String p = dir.getAbsolutePath();
