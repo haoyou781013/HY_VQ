@@ -515,6 +515,18 @@ public class MainActivity extends AppCompatActivity {
             if (sIcon != null) sIcon.setColorFilter(sTint);
             if (sText != null) sText.setTextColor(sTint);
         }
+        // 设置入口选中态
+        View navSettings = binding.navView.findViewById(R.id.nav_settings);
+        if (navSettings != null) {
+            boolean stSel = currentPageIndex == PAGE_SETTINGS;
+            navSettings.setBackgroundResource(stSel
+                    ? R.drawable.bg_nav_item_selected : R.drawable.bg_nav_item_default);
+            ImageView stIcon = navSettings.findViewById(R.id.nav_settings_icon);
+            int stTint = resolveAttr(stSel
+                    ? com.google.android.material.R.attr.colorOnPrimaryContainer
+                    : com.google.android.material.R.attr.colorOnSurfaceVariant);
+            if (stIcon != null) stIcon.setColorFilter(stTint);
+        }
         if (drawerModuleSlot != null) {
             for (int i = 0; i < drawerModuleSlot.getChildCount(); i++) {
                 View item = drawerModuleSlot.getChildAt(i);
@@ -1302,7 +1314,13 @@ public class MainActivity extends AppCompatActivity {
             switchToGenshinHelp();
             return true;
         }
-        if (currentPageIndex == PAGE_SETTINGS) {
+        // 顶层页面（侧边栏直达）统一返回首页
+        if (currentPageIndex == PAGE_FILEMGR
+                || currentPageIndex == PAGE_EMOJI
+                || currentPageIndex == PAGE_SHARE
+                || currentPageIndex == PAGE_ANIME
+                || currentPageIndex == PAGE_GENSHIN_HELP
+                || currentPageIndex == PAGE_SETTINGS) {
             switchToHome();
             return true;
         }
