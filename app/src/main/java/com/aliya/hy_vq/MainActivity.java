@@ -2069,31 +2069,45 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
+    /** 判断是否深色模式 */
+    private static boolean isNightMode(android.content.Context c) {
+        int ui = c.getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        return ui == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
+
     /** 版本详情弹窗：完整更新日志 + 下载/安装/重装 */
     private void showReleaseDetail(final ReleaseInfo ri, boolean isCurrent, boolean hasCache) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.addView(ModuleUiKit.sectionHeader(this, "v" + ri.ver));
 
-        TextView tv = new TextView(this);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        tv.setLineSpacing(0, 1.45f);
-        tv.setTextColor(ModuleUiKit.color(this, com.google.android.material.R.attr.colorOnSurface));
-        int pad = dp2(4);
-        tv.setPadding(pad, pad, pad, pad);
-
-        StringBuilder sb = new StringBuilder();
-        if (!ri.date().isEmpty()) sb.append("发布于 ").append(ri.date());
+        // 更新日志用 Markdown 渲染（共享 MarkdownUtils，与文件管理预览一致）
+        String meta = "";
+        if (!ri.date().isEmpty()) meta += "发布于 " + ri.date();
         if (ri.apkSize > 0) {
-            if (sb.length() > 0) sb.append("    ");
-            sb.append(fmtSize(ri.apkSize));
+            if (!meta.isEmpty()) meta += " · ";
+            meta += fmtSize(ri.apkSize);
         }
-        if (isCurrent) sb.append("    当前已安装");
-        sb.append(System.lineSeparator()).append(System.lineSeparator());
+        if (isCurrent) {
+            if (!meta.isEmpty()) meta += " · ";
+            meta += "当前已安装";
+        }
         String body = ri.body == null ? "" : ri.body.trim();
-        sb.append(body.isEmpty() ? "· 该版本无更新说明" : body);
-        tv.setText(sb.toString());
-        box.addView(tv);
+        String mdSrc = (meta.isEmpty() ? "" : meta + "\n\n")
+                + (body.isEmpty() ? "· 该版本无更新说明" : body);
+
+        boolean isLight = !isNightMode(this);
+        String html = com.aliya.hy_vq.util.MarkdownUtils.toDocument(mdSrc, null, isLight);
+        android.webkit.WebView wv = new android.webkit.WebView(this);
+        wv.getSettings().setTextZoom(100);
+        wv.getSettings().setBuiltInZoomControls(false);
+        wv.setBackgroundColor(ModuleUiKit.color(this,
+                isLight ? com.google.android.material.R.attr.colorSurface
+                        : com.google.android.material.R.attr.colorOnSurface));
+        wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+        box.addView(wv, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp2(380)));
 
         LinearLayout btns = new LinearLayout(this);
         btns.setOrientation(LinearLayout.HORIZONTAL);

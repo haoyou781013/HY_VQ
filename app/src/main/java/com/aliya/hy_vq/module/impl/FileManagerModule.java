@@ -4627,11 +4627,13 @@ public class FileManagerModule extends HyVqModule {
         if (isHtml) {
             html = content;
         } else if (isMd && !ext.endsWith(".txt")) {
+            // 用共享 MarkdownUtils（与更新详情页一致）；CSS 沿用编辑器调色板
+            String body = com.aliya.hy_vq.util.MarkdownUtils.toHtml(content);
             html = "<html><head><meta charset=\"utf-8\">" + css + "</head><body>"
-                    + mdToHtml(content) + "</body></html>";
+                    + body + "</body></html>";
         } else {
             html = "<html><head><meta charset=\"utf-8\">" + css + "</head><body><pre>"
-                    + mdEscape(content) + "</pre></body></html>";
+                    + com.aliya.hy_vq.util.MarkdownUtils.escape(content) + "</pre></body></html>";
         }
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -4669,108 +4671,6 @@ public class FileManagerModule extends HyVqModule {
             win.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(pal[0]));
         }
         webDialog.show();
-    }
-
-    /** 极简 Markdown → HTML（无第三方库）：标题/粗体/斜体/删除线/代码块/行内代码/
-     *  列表/引用/链接/图片/表格/分隔线/换行 */
-    private String mdToHtml(String md) {
-        StringBuilder out = new StringBuilder();
-        boolean inCode = false;
-        boolean inTable = false;
-        String[] lines = md.replace("\r\n", "\n").split("\n", -1);
-        for (String raw : lines) {
-            String line = raw;
-            if (line.startsWith("```")) {
-                if (!inCode) {
-                    inCode = true;
-                    out.append("<pre><code>");
-                } else {
-                    inCode = false;
-                    out.append("</code></pre>\n");
-                }
-                continue;
-            }
-            if (inCode) {
-                out.append(mdEscape(line)).append('\n');
-                continue;
-            }
-            String t = line.trim();
-            if (t.isEmpty()) {
-                out.append("<br>\n");
-                continue;
-            }
-            // 表格：|a|b| 表头 → |---|---| 分隔（跳过）→ 数据行
-            if (t.startsWith("|") && t.endsWith("|")) {
-                String[] cells = t.substring(1, t.length() - 1).split("\\|");
-                boolean isSep = cells.length > 0;
-                for (String c : cells) if (!c.trim().matches(":?-{3,}:?")) { isSep = false; break; }
-                if (isSep) continue;
-                if (!inTable) {
-                    inTable = true;
-                    out.append("<table>\n");
-                }
-                out.append("<tr>");
-                for (String c : cells) out.append("<td>").append(inlineMd(c.trim())).append("</td>");
-                out.append("</tr>\n");
-                continue;
-            }
-            if (inTable) {
-                inTable = false;
-                out.append("</table>\n");
-            }
-            // 标题
-            int h = 0;
-            while (h < t.length() && h < 6 && t.charAt(h) == '#') h++;
-            if (h > 0 && h < t.length() && t.charAt(h) == ' ') {
-                out.append("<h").append(h).append(">").append(inlineMd(t.substring(h + 1)))
-                        .append("</h").append(h).append(">\n");
-                continue;
-            }
-            // 分隔线
-            if (t.matches("(-{3,}|\\*{3,}|_{3,})")) {
-                out.append("<hr>\n");
-                continue;
-            }
-            // 引用
-            if (t.startsWith(">")) {
-                out.append("<blockquote>").append(inlineMd(t.substring(1).trim()))
-                        .append("</blockquote>\n");
-                continue;
-            }
-            // 无序列表
-            if (t.startsWith("- ") || t.startsWith("* ") || t.startsWith("+ ")) {
-                out.append("<li>").append(inlineMd(t.substring(2))).append("</li>\n");
-                continue;
-            }
-            // 有序列表
-            if (t.matches("\\d+\\.\\s.*")) {
-                out.append("<li>").append(inlineMd(t.substring(t.indexOf('.') + 1).trim()))
-                        .append("</li>\n");
-                continue;
-            }
-            out.append("<p>").append(inlineMd(t)).append("</p>\n");
-        }
-        if (inCode) out.append("</code></pre>\n");
-        if (inTable) out.append("</table>\n");
-        return out.toString();
-    }
-
-    /** 行内 Markdown：粗体/斜体/删除线/行内代码/图片/链接 */
-    private String inlineMd(String s) {
-        s = mdEscape(s);
-        s = s.replaceAll("\\*\\*(.+?)\\*\\*", "<b>$1</b>");
-        s = s.replaceAll("\\*(.+?)\\*", "<i>$1</i>");
-        s = s.replaceAll("~~(.+?)~~", "<del>$1</del>");
-        s = s.replaceAll("`(.+?)`", "<code>$1</code>");
-        s = s.replaceAll("!\\[([^\\]]*)\\]\\(([^)\\s]+)\\)", "<img src=\"$2\" alt=\"$1\" style=\"max-width:100%\">");
-        s = s.replaceAll("\\[([^\\]]+)\\]\\(([^)\\s]+)\\)", "<a href=\"$2\">$1</a>");
-        return s;
-    }
-
-    /** HTML 转义 */
-    private String mdEscape(String s) {
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                .replace("\"", "\u0026quot;");
     }
 
     // ════════════════════════════════════════════════════════════
