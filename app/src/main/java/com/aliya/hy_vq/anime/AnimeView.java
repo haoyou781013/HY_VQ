@@ -146,7 +146,7 @@ public class AnimeView extends LinearLayout {
 
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(VERTICAL);
-        box.addView(ModuleUiKit.sectionHeader(ctx, "使用前须知"));
+        box.addView(sectionLabel("使用前须知"));
 
         TextView body = new TextView(ctx);
         body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
@@ -394,10 +394,10 @@ public class AnimeView extends LinearLayout {
         GradientDrawable bg = Aurora.grad(ctx,
                 new int[]{0xFFF4EEFF, 0xFFFFEEF4, 0xFFFFF4E9},
                 GradientDrawable.Orientation.TL_BR);
-        bg.setCornerRadius(dp(26));
+        bg.setCornerRadius(dp(24));
         bottomNav.setBackground(bg);
         // 强制按圆角裁剪 —— 单靠 drawable 圆角在某些边界布局下会被裁成方形
-        final int navRadius = dp(26);
+        final int navRadius = dp(24);
         bottomNav.setOutlineProvider(new android.view.ViewOutlineProvider() {
             @Override public void getOutline(View v, android.graphics.Outline o) {
                 o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), navRadius);
@@ -409,10 +409,13 @@ public class AnimeView extends LinearLayout {
         bottomNav.setPadding(pad, dp(7), pad, dp(7));   // 上下加高，解决"太低"
         bottomNav.setMinimumHeight(dp(64));
 
+        // 悬浮胶囊：左右下三边留白 —— 贴边时圆角被屏幕边缘吃掉，观感就是"方形不透明块"
         LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(8);
-        lp.bottomMargin = dp(6);
+        lp.bottomMargin = dp(14);
+        lp.leftMargin = dp(14);
+        lp.rightMargin = dp(14);
         bottomNav.setLayoutParams(lp);
 
         addAnimeTab("search", "探索", R.drawable.ic_search, v -> switchTab("search"));
@@ -520,7 +523,7 @@ public class AnimeView extends LinearLayout {
         continueBox.setOrientation(VERTICAL);
         panel.addView(continueBox);
 
-        TextView head = ModuleUiKit.sectionHeader(ctx, "观看历史");
+        TextView head = sectionLabel("观看历史");
         panel.addView(head);
 
         ScrollView sv = new ScrollView(ctx);
@@ -610,7 +613,7 @@ public class AnimeView extends LinearLayout {
         LinearLayout panel = new LinearLayout(ctx);
         panel.setOrientation(VERTICAL);
         panel.setPadding(dp(14), dp(6), dp(14), dp(6));
-        panel.addView(ModuleUiKit.sectionHeader(ctx, "离线缓存"));
+        panel.addView(sectionLabel("离线缓存"));
 
         TextView tip = new TextView(ctx);
         tip.setText("在番剧详情页点「缓存本集」即可离线观看；已缓存的视频在下方列表。");
@@ -675,6 +678,34 @@ public class AnimeView extends LinearLayout {
      * <p>原设计只靠颜色区分层级，弱光环境下几乎看不出分组；
      * 加一条 4dp 渐变竖条后，分组边界在任何光线下都成立。</p>
      */
+    /**
+     * 统一主操作按钮（Aurora）：<b>主渐变填充</b>。
+     *
+     * <p>源面板此前用 {@code btn(…, colorOnPrimary, colorPrimary)} 直接吃全局主题的
+     * 蓝色 colorPrimary，与本模块的渐变语言完全割裂 —— 所有主按钮一律改走这里。</p>
+     */
+    private TextView gradBtn(String text) {
+        TextView b = btn(text, 0xFFFFFFFF, 0);
+        b.setBackground(Aurora.grad(ctx, Aurora.G_MAIN, dp(Aurora.R_PILL)));
+        b.setPadding(dp(18), dp(11), dp(18), dp(11));
+        b.setTypeface(null, android.graphics.Typeface.BOLD);
+        b.setGravity(Gravity.CENTER);
+        return b;
+    }
+
+    /** 次要按钮：渐变描边（与主按钮成对，不再用主题色） */
+    private TextView ghostBtn(String text) {
+        TextView b = btn(text, Aurora.G_MAIN[0], 0);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(0x00000000);
+        g.setCornerRadius(dp(Aurora.R_PILL));
+        g.setStroke(dp(1), Aurora.G_MAIN[0]);
+        b.setBackground(g);
+        b.setPadding(dp(18), dp(11), dp(18), dp(11));
+        b.setGravity(Gravity.CENTER);
+        return b;
+    }
+
     private TextView sectionLabel(String text) {
         TextView t = new TextView(ctx);
         t.setText("  " + text);
@@ -733,7 +764,7 @@ public class AnimeView extends LinearLayout {
             TextView play = new TextView(ctx);
             play.setText("  播放");
             play.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            play.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+            play.setTextColor(Aurora.G_MAIN[0]);
             head.addView(play);
             row.setOnClickListener(v -> playCached(t));
         } else if (t.state == OfflineCache.Task.State.FAILED) {
@@ -746,7 +777,7 @@ public class AnimeView extends LinearLayout {
             TextView pct = new TextView(ctx);
             pct.setText("  " + t.progress() + "%");
             pct.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            pct.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+            pct.setTextColor(Aurora.G_MAIN[0]);
             head.addView(pct);
             TextView cancel = new TextView(ctx);
             cancel.setText("  取消");
@@ -906,7 +937,7 @@ public class AnimeView extends LinearLayout {
         LinearLayout panel = new LinearLayout(ctx);
         panel.setOrientation(VERTICAL);
         panel.setPadding(dp(14), dp(6), dp(14), dp(6));
-        panel.addView(ModuleUiKit.sectionHeader(ctx, "动漫模块说明"));
+        panel.addView(sectionLabel("动漫模块说明"));
 
         TextView tv = new TextView(ctx);
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
@@ -1258,7 +1289,7 @@ public class AnimeView extends LinearLayout {
             TextView sc = new TextView(ctx);
             sc.setText("★ " + e.scoreText());
             sc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            sc.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+            sc.setTextColor(Aurora.G_MAIN[0]);
             meta.addView(sc);
         }
         if (e.episodes > 0) {
@@ -1627,7 +1658,7 @@ public class AnimeView extends LinearLayout {
         }
 
         // 分隔标题
-        TextView sep = ModuleUiKit.sectionHeader(ctx, "可用播放源");
+        TextView sep = sectionLabel("可用播放源");
         LayoutParams slp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         slp.topMargin = dp(4);
@@ -2125,7 +2156,7 @@ public class AnimeView extends LinearLayout {
     private void showChannelPicker(final AnimeSource src, final Subject sub, List<Channel> chs) {
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(VERTICAL);
-        box.addView(ModuleUiKit.sectionHeader(ctx, "选择线路 · " + sub.name));
+        box.addView(sectionLabel("选择线路 · " + sub.name));
 
         TextView hint = new TextView(ctx);
         hint.setText("自动选源未取到直链，可手动指定线路（tier 越小越优）");
@@ -2145,7 +2176,7 @@ public class AnimeView extends LinearLayout {
             int t = src.tierFor(ch.name);
             TextView pill = btn("【" + ch.name + "】  tier=" + (t >= 0 ? t : "?")
                             + "   " + ch.episodes.size() + " 集",
-                    color(com.google.android.material.R.attr.colorPrimary),
+                    Aurora.G_MAIN[0],
                     color(com.google.android.material.R.attr.colorSurfaceContainerHigh));
             LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -2191,7 +2222,7 @@ public class AnimeView extends LinearLayout {
 
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(VERTICAL);
-        box.addView(ModuleUiKit.sectionHeader(ctx, "实测档位（tier）"));
+        box.addView(sectionLabel("实测档位（tier）"));
         TextView tip = new TextView(ctx);
         tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         tip.setLineSpacing(0, 1.4f);
@@ -2205,7 +2236,7 @@ public class AnimeView extends LinearLayout {
 
         final TextView progress = new TextView(ctx);
         progress.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        progress.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+        progress.setTextColor(Aurora.G_MAIN[0]);
         progress.setPadding(dp(4), dp(4), dp(4), dp(4));
         progress.setText("准备中…");
         box.addView(progress);
@@ -2256,7 +2287,7 @@ public class AnimeView extends LinearLayout {
                                  int keys, int usable, int dead) {
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(VERTICAL);
-        box.addView(ModuleUiKit.sectionHeader(ctx, "测评结果"));
+        box.addView(sectionLabel("测评结果"));
 
         TextView sum = new TextView(ctx);
         sum.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
@@ -2355,9 +2386,7 @@ public class AnimeView extends LinearLayout {
         etUrl.setPadding(dp(10), dp(8), dp(10), dp(8));
         box.addView(etUrl);
 
-        final TextView btnImport = btn("从该地址导入 / 更新源",
-                color(com.google.android.material.R.attr.colorOnPrimary),
-                color(com.google.android.material.R.attr.colorPrimary));
+        final TextView btnImport = gradBtn("从该地址导入 / 更新源");
         LayoutParams ilp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         ilp.topMargin = dp(8);
@@ -2421,9 +2450,7 @@ public class AnimeView extends LinearLayout {
         etKazumi.setPadding(dp(10), dp(8), dp(10), dp(8));
         box.addView(etKazumi);
 
-        final TextView btnKazumi = btn("从 KazumiRules 导入（约 16 条规则）",
-                color(com.google.android.material.R.attr.colorOnPrimary),
-                color(com.google.android.material.R.attr.colorPrimary));
+        final TextView btnKazumi = gradBtn("从 KazumiRules 导入（约 16 条规则）");
         LayoutParams klp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         klp.topMargin = dp(8);
@@ -2482,7 +2509,7 @@ public class AnimeView extends LinearLayout {
                     ? color(com.google.android.material.R.attr.colorOnPrimary)
                     : color(com.google.android.material.R.attr.colorOnSurfaceVariant));
             swBtn.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 10,
-                    on ? color(com.google.android.material.R.attr.colorPrimary)
+                    on ? Aurora.G_MAIN[0]
                        : color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
         };
         paintSwitch.run();
@@ -2514,8 +2541,7 @@ public class AnimeView extends LinearLayout {
         etNew.setPadding(dp(10), dp(8), dp(10), dp(8));
         addRow.addView(etNew, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView btnAdd = btn("添加", color(com.google.android.material.R.attr.colorOnPrimary),
-                color(com.google.android.material.R.attr.colorPrimary));
+        TextView btnAdd = gradBtn("添加");
         LayoutParams ablp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         ablp.leftMargin = dp(8);
@@ -2531,7 +2557,7 @@ public class AnimeView extends LinearLayout {
             }
         });
 
-        TextView btnClose = btn("关闭", color(com.google.android.material.R.attr.colorPrimary),
+        TextView btnClose = btn("关闭", Aurora.G_MAIN[0],
                 color(com.google.android.material.R.attr.colorSurfaceContainerHigh));
         LayoutParams clp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -2550,12 +2576,12 @@ public class AnimeView extends LinearLayout {
     private void showSourceManager() {
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(VERTICAL);
-        box.addView(ModuleUiKit.sectionHeader(ctx, "源管理"));
+        box.addView(sectionLabel("源管理"));
 
         // ── 一键测评（tier 补全：订阅里的静态 tier 已与现实反向）──
         TextView btnEval = btn(repo.hasTierOverride() ? "重新测评（已有实测档位）" : "一键测评 · 生成实测档位",
                 color(com.google.android.material.R.attr.colorOnPrimary),
-                color(com.google.android.material.R.attr.colorPrimary));
+                Aurora.G_MAIN[0]);
         LayoutParams elp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         elp.bottomMargin = dp(10);

@@ -93,16 +93,25 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 10.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .padding(14.dp),
+            .clip(RoundedCornerShape(18.dp))
+            // 与底栏/整体统一的浅色渐变（原为灰色，风格割裂）
+            .background(
+                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                    listOf(
+                        Color(0xFFF7F3FF),
+                        Color(0xFFFFF2F7),
+                        Color(0xFFFFF7EF),
+                    )
+                )
+            )
+            .padding(16.dp),
     ) {
         Text(
             text = title,
-            fontSize = 14.sp,
+            fontSize = 15.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 8.dp),
+            color = Color(0xFF7C4DFF),   // Aurora 主渐变起始紫（原用 Material primary 蓝，割裂）
+            modifier = Modifier.padding(bottom = 10.dp),
         )
         content()
     }
@@ -121,8 +130,8 @@ private fun StatRow(label: String, value: String) {
         Text(
             text = value,
             fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF7C4DFF),
         )
     }
 }
@@ -144,8 +153,8 @@ private fun FeedbackRow(label: String, value: String, onClick: (String) -> Unit)
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 2.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFFFFFFFF))
             .clickable { onClick(value) }
             .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -155,7 +164,8 @@ private fun FeedbackRow(label: String, value: String, onClick: (String) -> Unit)
         Text(
             text = "$value  复制",
             fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF7C4DFF),
         )
     }
 }
