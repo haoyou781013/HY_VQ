@@ -2,7 +2,10 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    
+    // Kotlin 是 Compose 的前置条件；Kotlin 2.0 起 Compose 编译器随插件分发，
+    // 无需再手动配对 kotlinCompilerExtensionVersion
+    id("org.jetbrains.kotlin.android") version "2.0.0"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.0.0"
 }
 
 // ── 发布签名配置 ──
@@ -15,7 +18,11 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "com.aliya.hy_vq"
-    compileSdk = 33
+    compileSdk = 34
+
+    buildFeatures {
+        compose = true
+    }
 
     signingConfigs {
         if (keystorePropsFile.exists()) {
@@ -31,7 +38,7 @@ android {
     defaultConfig {
         applicationId = "com.aliya.hy_vq"
         // 版本适配策略：支持 Android 9 (API 28) 及以上；
-        // compileSdk/targetSdk 保持 33，暂不适配 Android 17 (API 37)
+        // targetSdk 保持 33（compileSdk 已升 34 以支持 Compose），暂不适配 Android 17 (API 37)
         minSdk = 28
         targetSdk = 33
         versionCode = 92
@@ -105,4 +112,16 @@ dependencies {
     implementation("com.github.bumptech.glide:glide:4.16.0")
     annotationProcessor("com.github.bumptech.glide:compiler:4.16.0")
 
+
+    // ── Compose（仅新页面用；旧页面仍为 XML View，渐进迁移）──
+    // 版本取 compileSdk 34 可用集；经 aliyun/google 仓可达，已实测 7/7 200
+    implementation("androidx.compose.ui:ui:1.6.6")
+    implementation("androidx.compose.foundation:foundation:1.6.6")
+    implementation("androidx.compose.animation:animation:1.6.6")
+    implementation("androidx.compose.material3:material3:1.2.1")
+    implementation("androidx.activity:activity-compose:1.9.0")
+}
+// Kotlin 与 Java 的 JVM 目标必须一致（AGP 会严格校验）：统一到 11
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
 }

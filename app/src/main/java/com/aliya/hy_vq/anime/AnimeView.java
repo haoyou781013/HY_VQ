@@ -737,7 +737,30 @@ public class AnimeView extends LinearLayout {
     }
 
     /** 说明面板：模块能力与合规说明（阶段 4 的模块告知在此可随时查看） */
+    /**
+     * 说明 Tab —— <b>首个 Compose 页面</b>（[AnimeInfoScreen]）。
+     * <p>用 ComposeView 内嵌进 XML View 体系，验证「新页面用 Compose」链路；
+     * 旧页面仍是 XML View，按约定渐进迁移。</p>
+     */
     private LinearLayout buildInfoPanel() {
+        LinearLayout panel = new LinearLayout(ctx);
+        panel.setOrientation(VERTICAL);
+
+        // 用 ComposeView 承载 Compose 内容（AnimeInfoHost 是 Kotlin object 门面：
+        // @Composable 函数无法从 Java 直调，故在此处封装）
+        final int sourceCount = repo.size();
+        final boolean danmakuOn = ctx.getSharedPreferences("anime_prefs",
+                android.content.Context.MODE_PRIVATE)
+                .getBoolean("danmaku_default_on", true);
+        final int cacheCount = offlineCache != null ? offlineCache.finished().size() : 0;
+        android.view.View composeView = AnimeInfoHost.create(
+                ctx, /* moduleCount */ 1, sourceCount, danmakuOn, cacheCount);
+        panel.addView(composeView, new LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        return panel;
+    }
+
+    private LinearLayout buildInfoPanelXml() {
         LinearLayout panel = new LinearLayout(ctx);
         panel.setOrientation(VERTICAL);
         panel.setPadding(dp(14), dp(6), dp(14), dp(6));
@@ -774,8 +797,7 @@ public class AnimeView extends LinearLayout {
         return panel;
     }
 
-    /** 项目统一的按钮写法（对齐 GachaView.btn）：圆角 TextView，而非原生 Button */
-    private TextView btn(String text, int fg, int bg) {
+    /** 项目统一的按钮写法（对齐 GachaView.btn）：圆角 TextView，而非原生 Button */    private TextView btn(String text, int fg, int bg) {
         TextView t = new TextView(ctx);
         t.setText(text);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
