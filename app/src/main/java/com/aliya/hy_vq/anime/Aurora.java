@@ -47,14 +47,32 @@ public final class Aurora {
     public static final int[] G_MAIN = {0xFF7C4DFF, 0xFFFF4D8D, 0xFFFF9E4D};
     /** 头部深色渐变：同一色系的深紫起手版，只用于 Hero/返回条等深底区 */
     public static final int[] G_HERO = {0xFF4A2A7A, 0xFF7C4DFF, 0xFFFF4D8D};
+    /**
+     * <b>卡片浅渐变：浅蓝 → 浅紫</b>（全模块卡片的统一底色）。
+     *
+     * <p>用户指定的主调。所有内容卡片——历史、缓存、源管理、说明页——
+     * 一律用本组，不再出现"某些页灰、某些页白"的割裂。</p>
+     */
+    public static final int[] G_CARD = {0xFFE7F1FF, 0xFFF1E9FF};
+    /** 卡片浅渐变的三段版（跨度更大，用于整页宽度的卡片） */
+    public static final int[] G_CARD3 = {0xFFE6F2FF, 0xFFECEBFF, 0xFFF2E9FF};
+    /**
+     * 主调强调色（中等明度，供<b>细条 / 按钮</b>用）：蓝 → 紫。
+     *
+     * <p>卡片已是极浅的 浅蓝→浅紫，若分组条仍用高饱和紫粉橙会跳；
+     * 本组是同一色相往深处走，既有对比又与卡片同族。</p>
+     */
+    public static final int[] G_ACCENT = {0xFF5B8FF9, 0xFF7C6FE8};
+    /** 同族深色版（Hero/返回条等需要压住白字的深底区）：深蓝 → 深紫 */
+    public static final int[] G_DEEP = {0xFF2A3F7A, 0xFF453A8C, 0xFF6C63E8};
 
-    // ── 以下为历史别名，全部指向 G_MAIN（配色统一），不再引入新色相 ──
-    /** @deprecated 已统一到 {@link #G_MAIN} */
-    @Deprecated public static final int[] G_MINT = G_MAIN;
-    /** @deprecated 已统一到 {@link #G_MAIN} */
-    @Deprecated public static final int[] G_SUN = G_MAIN;
-    /** @deprecated 已统一到 {@link #G_MAIN} */
-    @Deprecated public static final int[] G_ICE = G_MAIN;
+    // ── 以下为历史别名，全部指向 G_ACCENT（蓝紫主调），不再引入新色相 ──
+    /** @deprecated 已统一到 {@link #G_ACCENT}（浅蓝→浅紫主调） */
+    @Deprecated public static final int[] G_MINT = G_ACCENT;
+    /** @deprecated 已统一到 {@link #G_ACCENT}（浅蓝→浅紫主调） */
+    @Deprecated public static final int[] G_SUN = G_ACCENT;
+    /** @deprecated 已统一到 {@link #G_ACCENT}（浅蓝→浅紫主调） */
+    @Deprecated public static final int[] G_ICE = G_ACCENT;
 
     // ══════════════ 圆角 ══════════════
     public static final int R_CARD = 28;

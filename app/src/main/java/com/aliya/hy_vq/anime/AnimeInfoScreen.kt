@@ -97,10 +97,10 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
             // 与底栏/整体统一的浅色渐变（原为灰色，风格割裂）
             .background(
                 androidx.compose.ui.graphics.Brush.horizontalGradient(
+                    // 主调：浅蓝 → 浅紫（与全模块卡片统一）
                     listOf(
-                        Color(0xFFF7F3FF),
-                        Color(0xFFFFF2F7),
-                        Color(0xFFFFF7EF),
+                        Color(0xFFE7F1FF),
+                        Color(0xFFF1E9FF),
                     )
                 )
             )
@@ -110,7 +110,7 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
             text = title,
             fontSize = 15.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF7C4DFF),   // Aurora 主渐变起始紫（原用 Material primary 蓝，割裂）
+            color = Color(0xFF6C63E8),   // 浅紫系强调（与浅蓝→浅紫卡片同族）
             modifier = Modifier.padding(bottom = 10.dp),
         )
         content()
@@ -131,7 +131,7 @@ private fun StatRow(label: String, value: String) {
             text = value,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF7C4DFF),
+            color = Color(0xFF6C63E8),
         )
     }
 }
@@ -165,7 +165,7 @@ private fun FeedbackRow(label: String, value: String, onClick: (String) -> Unit)
             text = "$value  复制",
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF7C4DFF),
+            color = Color(0xFF6C63E8),
         )
     }
 }
