@@ -10,11 +10,14 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.aliya.hy_vq.MediaPlayerActivity;
+import com.aliya.hy_vq.R;
 import com.aliya.hy_vq.anime.AnimeSource.Channel;
 import com.aliya.hy_vq.anime.AnimeSource.Episode;
 import com.aliya.hy_vq.anime.AnimeSource.PlayLink;
@@ -74,6 +77,16 @@ public class AnimeView extends LinearLayout {
     /** 第二段：选源器头部（返回 + 番剧名），Stage1 隐藏 */
     private LinearLayout stageHeader;
     private TextView stageTitle;
+    // ── 底栏（同步 Ani：多 Tab 切换，内容内嵌在同一容器）──
+    private FrameLayout contentArea;
+    private LinearLayout searchPanel, historyPanel, sourcePanel, infoPanel;
+    /** Stage2 时隐藏的搜索栏 */
+    private LinearLayout stageSearchBar;
+    private LinearLayout bottomNav;
+    private final java.util.List<View> navTabs = new java.util.ArrayList<>();
+    private String currentTab = "search";
+    /** 历史列表容器（历史 Tab） */
+    private LinearLayout historyListBox;
     /** 当前选中的元数据条目（Stage2 上下文） */
     private AnimeMetadata.Entry currentEntry;
     /** 选源器是否正在加载 */
@@ -95,7 +108,6 @@ public class AnimeView extends LinearLayout {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         buildUi();
         refreshStatus();
-        refreshContinue();
         // 阶段 4：模块级二次告知（首次进入动漫页时）
         showModuleNoticeIfNeeded();
     }
@@ -179,7 +191,35 @@ public class AnimeView extends LinearLayout {
     private void buildUi() {
         int pad = dp(14);
 
-        // ── 搜索行：圆角输入框 + 胶囊按钮 ──
+        // ═══ 搜索面板（默认 Tab）═══
+        searchPanel = new LinearLayout(ctx);
+        searchPanel.setOrientation(VERTICAL);
+
+        // Stage2 头部：返回 + 番剧名（内嵌，不跳页）
+        stageHeader = new LinearLayout(ctx);
+        stageHeader.setOrientation(HORIZONTAL);
+        stageHeader.setGravity(Gravity.CENTER_VERTICAL);
+        stageHeader.setPadding(pad, dp(6), pad, dp(6));
+        stageHeader.setVisibility(View.GONE);
+
+        TextView backBtn = btn("← 返回", color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorPrimary));
+        backBtn.setOnClickListener(v -> backToStage1());
+        stageHeader.addView(backBtn);
+
+        stageTitle = new TextView(ctx);
+        stageTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        stageTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        stageTitle.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        stageTitle.setMaxLines(1);
+        stageTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LayoutParams stlp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        stlp.leftMargin = dp(10);
+        stageTitle.setLayoutParams(stlp);
+        stageHeader.addView(stageTitle);
+        searchPanel.addView(stageHeader);
+
+        // 搜索行：圆角输入框 + 胶囊按钮
         LinearLayout bar = new LinearLayout(ctx);
         bar.setOrientation(HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
@@ -204,63 +244,280 @@ public class AnimeView extends LinearLayout {
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         blp.leftMargin = dp(8);
         bar.addView(btnSearch, blp);
-        addView(bar);
+        searchPanel.addView(bar);
+        stageSearchBar = bar;
 
-        // ── 状态行（小字，次要色）──
+        // 状态行
         tvStatus = new TextView(ctx);
         tvStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         tvStatus.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
         tvStatus.setPadding(pad, 0, pad, dp(6));
-        addView(tvStatus);
+        searchPanel.addView(tvStatus);
 
-        // ── Stage2 头部：返回 + 番剧名（内嵌，不跳页）──
-        stageHeader = new LinearLayout(ctx);
-        stageHeader.setOrientation(HORIZONTAL);
-        stageHeader.setGravity(Gravity.CENTER_VERTICAL);
-        stageHeader.setPadding(pad, dp(6), pad, dp(6));
-        stageHeader.setVisibility(View.GONE);
-
-        TextView backBtn = btn("← 返回", color(com.google.android.material.R.attr.colorOnPrimary),
-                color(com.google.android.material.R.attr.colorPrimary));
-        backBtn.setOnClickListener(v -> backToStage1());
-        stageHeader.addView(backBtn);
-
-        stageTitle = new TextView(ctx);
-        stageTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        stageTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-        stageTitle.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
-        stageTitle.setMaxLines(1);
-        stageTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LayoutParams stlp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        stlp.leftMargin = dp(10);
-        stageTitle.setLayoutParams(stlp);
-        stageHeader.addView(stageTitle);
-        addView(stageHeader);
-
-        // ── 结果区（Stage1：继续观看 + 元数据卡片；Stage2：选源器）──
+        // 搜索结果滚动区
         ScrollView sv = new ScrollView(ctx);
         resultBox = new LinearLayout(ctx);
         resultBox.setOrientation(VERTICAL);
         resultBox.setPadding(pad, 0, pad, dp(8));
-        continueBox = new LinearLayout(ctx);
-        continueBox.setOrientation(VERTICAL);
-        resultBox.addView(continueBox);
         listBox = new LinearLayout(ctx);
         listBox.setOrientation(VERTICAL);
         resultBox.addView(listBox);
         sv.addView(resultBox);
-        addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        searchPanel.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        // ── 底部：源管理 ──
-        LinearLayout foot = new LinearLayout(ctx);
-        foot.setOrientation(HORIZONTAL);
-        foot.setGravity(Gravity.END);
-        foot.setPadding(pad, dp(4), pad, pad);
-        TextView btnSrc = btn("源管理", color(com.google.android.material.R.attr.colorPrimary),
-                color(com.google.android.material.R.attr.colorSurfaceContainerHigh));
-        btnSrc.setOnClickListener(v -> showSourceManager());
-        foot.addView(btnSrc);
-        addView(foot);
+        // ═══ 历史面板 ═══
+        historyPanel = buildHistoryPanel();
+        // ═══ 源面板 ═══
+        sourcePanel = buildSourcePanel();
+        // ═══ 说明面板 ═══
+        infoPanel = buildInfoPanel();
+
+        // 内容容器：同一位置切换（内嵌，不跳页）
+        contentArea = new FrameLayout(ctx);
+        LinearLayout.LayoutParams clp = new LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        contentArea.setLayoutParams(clp);
+        contentArea.addView(searchPanel, fullMatch());
+        contentArea.addView(historyPanel, fullMatch());
+        contentArea.addView(sourcePanel, fullMatch());
+        contentArea.addView(infoPanel, fullMatch());
+        historyPanel.setVisibility(View.GONE);
+        sourcePanel.setVisibility(View.GONE);
+        infoPanel.setVisibility(View.GONE);
+        addView(contentArea);
+
+        // ═══ 底栏（同步 Ani）═══
+        addView(buildBottomNav());
+
+        refreshContinue();
+    }
+
+    private LayoutParams fullMatch() {
+        return new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT);
+    }
+
+    // ══════════════════ 底栏 ══════════════════
+
+    /** 底栏（对齐文件管理底栏写法 + Ani 的 Tab 结构） */
+    private LinearLayout buildBottomNav() {
+        bottomNav = new LinearLayout(ctx);
+        bottomNav.setOrientation(HORIZONTAL);
+        bottomNav.setGravity(Gravity.CENTER);
+        int bg = color(com.google.android.material.R.attr.colorSurfaceContainer);
+        bottomNav.setBackground(ModuleUiKit.rounded(ctx, 14, bg, 0));
+        int pad = dp(4);
+        bottomNav.setPadding(pad, dp(3), pad, dp(3));
+        LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(6);
+        bottomNav.setLayoutParams(lp);
+
+        addAnimeTab("search", "搜索", R.drawable.ic_search,
+                v -> switchTab("search"));
+        addAnimeTab("history", "历史", R.drawable.ic_star,
+                v -> switchTab("history"));
+        addAnimeTab("source", "源", R.drawable.ic_settings,
+                v -> switchTab("source"));
+        addAnimeTab("info", "说明", R.drawable.ic_info,
+                v -> switchTab("info"));
+
+        bottomNav.setAlpha(0f);
+        bottomNav.setTranslationY(dp(10));
+        bottomNav.animate().alpha(1f).translationY(0f).setDuration(220).start();
+        updateBottomNav();
+        return bottomNav;
+    }
+
+    private void addAnimeTab(final String key, String text, int iconRes, View.OnClickListener onClick) {
+        LinearLayout tab = new LinearLayout(ctx);
+        tab.setOrientation(VERTICAL);
+        tab.setGravity(Gravity.CENTER);
+        tab.setClickable(true);
+        tab.setFocusable(true);
+        tab.setOnClickListener(onClick);
+        tab.setPadding(dp(8), dp(3), dp(8), dp(3));
+
+        ImageView icon = new ImageView(ctx);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tab.addView(icon, new LayoutParams(dp(24), dp(24)));
+
+        TextView label = new TextView(ctx);
+        label.setText(text);
+        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        label.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        LayoutParams llp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        llp.topMargin = dp(1);
+        label.setLayoutParams(llp);
+        tab.addView(label);
+
+        tab.setTag(new Object[]{key, icon, label});
+        bottomNav.addView(tab, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        navTabs.add(tab);
+    }
+
+    /** 切换底栏 Tab：同一容器内显隐（内嵌，不跳页） */
+    private void switchTab(String key) {
+        currentTab = key;
+        searchPanel.setVisibility("search".equals(key) ? View.VISIBLE : View.GONE);
+        historyPanel.setVisibility("history".equals(key) ? View.VISIBLE : View.GONE);
+        sourcePanel.setVisibility("source".equals(key) ? View.VISIBLE : View.GONE);
+        infoPanel.setVisibility("info".equals(key) ? View.VISIBLE : View.GONE);
+        if ("history".equals(key)) {
+            refreshContinue();
+            renderHistory();
+        }
+        if ("source".equals(key)) refreshStatus();
+        updateBottomNav();
+    }
+
+    private void updateBottomNav() {
+        for (View tab : navTabs) {
+            Object[] tg = (Object[]) tab.getTag();
+            String key = (String) tg[0];
+            ImageView icon = (ImageView) tg[1];
+            TextView label = (TextView) tg[2];
+            boolean on = key.equals(currentTab);
+            int tint = color(on ? com.google.android.material.R.attr.colorPrimary
+                    : com.google.android.material.R.attr.colorOnSurfaceVariant);
+            icon.setColorFilter(tint);
+            label.setTextColor(tint);
+        }
+    }
+
+    // ══════════════════ 历史面板 ══════════════════
+
+    private LinearLayout buildHistoryPanel() {
+        LinearLayout panel = new LinearLayout(ctx);
+        panel.setOrientation(VERTICAL);
+        panel.setPadding(dp(14), dp(6), dp(14), dp(6));
+
+        continueBox = new LinearLayout(ctx);
+        continueBox.setOrientation(VERTICAL);
+        panel.addView(continueBox);
+
+        TextView head = ModuleUiKit.sectionHeader(ctx, "观看历史");
+        panel.addView(head);
+
+        ScrollView sv = new ScrollView(ctx);
+        historyListBox = new LinearLayout(ctx);
+        historyListBox.setOrientation(VERTICAL);
+        sv.addView(historyListBox);
+        panel.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        return panel;
+    }
+
+    /** 渲染完整观看历史 */
+    private void renderHistory() {
+        if (historyListBox == null) return;
+        historyListBox.removeAllViews();
+        java.util.List<WatchHistory.Entry> list = history.recent();
+        if (list.isEmpty()) {
+            TextView empty = new TextView(ctx);
+            empty.setText("暂无观看记录");
+            empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            empty.setPadding(dp(4), dp(12), dp(4), dp(4));
+            empty.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            historyListBox.addView(empty);
+            return;
+        }
+        for (final WatchHistory.Entry e : list) {
+            LinearLayout row = new LinearLayout(ctx);
+            row.setOrientation(VERTICAL);
+            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            row.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 14,
+                    color(com.google.android.material.R.attr.colorSurfaceContainerLow),
+                    color(com.google.android.material.R.attr.colorOutlineVariant))));
+            LayoutParams rlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            rlp.bottomMargin = dp(6);
+            row.setLayoutParams(rlp);
+            row.setClickable(true);
+
+            TextView t1 = new TextView(ctx);
+            t1.setText(e.subjectName);
+            t1.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            t1.setTypeface(null, android.graphics.Typeface.BOLD);
+            t1.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+            t1.setMaxLines(1);
+            t1.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.addView(t1);
+
+            TextView t2 = new TextView(ctx);
+            String ep = (e.episodeTitle == null || e.episodeTitle.isEmpty())
+                    ? "（未命名集）" : e.episodeTitle;
+            t2.setText(ep + "  ·  " + e.positionText()
+                    + (e.channelName == null || e.channelName.isEmpty() ? "" : "  · " + e.channelName));
+            t2.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            t2.setMaxLines(1);
+            t2.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            t2.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            LayoutParams t2lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            t2lp.topMargin = dp(2);
+            t2.setLayoutParams(t2lp);
+            row.addView(t2);
+
+            row.setOnClickListener(v -> resumeFrom(e));
+            historyListBox.addView(row);
+        }
+    }
+
+    // ══════════════════ 源面板 / 说明面板 ══════════════════
+
+    /** 源面板：把原「源管理」弹窗内容内嵌到 Tab */
+    private LinearLayout buildSourcePanel() {
+        LinearLayout panel = new LinearLayout(ctx);
+        panel.setOrientation(VERTICAL);
+        panel.setPadding(dp(14), dp(6), dp(14), dp(6));
+
+        ScrollView sv = new ScrollView(ctx);
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(VERTICAL);
+        buildSourceContent(box, null);
+        sv.addView(box);
+        panel.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        return panel;
+    }
+
+    /** 说明面板：模块能力与合规说明（阶段 4 的模块告知在此可随时查看） */
+    private LinearLayout buildInfoPanel() {
+        LinearLayout panel = new LinearLayout(ctx);
+        panel.setOrientation(VERTICAL);
+        panel.setPadding(dp(14), dp(6), dp(14), dp(6));
+        panel.addView(ModuleUiKit.sectionHeader(ctx, "动漫模块说明"));
+
+        TextView tv = new TextView(ctx);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tv.setLineSpacing(0, 1.45f);
+        tv.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        tv.setText(String.join(System.lineSeparator(), new String[]{
+            "【两段式搜索】",
+            "第一步只查元数据库（B站/AniList），秒回并带封面评分；",
+            "选中某部番后，第二步才去查该番的播放源。",
+            "",
+            "【自动选源】",
+            "线路按 tier 升序排列，未评测排后；点线路胶囊即可播放，",
+            "解析失败会自动改用内置浏览器（WebView）解析。",
+            "",
+            "【数据来源】",
+            "· 元数据：B站番剧索引 / AniList（仅标题封面评分，不涉及播放）",
+            "· 播放源：你自行导入的第三方订阅，本软件不提供、不存储内容",
+            "· 源由第三方维护，随时可能失效（属此类工具的固有问题）",
+            "",
+            "【安全提示】",
+            "为解析部分加密源，会启动内置浏览器并开启 JavaScript，",
+            "这会在本机执行第三方页面脚本，请知悉此风险。",
+            "",
+            "【合规】",
+            "请确保你的使用行为符合当地法律法规。",
+            "",
+            "—— 详见「关于」页与首次启动协议 ——"
+        }));
+        panel.addView(tv);
+        return panel;
     }
 
     /** 项目统一的按钮写法（对齐 GachaView.btn）：圆角 TextView，而非原生 Button */
@@ -498,8 +755,10 @@ public class AnimeView extends LinearLayout {
         currentEntry = null;
         selectorLoading = false;
         if (stageHeader != null) stageHeader.setVisibility(View.GONE);
-        if (continueBox != null) continueBox.setVisibility(View.VISIBLE);
+        if (stageSearchBar != null) stageSearchBar.setVisibility(View.VISIBLE);
+        if (tvStatus != null) tvStatus.setVisibility(View.VISIBLE);
         if (listBox != null) listBox.removeAllViews();
+        refreshStatus();
     }
 
     /**
@@ -595,8 +854,9 @@ public class AnimeView extends LinearLayout {
             stageHeader.setVisibility(View.VISIBLE);
             stageTitle.setText(entry.title);
         }
-        if (continueBox != null) continueBox.setVisibility(View.GONE);
-        listBox.removeAllViews();
+        if (stageSearchBar != null) stageSearchBar.setVisibility(View.GONE);
+        if (listBox != null) listBox.removeAllViews();
+        tvStatus.setVisibility(View.VISIBLE);
         tvStatus.setText("正在聚合该番剧的可用源…");
 
         // 关键词：原名（日文）优先，其次中文名
@@ -958,12 +1218,8 @@ public class AnimeView extends LinearLayout {
 
     // ══════════════════ 源管理 ══════════════════
 
-    private void showSourceManager() {
-        LinearLayout box = new LinearLayout(ctx);
-        box.setOrientation(VERTICAL);
-        box.addView(ModuleUiKit.sectionHeader(ctx, "源管理"));
-
-        final Dialog d = ModuleUiKit.glassDialog(ctx, box);
+    /** 源管理内容（内嵌到「源」Tab；d 为 null 时「关闭」切回搜索 Tab） */
+    private void buildSourceContent(final LinearLayout box, final Dialog d) {
 
         final TextView info = new TextView(ctx);
         info.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
@@ -1119,9 +1375,21 @@ public class AnimeView extends LinearLayout {
         clp.topMargin = dp(14);
         btnClose.setLayoutParams(clp);
         btnClose.setGravity(Gravity.CENTER);
-        btnClose.setOnClickListener(v -> d.dismiss());
+        btnClose.setOnClickListener(v -> {
+            if (d != null) d.dismiss();
+            else switchTab("search");
+        });
         box.addView(btnClose);
 
+    }
+
+    /** 源管理弹窗入口（保留给 Stage2/其他场景复用） */
+    private void showSourceManager() {
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(ctx, "源管理"));
+        final Dialog d = ModuleUiKit.glassDialog(ctx, box);
+        buildSourceContent(box, d);
         d.show();
     }
 
