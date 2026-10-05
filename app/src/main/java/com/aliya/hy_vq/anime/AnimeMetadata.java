@@ -119,6 +119,9 @@ public final class AnimeMetadata {
         // （实测：B站搜日文可命中并返回中文标题；搜英文则 0 命中）
         enrichChineseTitles(merged);
 
+        // 统一去重（同路由内 + 跨路由）
+        merged = dedupList(merged);
+
         // 按评分降序（无评分排后）
         merged.sort((a, b) -> Integer.compare(rank(b), rank(a)));
         return merged;
@@ -159,6 +162,46 @@ public final class AnimeMetadata {
     private static int rank(Entry e) {
         if (e.score < 0) return 0;
         return e.scoreScale == 100 ? e.score : e.score * 10;
+    }
+
+    /**
+     * 去重：同路由内部也会出现重复（B站 同时返回「葬送的芙莉莲」与
+     * 「葬送的芙莉莲 中配版」→ 用户看到两条）。归一化后判同，
+     * 保留信息更全的那条（优先无版本后缀、评分更高者）。
+     */
+    static List<Entry> dedupList(List<Entry> in) {
+        if (in == null || in.size() < 2) return in;
+        List<Entry> out = new ArrayList<>();
+        for (Entry e : in) {
+            int dup = -1;
+            for (int i = 0; i < out.size(); i++) {
+                if (sameAnime(out.get(i), e)) { dup = i; break; }
+            }
+            if (dup < 0) {
+                out.add(e);
+            } else {
+                Entry keep = out.get(dup);
+                // 保留信息更全的：原无名补名、无封面补封面、评分取更高、集数取更大
+                if ((keep.title == null || keep.title.isEmpty()) && e.title != null) keep.title = e.title;
+                if ((keep.nativeTitle == null || keep.nativeTitle.isEmpty()) && e.nativeTitle != null)
+                    keep.nativeTitle = e.nativeTitle;
+                if ((keep.cover == null || keep.cover.isEmpty()) && e.cover != null) keep.cover = e.cover;
+                if (e.score > keep.score) { keep.score = e.score; keep.scoreScale = e.scoreScale; }
+                if (e.episodes > keep.episodes) keep.episodes = e.episodes;
+                if ((keep.desc == null || keep.desc.isEmpty()) && e.desc != null) keep.desc = e.desc;
+                if (keep.tags != null && e.tags != null && keep.tags.isEmpty()) keep.tags = e.tags;
+                // 标题择优：优先无「中配版/国语版」等后缀的干净标题
+                if (e.title != null && keep.title != null
+                        && stripVersionSuffix(e.title).equals(stripVersionSuffix(keep.title))) {
+                    boolean eClean = stripVersionSuffix(e.title).equals(e.title.trim());
+                    boolean kClean = stripVersionSuffix(keep.title).equals(keep.title.trim());
+                    if (eClean && !kClean) keep.title = e.title;   // 新的更干净 → 换
+                } else if (e.title != null && (keep.title == null || keep.title.isEmpty())) {
+                    keep.title = e.title;
+                }
+            }
+        }
+        return out;
     }
 
     private static void mergeInto(List<Entry> dst, List<Entry> src) {
@@ -391,7 +434,7 @@ public final class AnimeMetadata {
             e.url = "https://bgm.tv/subject/" + o.optLong("id", 0);
             if (!e.title.isEmpty()) out.add(e);
         }
-        return out;
+        return dedupList(out);
     }
 
     /**
