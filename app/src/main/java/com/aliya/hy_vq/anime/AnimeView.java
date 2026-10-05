@@ -581,14 +581,17 @@ public class AnimeView extends LinearLayout {
 
         new Thread(() -> {
             try {
+                // 源优先级（用户要求：第三方私有镜像只作最末回退）
+                //   1) AniList 热门 —— 公开 API，主力
+                //   2) Kazumi Bangumi 镜像 —— 他人的私有镜像，仅作下下位替代（已在关于页致谢）
                 List<AnimeMetadata.Entry> feed = null;
                 try {
-                    feed = AnimeMetadata.feedPopular();          // 首选：Bangumi 镜像（有中文名）
+                    feed = AnimeMetadata.feedTrending();         // 主力：AniList（含中文名反查）
                 } catch (Throwable ignored) {
                 }
                 if (feed == null || feed.isEmpty()) {
                     try {
-                        feed = AnimeMetadata.feedTrending();     // 回退：AniList 热门
+                        feed = AnimeMetadata.feedPopular();      // 下下位：Kazumi 私有镜像
                     } catch (Throwable ignored) {
                     }
                 }

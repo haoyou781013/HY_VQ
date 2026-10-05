@@ -567,6 +567,24 @@ public class MainActivity extends AppCompatActivity {
      * <p>用户要求：关于页**不直接展示收款码**，只放一个按钮，点开才弹窗显示；
      * 且更新日志不写、软件内不主动提醒（主打免费简洁）。</p>
      */
+    /** 反馈渠道点击复制 */
+    private void bindCopy(int viewId, final String value) {
+        View v = aboutView == null ? null : aboutView.findViewById(viewId);
+        if (v == null) return;
+        v.setOnClickListener(x -> {
+            try {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                        getSystemService(CLIPBOARD_SERVICE);
+                if (cm != null) {
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("HY_VQ", value));
+                    Toast.makeText(this, "已复制：" + value, Toast.LENGTH_SHORT).show();
+                }
+            } catch (Throwable t) {
+                Toast.makeText(this, "复制失败：" + value, Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
     private void showDonateDialog() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -622,6 +640,11 @@ public class MainActivity extends AppCompatActivity {
         // 致谢：点击打开独立弹窗（分「引用 / 借鉴 / 历史」三板块）
         View itemCredits = aboutView.findViewById(R.id.item_about_credits);
         if (itemCredits != null) itemCredits.setOnClickListener(v -> showCreditsDialog());
+
+        // 反馈渠道：点击复制（邮箱 / QQ群 / QQ私人）
+        bindCopy(R.id.tv_feedback_mail, "3077094639@qq.com");
+        bindCopy(R.id.tv_feedback_qq_group, "119544089");
+        bindCopy(R.id.tv_feedback_qq_private, "3077094639");
 
         TextView tvDisc = aboutView.findViewById(R.id.tv_about_disclaimer);
         if (tvDisc != null) {
@@ -2767,6 +2790,11 @@ public class MainActivity extends AppCompatActivity {
             "AndroidX —— 基础支持库（AppCompat / RecyclerView / FileProvider 等）",
             "Material Components for Android —— Material 3 组件与主题体系",
             "呜哇小站 emoji.wuwa.games —— 免费提供鸣潮表情包 API（本应用已主动限流）",
+            "AniList —— 番剧元数据（首页热门榜与搜索，公开 API）",
+            "Bangumi (bgm.tv) —— 番剧元数据结构与中文标题体系",
+            "哔哩哔哩番剧索引 —— 中文标题/评分/标签（仅取元数据，不涉及播放）",
+            "Kazumi 的 Bangumi 镜像 api.kazumi.fyi —— 仅作最末回退源，"
+                    + "本应用不主动依赖；其为 Kazumi 项目自建镜像，在此致谢",
     };
 
     /** 板块二：借鉴其设计思路与交互的项目（未直接使用其代码） */
@@ -2778,6 +2806,8 @@ public class MainActivity extends AppCompatActivity {
             "Fossify File Manager —— 同类实现与交互细节参考",
             "Ghost Commander —— 网络能力（FTP 服务端）的方向参考",
             "Blurry / BlurView —— 浮窗与侧边栏背景模糊的实现原理参考",
+            "Kazumi —— 首页信息流、选集网格、线路胶囊等交互的参考",
+            "Animeko —— 两段式搜索、源选择器、WebView 取链思路的参考",
     };
 
     /** 板块三：历史参考 —— 代码现已不再使用，但开发过程中曾受益 */
