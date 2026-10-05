@@ -39,6 +39,7 @@ public final class AnimeMetadata {
         public int score = -1;          // 评分（0-10 或 0-100，见 scoreScale）
         public int scoreScale = 10;     // 10 或 100
         public int episodes = -1;       // 集数
+        public int rank = -1;           // 热度排名（越小越热，Bangumi rating.rank）
         public List<String> tags = new ArrayList<>();
 
         /**
@@ -122,8 +123,8 @@ public final class AnimeMetadata {
         // 统一去重（同路由内 + 跨路由）
         merged = dedupList(merged);
 
-        // 按评分降序（无评分排后）
-        merged.sort((a, b) -> Integer.compare(rank(b), rank(a)));
+        // 按热度排列（评分降序，同分看排名）
+        sortByHeat(merged);
         return merged;
     }
 
@@ -159,9 +160,22 @@ public final class AnimeMetadata {
         }
     }
 
+    /** 热度排序权重：AniList 百分制 ×10，Bangumi 十分制 ×100 → 统一到同一刻度 */
     private static int rank(Entry e) {
         if (e.score < 0) return 0;
         return e.scoreScale == 100 ? e.score : e.score * 10;
+    }
+
+    /** 首页按热度排列：评分降序；同分按排名升序（有 rank 的更热） */
+    static void sortByHeat(List<Entry> list) {
+        if (list == null || list.size() < 2) return;
+        list.sort((a, b) -> {
+            int ra = rank(a), rb = rank(b);
+            if (ra != rb) return Integer.compare(rb, ra);          // 评分高者在前
+            if (a.rank >= 0 && b.rank >= 0) return Integer.compare(a.rank, b.rank); // 排名小者在前
+            if (a.episodes != b.episodes) return Integer.compare(b.episodes, a.episodes);
+            return 0;
+        });
     }
 
     /**
@@ -407,6 +421,7 @@ public final class AnimeMetadata {
                 e.score = (int) Math.round(r.optDouble("score", -1));
                 e.scoreScale = 10;
             }
+            if (r != null && !r.isNull("rank")) e.rank = r.optInt("rank", -1);
 
             // info 形如「12话 / 2026年10月1日 / 导演 / 原作 / 角色设计」
             String info = o.optString("info", "");
@@ -486,6 +501,8 @@ public final class AnimeMetadata {
         }
         // 补中文名（源站只认中文）
         enrichChineseTitles(out);
+        out = dedupList(out);
+        sortByHeat(out);          // 首页按热度排列
         return out;
     }
 

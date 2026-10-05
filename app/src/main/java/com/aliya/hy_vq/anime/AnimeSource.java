@@ -50,6 +50,14 @@ public class AnimeSource {
     /** 原始 JSON，便于调试与重新导出 */
     public String rawJson = "";
 
+    // ── 双引擎（决策 3：对齐 ani CSS selector，留口子）──
+    /** 引擎类型：{@link #ENGINE_ANI}（CSS selector）或 {@link #ENGINE_KAZUMI}（XPath 规则） */
+    public static final String ENGINE_ANI = "ani";
+    public static final String ENGINE_KAZUMI = "kazumi";
+    public String engine = ENGINE_ANI;
+    /** Kazumi 规则原文（engine = kazumi 时非空） */
+    public KazumiEngine.Rule kazumiRule;
+
     // ── 解析产物 ──
 
     /** 番剧条目 */
@@ -164,6 +172,18 @@ public class AnimeSource {
      */
     public static AnimeSource parse(String json) {
         try {
+            // Kazumi 规则：有 api/type/searchURL + searchList（XPath）→ 走第二引擎
+            if (json != null && json.contains("\"searchList\"") && json.contains("\"api\"")) {
+                KazumiEngine.Rule rule = KazumiEngine.Rule.parse(json);
+                if (rule != null && !rule.searchURL.isEmpty()) {
+                    AnimeSource ks = new AnimeSource();
+                    ks.engine = ENGINE_KAZUMI;
+                    ks.kazumiRule = rule;
+                    ks.name = rule.name;
+                    ks.rawJson = json;
+                    return ks;
+                }
+            }
             JsonElement el = JsonParser.parseString(json);
             if (!el.isJsonObject()) return null;
             JsonObject root = el.getAsJsonObject();

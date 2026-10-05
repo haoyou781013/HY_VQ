@@ -108,6 +108,7 @@ public class AnimeView extends LinearLayout {
         setOrientation(VERTICAL);
         setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        WebViewPageFetcher.setAppContext(context);   // Kazumi 规则需 WebView 渲染
         buildUi();
         refreshStatus();
         loadFeed();   // 首页推荐（P2）
@@ -1793,6 +1794,60 @@ public class AnimeView extends LinearLayout {
         blockCol.setOrientation(VERTICAL);
         box.addView(blockCol);
         renderBlocked(blockCol);
+
+        // ── KazumiRules 代理源仓库（第二引擎：XPath 规则）──
+        TextView labK = new TextView(ctx);
+        labK.setText("KazumiRules 代理源仓库（XPath 规则 · 与上面的订阅合流）");
+        labK.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        labK.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        labK.setPadding(dp(4), dp(10), dp(4), dp(4));
+        box.addView(labK);
+
+        final EditText etKazumi = new EditText(ctx);
+        etKazumi.setText(SourceRepository.DEFAULT_KAZUMI_RULES_REPO);
+        etKazumi.setSingleLine(true);
+        etKazumi.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        etKazumi.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        etKazumi.setHintTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        etKazumi.setBackground(ModuleUiKit.rounded(ctx, 10,
+                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+        etKazumi.setPadding(dp(10), dp(8), dp(10), dp(8));
+        box.addView(etKazumi);
+
+        final TextView btnKazumi = btn("从 KazumiRules 导入（约 16 条规则）",
+                color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorPrimary));
+        LayoutParams klp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        klp.topMargin = dp(8);
+        klp.bottomMargin = dp(6);
+        btnKazumi.setLayoutParams(klp);
+        btnKazumi.setGravity(Gravity.CENTER);
+        final EditText etK = etKazumi;
+        btnKazumi.setOnClickListener(v -> {
+            btnKazumi.setEnabled(false);
+            btnKazumi.setText("导入中…");
+            new Thread(() -> {
+                try {
+                    int n = repo.importFromKazumi(etK.getText().toString().trim());
+                    ui(() -> {
+                        btnKazumi.setEnabled(true);
+                        btnKazumi.setText("从 KazumiRules 导入（约 16 条规则）");
+                        refreshStatus();
+                        ModuleUiKit.toast(ctx, "已导入 " + n + " 条 Kazumi 规则");
+                        rebuildSourcePanel();
+                    });
+                } catch (Throwable t) {
+                    final String msg = t.getMessage();
+                    ui(() -> {
+                        btnKazumi.setEnabled(true);
+                        btnKazumi.setText("从 KazumiRules 导入（约 16 条规则）");
+                        ModuleUiKit.toast(ctx, "导入失败：" + msg);
+                    });
+                }
+            }).start();
+        });
+        box.addView(btnKazumi);
 
         // 过滤开关（用项目风格的行，而不是原生 Switch）
         final LinearLayout filterRow = new LinearLayout(ctx);

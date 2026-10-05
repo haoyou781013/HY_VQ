@@ -205,6 +205,76 @@ public class SourceRepository {
         return list.size();
     }
 
+    // ══════════════ KazumiRules 代理源仓库 ══════════════
+
+    /** KazumiRules 代理源仓库（国内可直连的 GitHub 镜像优先） */
+    public static final String DEFAULT_KAZUMI_RULES_REPO =
+            "https://raw.githubusercontent.com/Predidit/KazumiRules/main/";
+
+    /**
+     * 从 KazumiRules 仓库批量导入（<b>追加</b>，不覆盖已有的 ani 源）。
+     *
+     * <p>仓库结构：{@code index.json}（规则目录，含 name/version）+ 每条规则一个
+     * {@code <name>.json}（XPath 规则）。导入后这些源走第二引擎（{@link KazumiEngine}）。</p>
+     *
+     * <p>与 {@link #importFrom}（ani 订阅，替换式）不同，这里是<b>合流</b>：
+     * 同名源以新导入的为准，其余保留。</p>
+     *
+     * @param repoUrl 仓库根地址，以 {@code /} 结尾；为空用默认代理源仓库
+     * @return 新增/更新的源数量
+     */
+    public int importFromKazumi(String repoUrl) throws IOException {
+        String base = (repoUrl == null || repoUrl.trim().isEmpty())
+                ? DEFAULT_KAZUMI_RULES_REPO : repoUrl.trim();
+        if (!base.endsWith("/")) base += "/";
+
+        SourceEngine engine = new SourceEngine();
+        String idxJson = engine.get(base + "index.json", null, null);
+        if (idxJson == null || idxJson.isEmpty()) {
+            throw new IOException("无法读取仓库索引 index.json");
+        }
+        org.json.JSONArray arr;
+        try {
+            arr = new org.json.JSONArray(idxJson);
+        } catch (Throwable t) {
+            throw new IOException("索引格式无法解析");
+        }
+
+        int ok = 0, fail = 0;
+        for (int i = 0; i < arr.length(); i++) {
+            org.json.JSONObject item = arr.optJSONObject(i);
+            if (item == null) continue;
+            String name = item.optString("name", "");
+            if (name.isEmpty()) continue;
+            try {
+                String ruleJson = engine.get(base + name + ".json", null, null);
+                if (ruleJson == null || ruleJson.isEmpty()) { fail++; continue; }
+                AnimeSource parsed = AnimeSource.parse(ruleJson);
+                if (parsed == null || parsed.name.isEmpty()
+                        || !AnimeSource.ENGINE_KAZUMI.equals(parsed.engine)) {
+                    fail++;
+                    continue;
+                }
+                // 同名替换（保留已有 tier 等覆盖），否则追加
+                boolean replaced = false;
+                for (int j = 0; j < sources.size(); j++) {
+                    if (sources.get(j).name.equals(parsed.name)) {
+                        sources.set(j, parsed);
+                        replaced = true;
+                        break;
+                    }
+                }
+                if (!replaced) sources.add(parsed);
+                ok++;
+            } catch (Throwable t) {
+                fail++;
+            }
+        }
+        if (ok == 0) throw new IOException("导入失败：0 条成功（失败 " + fail + "）");
+        save();
+        return ok;
+    }
+
     private File sourcesFile() {
         return new File(new File(ctx.getFilesDir(), DIR), FILE_SOURCES);
     }

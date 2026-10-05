@@ -86,6 +86,16 @@ public class SourceEngine {
 
     /** 在单个源上搜索关键词。失败抛 IOException，由调用方决定是否降级。 */
     public List<Subject> search(AnimeSource src, String keyword) throws IOException {
+        // 第二引擎：Kazumi XPath 规则
+        if (AnimeSource.ENGINE_KAZUMI.equals(src.engine) && src.kazumiRule != null) {
+            try {
+                return KazumiEngine.search(src.kazumiRule, keyword);
+            } catch (IOException e) {
+                throw e;
+            } catch (Throwable t) {
+                throw new IOException("Kazumi 规则解析失败: " + t.getMessage());
+            }
+        }
         SearchConfig c = src.search;
         String kw = prepareKeyword(keyword, c);
         String url = c.searchUrl.replace("{keyword}", URLEncoder.encode(kw, "UTF-8"));
@@ -150,6 +160,13 @@ public class SourceEngine {
 
     /** 解析详情页，得到线路列表（每条线路含其单集）。 */
     public List<Channel> channels(AnimeSource src, Subject subject) throws IOException {
+        if (AnimeSource.ENGINE_KAZUMI.equals(src.engine) && src.kazumiRule != null) {
+            try {
+                return KazumiEngine.channels(src.kazumiRule, subject);
+            } catch (Throwable t) {
+                throw new IOException("Kazumi 线路解析失败: " + t.getMessage());
+            }
+        }
         SearchConfig c = src.search;
         String html = get(subject.url, subject.url, headersOf(src, null));
         Document doc = Jsoup.parse(html, subject.url);
@@ -226,6 +243,10 @@ public class SourceEngine {
      * 流程：抓播放页 → 取 player 数据 → 解密 → 若是嵌套页则再解析一层。
      */
     public PlayLink resolve(AnimeSource src, Episode ep, String channelName) throws IOException {
+        if (AnimeSource.ENGINE_KAZUMI.equals(src.engine) && src.kazumiRule != null) {
+            // Kazumi 规则多为 WebView 播放：返回集页地址，交给 WebView 兜底
+            return KazumiEngine.resolve(src.kazumiRule, null, ep);
+        }
         SearchConfig c = src.search;
         Map<String, String> headers = playHeaders(src, ep);
         String html = get(ep.url, ep.url, headers);
