@@ -79,7 +79,13 @@ public class AnimeView extends LinearLayout {
     private TextView stageTitle;
     // ── 底栏（同步 Ani：多 Tab 切换，内容内嵌在同一容器）──
     private FrameLayout contentArea;
-    private LinearLayout searchPanel, historyPanel, sourcePanel, infoPanel;
+    private LinearLayout searchPanel, historyPanel, sourcePanel, infoPanel, cachePanel;
+    /** 离线缓存管理器 */
+    private OfflineCache offlineCache;
+    /** 缓存列表容器 */
+    private LinearLayout cacheListBox;
+    /** 缓存订阅（避免重建时丢引用） */
+    private OfflineCache.Listener cacheListener;
     /** Stage2 时隐藏的搜索栏 */
     private LinearLayout stageSearchBar;
     private LinearLayout bottomNav;
@@ -109,6 +115,9 @@ public class AnimeView extends LinearLayout {
         setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         WebViewPageFetcher.setAppContext(context);   // Kazumi 规则需 WebView 渲染
+        offlineCache = new OfflineCache(context);
+        cacheListener = this::renderCachePanel;
+        offlineCache.setListener(cacheListener);
         buildUi();
         refreshStatus();
         loadFeed();   // 首页推荐（P2）
@@ -273,6 +282,8 @@ public class AnimeView extends LinearLayout {
         historyPanel = buildHistoryPanel();
         // ═══ 源面板 ═══
         sourcePanel = buildSourcePanel();
+        // ═══ 缓存面板 ═══
+        cachePanel = buildCachePanel();
         // ═══ 说明面板 ═══
         infoPanel = buildInfoPanel();
 
@@ -284,9 +295,11 @@ public class AnimeView extends LinearLayout {
         contentArea.addView(searchPanel, fullMatch());
         contentArea.addView(historyPanel, fullMatch());
         contentArea.addView(sourcePanel, fullMatch());
+        contentArea.addView(cachePanel, fullMatch());
         contentArea.addView(infoPanel, fullMatch());
         historyPanel.setVisibility(View.GONE);
         sourcePanel.setVisibility(View.GONE);
+        cachePanel.setVisibility(View.GONE);
         infoPanel.setVisibility(View.GONE);
         addView(contentArea);
 
@@ -323,6 +336,8 @@ public class AnimeView extends LinearLayout {
                 v -> switchTab("history"));
         addAnimeTab("source", "源", R.drawable.ic_settings,
                 v -> switchTab("source"));
+        addAnimeTab("cache", "缓存", R.drawable.ic_download,
+                v -> switchTab("cache"));
         addAnimeTab("info", "说明", R.drawable.ic_info,
                 v -> switchTab("info"));
 
@@ -365,7 +380,9 @@ public class AnimeView extends LinearLayout {
         searchPanel.setVisibility("search".equals(key) ? View.VISIBLE : View.GONE);
         historyPanel.setVisibility("history".equals(key) ? View.VISIBLE : View.GONE);
         sourcePanel.setVisibility("source".equals(key) ? View.VISIBLE : View.GONE);
+        cachePanel.setVisibility("cache".equals(key) ? View.VISIBLE : View.GONE);
         infoPanel.setVisibility("info".equals(key) ? View.VISIBLE : View.GONE);
+        if ("cache".equals(key)) renderCachePanel();
         if ("history".equals(key)) {
             refreshContinue();
             renderHistory();
@@ -481,6 +498,242 @@ public class AnimeView extends LinearLayout {
         sv.addView(box);
         panel.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return panel;
+    }
+
+    // ══════════════════ 缓存面板（离线缓存） ══════════════════
+
+    private LinearLayout buildCachePanel() {
+        LinearLayout panel = new LinearLayout(ctx);
+        panel.setOrientation(VERTICAL);
+        panel.setPadding(dp(14), dp(6), dp(14), dp(6));
+        panel.addView(ModuleUiKit.sectionHeader(ctx, "离线缓存"));
+
+        TextView tip = new TextView(ctx);
+        tip.setText("在番剧详情页点「缓存本集」即可离线观看；已缓存的视频在下方列表。");
+        tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tip.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tip.setPadding(dp(4), 0, dp(4), dp(6));
+        panel.addView(tip);
+
+        ScrollView sv = new ScrollView(ctx);
+        cacheListBox = new LinearLayout(ctx);
+        cacheListBox.setOrientation(VERTICAL);
+        sv.addView(cacheListBox);
+        panel.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        return panel;
+    }
+
+    /** 重绘缓存列表（下载中 / 已完成 两段） */
+    private void renderCachePanel() {
+        if (cacheListBox == null || offlineCache == null) return;
+        cacheListBox.removeAllViews();
+        List<OfflineCache.Task> tasks = offlineCache.tasks();
+
+        List<OfflineCache.Task> pending = new ArrayList<>();
+        List<OfflineCache.Task> done = new ArrayList<>();
+        List<OfflineCache.Task> failed = new ArrayList<>();
+        for (OfflineCache.Task t : tasks) {
+            if (t.state == OfflineCache.Task.State.DONE) done.add(t);
+            else if (t.state == OfflineCache.Task.State.FAILED) failed.add(t);
+            else pending.add(t);
+        }
+
+        if (tasks.isEmpty()) {
+            TextView empty = new TextView(ctx);
+            empty.setText("暂无缓存任务");
+            empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            empty.setPadding(dp(4), dp(12), dp(4), dp(4));
+            empty.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            cacheListBox.addView(empty);
+            return;
+        }
+
+        // 下载中
+        if (!pending.isEmpty()) {
+            cacheListBox.addView(sectionLabel("下载中（" + pending.size() + "）"));
+            for (OfflineCache.Task t : pending) cacheListBox.addView(taskRow(t, false));
+        }
+        // 已完成
+        if (!done.isEmpty()) {
+            cacheListBox.addView(sectionLabel("已缓存（" + done.size() + "）"));
+            for (OfflineCache.Task t : done) cacheListBox.addView(taskRow(t, true));
+        }
+        // 失败
+        if (!failed.isEmpty()) {
+            cacheListBox.addView(sectionLabel("失败（" + failed.size() + "）"));
+            for (OfflineCache.Task t : failed) cacheListBox.addView(taskRow(t, false));
+        }
+    }
+
+    private TextView sectionLabel(String text) {
+        TextView t = new TextView(ctx);
+        t.setText(text);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        t.setTypeface(null, android.graphics.Typeface.BOLD);
+        t.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+        t.setPadding(dp(4), dp(10), dp(4), dp(4));
+        return t;
+    }
+
+    /** 单条缓存任务：已完成 → 点击播放 + 删除；进行中 → 进度条 + 取消 */
+    private View taskRow(final OfflineCache.Task t, boolean completed) {
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(VERTICAL);
+        row.setPadding(dp(12), dp(9), dp(12), dp(9));
+        row.setBackground(ModuleUiKit.rounded(ctx, 14,
+                color(com.google.android.material.R.attr.colorSurfaceContainerLow),
+                color(com.google.android.material.R.attr.colorOutlineVariant)));
+        LayoutParams rlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.bottomMargin = dp(6);
+        row.setLayoutParams(rlp);
+
+        // 标题 + 状态
+        LinearLayout head = new LinearLayout(ctx);
+        head.setOrientation(HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView title = new TextView(ctx);
+        title.setText(t.title);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        title.setMaxLines(1);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        head.addView(title, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        if (completed) {
+            TextView size = new TextView(ctx);
+            size.setText(t.file != null ? fmtSize(t.file.length()) : "");
+            size.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            size.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            head.addView(size);
+            TextView play = new TextView(ctx);
+            play.setText("  播放");
+            play.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            play.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+            head.addView(play);
+            row.setOnClickListener(v -> playCached(t));
+        } else if (t.state == OfflineCache.Task.State.FAILED) {
+            TextView err = new TextView(ctx);
+            err.setText("  " + (t.error == null ? "失败" : t.error));
+            err.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            err.setTextColor(0xFFE53935);
+            head.addView(err);
+        } else {
+            TextView pct = new TextView(ctx);
+            pct.setText("  " + t.progress() + "%");
+            pct.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            pct.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+            head.addView(pct);
+            TextView cancel = new TextView(ctx);
+            cancel.setText("  取消");
+            cancel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            cancel.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            cancel.setOnClickListener(v -> offlineCache.cancel(t));
+            head.addView(cancel);
+        }
+        row.addView(head);
+
+        // 进行中的进度条
+        if (!completed && t.state != OfflineCache.Task.State.FAILED) {
+            android.widget.ProgressBar pb = new android.widget.ProgressBar(ctx,
+                    null, android.R.attr.progressBarStyleHorizontal);
+            pb.setMax(100);
+            pb.setProgress(t.progress());
+            LayoutParams plp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6));
+            plp.topMargin = dp(6);
+            row.addView(pb, plp);
+
+            TextView detail = new TextView(ctx);
+            String d;
+            if (t.totalParts > 0) {
+                d = "分段 " + t.doneParts + "/" + t.totalParts + " · " + fmtSize(t.doneBytes);
+            } else {
+                d = fmtSize(t.doneBytes)
+                        + (t.totalBytes > 0 ? " / " + fmtSize(t.totalBytes) : "");
+            }
+            detail.setText(d);
+            detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            detail.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            LayoutParams dlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            dlp.topMargin = dp(3);
+            detail.setLayoutParams(dlp);
+            row.addView(detail);
+        }
+
+        // 已完成：长按删除
+        if (completed) {
+            row.setOnLongClickListener(v -> {
+                offlineCache.remove(t);
+                return true;
+            });
+        }
+        return row;
+    }
+
+    /** 播放已缓存的本地文件（直接走统一播放器） */
+    private void playCached(OfflineCache.Task t) {
+        if (t.file == null || !t.file.exists()) {
+            ModuleUiKit.toast(ctx, "文件不存在，可能已被清理");
+            return;
+        }
+        try {
+            Intent i = new Intent(ctx, MediaPlayerActivity.class);
+            i.putExtra(MediaPlayerActivity.EXTRA_PATH, t.file.getAbsolutePath());
+            i.putExtra(MediaPlayerActivity.EXTRA_TITLE, t.title);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(i);
+        } catch (Throwable ex) {
+            ModuleUiKit.toast(ctx, "无法打开播放器：" + ex.getMessage());
+        }
+    }
+
+    /**
+     * 缓存入口（详情页「缓存本集」调用）：把**最佳线路的第一集**入队。
+     * 与播放共用同一解析链路，拿到的直链与请求头一并交给缓存。
+     */
+    public void cacheEpisode(final AnimeSource src, final Subject sub, final Channel ch) {
+        if (offlineCache == null || ch == null || ch.episodes == null || ch.episodes.isEmpty()) {
+            ModuleUiKit.toast(ctx, "该线路无单集");
+            return;
+        }
+        final Episode ep = ch.episodes.get(0);
+        tvStatus.setText("解析缓存地址…");
+        new Thread(() -> {
+            try {
+                SourceEngine engine = new SourceEngine();
+                PlayLink link = engine.resolve(src, ep, ch.name);
+                if (link == null || link.url == null) {
+                    ui(() -> ModuleUiKit.toast(ctx, "解析失败，无法缓存"));
+                    return;
+                }
+                final String title = (currentEntry != null ? currentEntry.title + " · " : "")
+                        + ep.title;
+                OfflineCache.Task task = offlineCache.enqueue(
+                        title, link.url, link.headers);
+                ui(() -> {
+                    if (task == null) {
+                        ModuleUiKit.toast(ctx, "该资源已在缓存队列");
+                    } else {
+                        ModuleUiKit.toast(ctx, "已加入缓存队列");
+                        switchTab("cache");
+                    }
+                });
+            } catch (Throwable e) {
+                final String msg = e.getMessage();
+                ui(() -> ModuleUiKit.toast(ctx, "解析失败：" + msg));
+            }
+        }, "cache-enqueue").start();
+    }
+
+    private String fmtSize(long bytes) {
+        if (bytes <= 0) return "0 B";
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1048576) return String.format(java.util.Locale.CHINA, "%.1f KB", bytes / 1024.0);
+        if (bytes < 1073741824L) return String.format(java.util.Locale.CHINA, "%.1f MB", bytes / 1048576.0);
+        return String.format(java.util.Locale.CHINA, "%.2f GB", bytes / 1073741824.0);
     }
 
     /** 说明面板：模块能力与合规说明（阶段 4 的模块告知在此可随时查看） */
@@ -1137,6 +1390,22 @@ public class AnimeView extends LinearLayout {
             box.addView(desc);
         }
 
+        // 操作行：缓存本集（离线缓存入口）
+        LinearLayout actions = new LinearLayout(ctx);
+        actions.setOrientation(HORIZONTAL);
+        LayoutParams alp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        alp.topMargin = dp(4);
+        actions.setLayoutParams(alp);
+        TextView cacheBtn = btn("缓存本集（离线观看）",
+                color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorPrimary));
+        cacheBtn.setGravity(Gravity.CENTER);
+        cacheBtn.setOnClickListener(v -> startCacheCurrent(e));
+        actions.addView(cacheBtn, new LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        box.addView(actions);
+
         // 分隔 + 小标题
         TextView sep = ModuleUiKit.sectionHeader(ctx, "可用播放源");
         LayoutParams slp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1242,6 +1511,73 @@ public class AnimeView extends LinearLayout {
     }
 
     /** 只数选源行（详情头部也是 LinearLayout，需跳过） */
+    /** 详情页「缓存本集」：查源 → 取 tier 最优线路 → 入队 */
+    private void startCacheCurrent(final AnimeMetadata.Entry entry) {
+        final List<AnimeSource> srcs = repo.active();
+        if (srcs.isEmpty()) {
+            ModuleUiKit.toast(ctx, "还没有源");
+            return;
+        }
+        tvStatus.setText("解析缓存线路…");
+        final java.util.List<String> kws = entry.searchKeywords();
+        if (kws.isEmpty()) {
+            ModuleUiKit.toast(ctx, "缺少关键词");
+            return;
+        }
+        // 复用多关键词搜源：找到第一条可用线路即入队
+        cachePickAndEnqueue(srcs, kws, 0, entry);
+    }
+
+    private void cachePickAndEnqueue(final List<AnimeSource> srcs,
+                                     final java.util.List<String> kws, final int idx,
+                                     final AnimeMetadata.Entry entry) {
+        if (idx >= kws.size()) {
+            ui(() -> {
+                tvStatus.setText("无可用源可缓存");
+                ModuleUiKit.toast(ctx, "没有找到可缓存的源");
+            });
+            return;
+        }
+        final String kw = kws.get(idx);
+        ui(() -> tvStatus.setText("查源… 关键词 " + (idx + 1) + "/" + kws.size()));
+        searcher.search(srcs, kw, new AnimeSearchManager.Callback() {
+            volatile boolean got = false;
+
+            @Override public void onStart(int total) { }
+
+            @Override public void onSourceDone(final AnimeSource source, List<Subject> subjects) {
+                if (got || subjects == null || subjects.isEmpty()) return;
+                got = true;
+                new Thread(() -> {
+                    try {
+                        SourceEngine engine = new SourceEngine();
+                        List<Channel> chs = engine.channels(source, subjects.get(0));
+                        if (chs == null || chs.isEmpty()) return;
+                        // 取 tier 最优线路
+                        Channel best = null;
+                        for (Channel c : chs) {
+                            if (c.episodes == null || c.episodes.isEmpty()) continue;
+                            if (best == null || source.tierFor(c.name) < source.tierFor(best.name)) best = c;
+                        }
+                        if (best == null) return;
+                        final Channel chosen = best;
+                        // 入队（cacheEpisode 会解析直链）
+                        ui(() -> cacheEpisode(source, subjects.get(0), chosen));
+                    } catch (Throwable ignored) {
+                    }
+                }, "cache-pick").start();
+            }
+
+            @Override public void onSourceError(AnimeSource source, String reason) { }
+
+            @Override public void onProgress(int done, int total) { }
+
+            @Override public void onAllDone(int ok, int total) {
+                if (!got) cachePickAndEnqueue(srcs, kws, idx + 1, entry);
+            }
+        });
+    }
+
     private int countSelectorRows() {
         if (listBox == null) return 0;
         int n = 0;
