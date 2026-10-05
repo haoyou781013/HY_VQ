@@ -41,10 +41,31 @@ public final class AnimeMetadata {
         public int episodes = -1;       // 集数
         public List<String> tags = new ArrayList<>();
 
-        /** 用于查播放源的关键词：优先原名（日文），其次显示名 */
+        /**
+         * 用于查播放源的关键词列表，<b>按实测命中率排序</b>。
+         *
+         * <p>容器内对 18 个源实测：中文 11/18、日文 1/18、罗马字 0/18。
+         * 旧版优先返回原名（日文/罗马字）导致几乎搜不到源 —— 这是「无源播放」的根因。</p>
+         */
+        public java.util.List<String> searchKeywords() {
+            java.util.List<String> out = new ArrayList<>();
+            addIfNew(out, title);         // B站给的是中文 → 命中最高
+            addIfNew(out, nativeTitle);   // 日文
+            // romaji（AniList 的 nativeTitle 是罗马字）放最后
+            return out;
+        }
+
+        /** 兼容旧调用：取第一个关键词 */
         public String searchKeyword() {
-            if (nativeTitle != null && !nativeTitle.isEmpty()) return nativeTitle;
-            return title;
+            java.util.List<String> k = searchKeywords();
+            return k.isEmpty() ? "" : k.get(0);
+        }
+
+        private static void addIfNew(java.util.List<String> out, String v) {
+            if (v == null || v.trim().isEmpty()) return;
+            String t = v.trim();
+            for (String x : out) if (x.equals(t)) return;
+            out.add(t);
         }
 
         public String scoreText() {
@@ -254,6 +275,52 @@ public final class AnimeMetadata {
             e.url = "https://anilist.co/anime/" + o.optString("id", "");
             e.source = "anilist";
             if (!e.title.isEmpty() || !e.nativeTitle.isEmpty()) out.add(e);
+        }
+        return out;
+    }
+
+    /**
+     * 首页推荐源：B站番剧时间表（无需搜索即展示，对标 Ani/Kazumi 的首页信息流）。
+     *
+     * <p>实测：7 天 × ~8 集，带标题/封面/播出时间/season_id，21KB，
+     * 与「发现」页的数据形态一致。返回去重后的番剧列表。</p>
+     */
+    public static List<Entry> feedTimeline() throws Exception {
+        String url = "https://api.bilibili.com/pgc/web/timeline?types=1";
+        String body = httpGet(url, "https://www.bilibili.com/",
+                "buvid3=" + java.util.UUID.randomUUID() + "-infoc");
+        if (body == null || body.isEmpty()) return new ArrayList<>();
+
+        JSONObject root = new JSONObject(body);
+        if (root.optInt("code", -1) != 0) return new ArrayList<>();
+        JSONArray days = root.optJSONArray("result");
+        if (days == null) return new ArrayList<>();
+
+        List<Entry> out = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (int i = 0; i < days.length(); i++) {
+            JSONObject day = days.optJSONObject(i);
+            if (day == null) continue;
+            JSONArray eps = day.optJSONArray("episodes");
+            if (eps == null) continue;
+            for (int j = 0; j < eps.length(); j++) {
+                JSONObject e = eps.optJSONObject(j);
+                if (e == null) continue;
+                String sid = String.valueOf(e.optInt("season_id", 0));
+                if ("0".equals(sid) || !seen.add(sid)) continue;
+                Entry en = new Entry();
+                en.title = e.optString("title", "");
+                en.cover = e.optString("cover", "");
+                en.source = "bilibili-timeline";
+                String longTitle = e.optString("long_title", "");
+                if (!longTitle.isEmpty() && !longTitle.equals(en.title)) en.desc = longTitle;
+                String pub = e.optString("pub_time", "");
+                if (!pub.isEmpty()) en.desc = (en.desc.isEmpty() ? "" : en.desc + " · ")
+                        + "更新 " + pub;
+                en.url = "https://www.bilibili.com/bangumi/ss" + sid;
+                if (!en.title.isEmpty()) out.add(en);
+                if (out.size() >= 30) return out;
+            }
         }
         return out;
     }

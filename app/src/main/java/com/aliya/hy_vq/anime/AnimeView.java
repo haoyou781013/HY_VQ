@@ -91,6 +91,8 @@ public class AnimeView extends LinearLayout {
     private AnimeMetadata.Entry currentEntry;
     /** 选源器是否正在加载 */
     private volatile boolean selectorLoading;
+    /** 最近一次搜索结果（空 → 返回时展示推荐流） */
+    private List<AnimeMetadata.Entry> lastSearchEntries = null;
 
     private EditText etKeyword;
     private LinearLayout resultBox;
@@ -108,6 +110,7 @@ public class AnimeView extends LinearLayout {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         buildUi();
         refreshStatus();
+        loadFeed();   // 首页推荐（P2）
         // 阶段 4：模块级二次告知（首次进入动漫页时）
         showModuleNoticeIfNeeded();
     }
@@ -564,6 +567,42 @@ public class AnimeView extends LinearLayout {
 
     // ══════════════════ 搜索 ══════════════════
 
+    /**
+     * 首页推荐（P2）：对标 Ani/Kazumi 首页信息流——无需搜索即展示新番。
+     * 数据源：B站番剧时间表（7天，实测 21KB 带封面）。
+     */
+    private void loadFeed() {
+        if (listBox == null) return;
+        listBox.removeAllViews();
+        TextView hint = new TextView(ctx);
+        hint.setText("本周新番（B站番剧时间表）· 点击查看可用源");
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        hint.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        hint.setPadding(dp(4), dp(6), dp(4), dp(4));
+        listBox.addView(hint);
+        tvStatus.setText("加载推荐中…");
+
+        new Thread(() -> {
+            try {
+                final List<AnimeMetadata.Entry> feed = AnimeMetadata.feedTimeline();
+                ui(() -> {
+                    if (feed == null || feed.isEmpty()) {
+                        tvStatus.setText("推荐加载失败（不影响搜索）");
+                        return;
+                    }
+                    int i = 0;
+                    for (AnimeMetadata.Entry e : feed) {
+                        listBox.addView(buildMetadataCard(e));
+                        if (++i >= 20) break;
+                    }
+                    tvStatus.setText(feed.size() + " 部新番在播 · 或直接搜索");
+                });
+            } catch (Throwable t) {
+                ui(() -> tvStatus.setText("推荐加载失败（不影响搜索）"));
+            }
+        }, "feed-load").start();
+    }
+
     private void doSearch() {
         final String kw = etKeyword.getText().toString().trim();
         if (kw.isEmpty()) {
@@ -579,6 +618,7 @@ public class AnimeView extends LinearLayout {
                     ui(() -> renderMetadata(list)));
             ui(() -> {
                 if (entries == null || entries.isEmpty()) {
+                    lastSearchEntries = entries;
                     listBox.removeAllViews();
                     TextView empty = new TextView(ctx);
                     empty.setText("没有找到相关番剧，换个关键词试试");
@@ -588,6 +628,7 @@ public class AnimeView extends LinearLayout {
                     listBox.addView(empty);
                     tvStatus.setText("0 条结果");
                 } else {
+                    lastSearchEntries = entries;
                     renderMetadata(entries);
                     tvStatus.setText(entries.size() + " 部 · 点任意一部查看可用源");
                 }
@@ -759,6 +800,8 @@ public class AnimeView extends LinearLayout {
         if (tvStatus != null) tvStatus.setVisibility(View.VISIBLE);
         if (listBox != null) listBox.removeAllViews();
         refreshStatus();
+        // 若当前无搜索结果，回到推荐流（P2）
+        if (lastSearchEntries == null || lastSearchEntries.isEmpty()) loadFeed();
     }
 
     /**
@@ -857,52 +900,235 @@ public class AnimeView extends LinearLayout {
         if (stageSearchBar != null) stageSearchBar.setVisibility(View.GONE);
         if (listBox != null) listBox.removeAllViews();
         tvStatus.setVisibility(View.VISIBLE);
+
+        // ── 详情页（P1：封面 + 评分 + 集数 + 标签 + 简介）──
+        listBox.addView(buildDetailHeader(entry));
+
+        TextView loading = new TextView(ctx);
+        loading.setText("正在聚合可用源…");
+        loading.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        loading.setPadding(dp(4), dp(10), dp(4), dp(4));
+        loading.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        listBox.addView(loading);
         tvStatus.setText("正在聚合该番剧的可用源…");
 
-        // 关键词：原名（日文）优先，其次中文名
-        final String kw = entry.searchKeyword();
+        // ── P3：多关键词按命中率依次试（中文 11/18 > 日文 1/18 > 罗马字 0/18）──
+        final java.util.List<String> kws = entry.searchKeywords();
+        if (kws.isEmpty()) {
+            loading.setText("该条目缺少可用关键词");
+            return;
+        }
+        trySourcesWithKeywords(srcs, kws, 0, entry, loading);
+    }
 
-        // 第一步：并发搜源
-        searcher.search(srcs, kw, new AnimeSearchManager.Callback() {
-            @Override public void onStart(int total) {
-                ui(() -> tvStatus.setText("搜索播放源… 0/" + total));
+    /** 详情页头部：大封面 + 标题 + 评分/集数 + 标签 + 简介 */
+    private View buildDetailHeader(AnimeMetadata.Entry e) {
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(VERTICAL);
+        box.setPadding(dp(4), dp(4), dp(4), dp(8));
+
+        // 顶部：封面 + 基本信息
+        LinearLayout top = new LinearLayout(ctx);
+        top.setOrientation(HORIZONTAL);
+
+        android.widget.ImageView cover = new android.widget.ImageView(ctx);
+        cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        cover.setBackground(ModuleUiKit.rounded(ctx, 8,
+                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+        top.addView(cover, new LayoutParams(dp(92), dp(128)));
+        if (e.cover != null && !e.cover.isEmpty()) loadCover(cover, e.cover);
+
+        LinearLayout info = new LinearLayout(ctx);
+        info.setOrientation(VERTICAL);
+        LayoutParams ilp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        ilp.leftMargin = dp(12);
+        info.setLayoutParams(ilp);
+
+        TextView title = new TextView(ctx);
+        title.setText(e.title);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        info.addView(title);
+
+        if (e.nativeTitle != null && !e.nativeTitle.isEmpty()
+                && !e.nativeTitle.equals(e.title)) {
+            TextView nt = new TextView(ctx);
+            nt.setText(e.nativeTitle);
+            nt.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            nt.setMaxLines(2);
+            nt.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            nt.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            LayoutParams nlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            nlp.topMargin = dp(3);
+            nt.setLayoutParams(nlp);
+            info.addView(nt);
+        }
+
+        // 评分 / 集数 徽标行
+        LinearLayout badges = new LinearLayout(ctx);
+        badges.setOrientation(HORIZONTAL);
+        LayoutParams blp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.topMargin = dp(8);
+        badges.setLayoutParams(blp);
+        if (e.score >= 0) {
+            badges.addView(detailBadge("★ " + e.scoreText(), true));
+        }
+        if (e.episodes > 0) {
+            badges.addView(detailBadge(e.episodes + " 集", false));
+        }
+        if (!e.source.isEmpty()) {
+            badges.addView(detailBadge(e.source, false));
+        }
+        info.addView(badges);
+
+        // 标签
+        if (e.tags != null && !e.tags.isEmpty()) {
+            TextView tg = new TextView(ctx);
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < e.tags.size() && i < 6; i++) {
+                if (i > 0) sb.append(" · ");
+                sb.append(e.tags.get(i));
             }
+            tg.setText(sb.toString());
+            tg.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            tg.setMaxLines(2);
+            tg.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            tg.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            LayoutParams tlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            tlp.topMargin = dp(6);
+            tg.setLayoutParams(tlp);
+            info.addView(tg);
+        }
+
+        top.addView(info);
+        box.addView(top);
+
+        // 简介
+        if (e.desc != null && !e.desc.isEmpty()) {
+            TextView desc = new TextView(ctx);
+            String d = e.desc.length() > 300 ? e.desc.substring(0, 300) + "…" : e.desc;
+            desc.setText(d.replaceAll("<[^>]+>", ""));
+            desc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            desc.setMaxLines(5);
+            desc.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            desc.setLineSpacing(0, 1.4f);
+            desc.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+            LayoutParams dlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            dlp.topMargin = dp(10);
+            desc.setLayoutParams(dlp);
+            box.addView(desc);
+        }
+
+        // 分隔 + 小标题
+        TextView sep = ModuleUiKit.sectionHeader(ctx, "可用播放源");
+        LayoutParams slp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.topMargin = dp(4);
+        sep.setLayoutParams(slp);
+        box.addView(sep);
+
+        return box;
+    }
+
+    private TextView detailBadge(String text, boolean highlight) {
+        TextView t = new TextView(ctx);
+        t.setText(text);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        t.setPadding(dp(7), dp(3), dp(7), dp(3));
+        t.setTextColor(highlight
+                ? color(com.google.android.material.R.attr.colorOnPrimary)
+                : color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        t.setBackground(ModuleUiKit.rounded(ctx, 10,
+                color(highlight ? com.google.android.material.R.attr.colorPrimary
+                        : com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+        LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(6);
+        t.setLayoutParams(lp);
+        return t;
+    }
+
+    /**
+     * 按关键词列表依次尝试搜源，任一关键词命中即停（P3）。
+     * 中文关键词实测命中 11/18，日文仅 1/18 —— 顺序即命中率。
+     */
+    private void trySourcesWithKeywords(final List<AnimeSource> srcs,
+                                        final java.util.List<String> kws,
+                                        final int idx,
+                                        final AnimeMetadata.Entry entry,
+                                        final TextView loading) {
+        if (idx >= kws.size()) {
+            // 全部关键词都无源
+            selectorLoading = false;
+            ui(() -> {
+                loading.setText("没有源能提供这部番剧（试过 " + kws.size() + " 组关键词）");
+                tvStatus.setText("无可用源 · 可在「源」Tab 一键测评看源是否失效");
+            });
+            return;
+        }
+        final String kw = kws.get(idx);
+        ui(() -> {
+            loading.setText("正在聚合可用源…（关键词：" + kw + "）");
+            tvStatus.setText("聚合中 · 关键词 " + (idx + 1) + "/" + kws.size());
+        });
+
+        searcher.search(srcs, kw, new AnimeSearchManager.Callback() {
+            final java.util.concurrent.atomic.AtomicInteger got =
+                    new java.util.concurrent.atomic.AtomicInteger(0);
+
+            @Override public void onStart(int total) { }
+
             @Override public void onSourceDone(final AnimeSource source, List<Subject> subjects) {
-                // 第二步：拿到该源的番剧条目后，取它的线路
                 if (subjects == null || subjects.isEmpty()) return;
+                got.incrementAndGet();
                 new Thread(() -> {
                     try {
                         SourceEngine engine = new SourceEngine();
                         List<Channel> chs = engine.channels(source, subjects.get(0));
                         if (chs != null && !chs.isEmpty()) {
-                            ui(() -> addSelectorRow(source, subjects.get(0), chs));
+                            ui(() -> {
+                                loading.setVisibility(View.GONE);
+                                addSelectorRow(source, subjects.get(0), chs);
+                            });
                         }
                     } catch (Throwable ignored) {
                     }
                 }, "fetch-channels").start();
             }
+
             @Override public void onSourceError(AnimeSource source, String reason) { }
+
             @Override public void onProgress(int done, int total) {
-                ui(() -> tvStatus.setText("聚合中… " + done + "/" + total));
+                ui(() -> tvStatus.setText("聚合中 " + done + "/" + total + " · 关键词「" + kw + "」"));
             }
+
             @Override public void onAllDone(int ok, int total) {
-                ui(() -> {
-                    selectorLoading = false;
-                    if (listBox.getChildCount() == 0) {
-                        tvStatus.setText("没有源能提供这部番剧（" + ok + "/" + total
-                                + " 源有搜索结果）");
-                        TextView tip = new TextView(ctx);
-                        tip.setText("试试换个关键词，或在「源管理」检查源是否失效");
-                        tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-                        tip.setPadding(dp(4), dp(14), dp(4), dp(4));
-                        tip.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
-                        listBox.addView(tip);
-                    } else {
-                        tvStatus.setText(listBox.getChildCount() + " 个源可用 · 点线路播放");
-                    }
-                });
+                if (got.get() > 0) {
+                    ui(() -> {
+                        selectorLoading = false;
+                        int n = countSelectorRows();
+                        tvStatus.setText(n + " 个源可用 · 点线路播放");
+                    });
+                } else {
+                    // 本关键词无果 → 换下一个
+                    trySourcesWithKeywords(srcs, kws, idx + 1, entry, loading);
+                }
             }
         });
+    }
+
+    private int countSelectorRows() {
+        int n = 0;
+        if (listBox == null) return 0;
+        for (int i = 0; i < listBox.getChildCount(); i++) {
+            if (listBox.getChildAt(i) instanceof LinearLayout) n++;
+        }
+        return n;
     }
 
     /**
