@@ -115,9 +115,45 @@ public final class AnimeMetadata {
         } finally {
             pool.shutdownNow();
         }
+        // 英文/日文路由拿到的条目缺中文名 → 用日文反查 B站 补全
+        // （实测：B站搜日文可命中并返回中文标题；搜英文则 0 命中）
+        enrichChineseTitles(merged);
+
         // 按评分降序（无评分排后）
         merged.sort((a, b) -> Integer.compare(rank(b), rank(a)));
         return merged;
+    }
+
+    /**
+     * 为缺中文名的条目补中文标题。
+     *
+     * <p>为什么需要：源站几乎只认中文（中文 11/18 命中 vs 日文 1/18）。
+     * 走 AniList（英/日文路由）时拿不到中文名，若不补全，Stage2 只能用
+     * 日文/罗马字搜源 → 几乎无源。实测 B站<b>搜日文可反查到中文标题</b>。</p>
+     *
+     * <p>只处理前 6 条无中文名的（限流），中文路由的条目本就跳过。</p>
+     */
+    private static void enrichChineseTitles(List<Entry> entries) {
+        int budget = 6;
+        for (Entry e : entries) {
+            if (budget <= 0) break;
+            if (containsCjk(e.title)) continue;           // 已有中文名
+            if (!containsCjk(e.nativeTitle)) continue;    // 没有日文可反查
+            budget--;
+            try {
+                List<Entry> got = searchBili(e.nativeTitle);
+                if (got == null) continue;
+                for (Entry g : got) {
+                    if (containsCjk(g.title) && sameAnime(e, g)) {
+                        e.title = g.title;                // 补中文名
+                        if (e.cover == null || e.cover.isEmpty()) e.cover = g.cover;
+                        if (e.episodes < 0 && g.episodes > 0) e.episodes = g.episodes;
+                        break;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     private static int rank(Entry e) {

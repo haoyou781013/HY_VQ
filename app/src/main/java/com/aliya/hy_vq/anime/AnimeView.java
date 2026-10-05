@@ -1108,24 +1108,32 @@ public class AnimeView extends LinearLayout {
             }
 
             @Override public void onAllDone(int ok, int total) {
-                if (got.get() > 0) {
+                // 渠道异步取线路，稍等再判定是否真的有源
+                new Thread(() -> {
+                    try { Thread.sleep(1500); } catch (InterruptedException ignored) { }
                     ui(() -> {
-                        selectorLoading = false;
-                        int n = countSelectorRows();
-                        tvStatus.setText(n + " 个源可用 · 点线路播放");
+                        int rows = countSelectorRows();
+                        if (rows > 0) {
+                            selectorLoading = false;
+                            tvStatus.setText(rows + " 个源可用 · 点线路播放");
+                        } else if (got.get() > 0) {
+                            // 搜到条目但取不到线路 → 试下一个关键词
+                            trySourcesWithKeywords(srcs, kws, idx + 1, entry, loading);
+                        } else {
+                            trySourcesWithKeywords(srcs, kws, idx + 1, entry, loading);
+                        }
                     });
-                } else {
-                    // 本关键词无果 → 换下一个
-                    trySourcesWithKeywords(srcs, kws, idx + 1, entry, loading);
-                }
+                }, "kw-decide").start();
             }
         });
     }
 
+    /** 只数选源行（详情头部也是 LinearLayout，需跳过） */
     private int countSelectorRows() {
-        int n = 0;
         if (listBox == null) return 0;
-        for (int i = 0; i < listBox.getChildCount(); i++) {
+        int n = 0;
+        // 详情头部固定是第 0 个子项，从 1 开始数
+        for (int i = 1; i < listBox.getChildCount(); i++) {
             if (listBox.getChildAt(i) instanceof LinearLayout) n++;
         }
         return n;
