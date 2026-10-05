@@ -38,16 +38,23 @@ public final class Aurora {
 
     // ══════════════ 色板 ══════════════
 
-    /** 三段主渐变：紫 → 粉 → 橙（导航条 / 主按钮 / 强调） */
+    /**
+     * 三段主渐变：紫 → 粉 → 橙 —— <b>全模块唯一强调色</b>。
+     *
+     * <p>原设计有五个色组（主/薄荷/日落/冷紫…），观感花、信息反而弱。
+     * 按「配色统一」收敛为：本组 + {@link #G_HERO}（同色相的深色头部版）。</p>
+     */
     public static final int[] G_MAIN = {0xFF7C4DFF, 0xFFFF4D8D, 0xFFFF9E4D};
-    /** 头部两段渐变（深起手，避免顶部撞白） */
+    /** 头部深色渐变：同一色系的深紫起手版，只用于 Hero/返回条等深底区 */
     public static final int[] G_HERO = {0xFF4A2A7A, 0xFF7C4DFF, 0xFFFF4D8D};
-    /** 薄荷青蓝（成功 / 已完成 / 弹幕开） */
-    public static final int[] G_MINT = {0xFF00E5A0, 0xFF00C2FF};
-    /** 日落橙红（热 / 评分） */
-    public static final int[] G_SUN = {0xFFFFC64D, 0xFFFF6B4D};
-    /** 冷紫蓝（缓存 / 进行中） */
-    public static final int[] G_ICE = {0xFF6A5AE0, 0xFF7C4DFF};
+
+    // ── 以下为历史别名，全部指向 G_MAIN（配色统一），不再引入新色相 ──
+    /** @deprecated 已统一到 {@link #G_MAIN} */
+    @Deprecated public static final int[] G_MINT = G_MAIN;
+    /** @deprecated 已统一到 {@link #G_MAIN} */
+    @Deprecated public static final int[] G_SUN = G_MAIN;
+    /** @deprecated 已统一到 {@link #G_MAIN} */
+    @Deprecated public static final int[] G_ICE = G_MAIN;
 
     // ══════════════ 圆角 ══════════════
     public static final int R_CARD = 28;

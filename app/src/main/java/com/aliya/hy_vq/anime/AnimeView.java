@@ -400,7 +400,7 @@ public class AnimeView extends LinearLayout {
 
     /**
      * 单个 Tab：图标 + 文字竖排；<b>选中态是渐变胶囊</b>（主渐变紫→粉→橙），
-     * 图标与文字转白；未选中是透明 + 弱化色。切换时对选中项做 {@link Aurora#pulse}。
+     * 图标与文字转白；未选中是透明 + 弱化色。切换不带动画（用户要求：无过度动画）。
      */
     private void addAnimeTab(final String key, String text, int iconRes, View.OnClickListener onClick) {
         LinearLayout tab = new LinearLayout(ctx);
@@ -465,8 +465,7 @@ public class AnimeView extends LinearLayout {
                 GradientDrawable bg = Aurora.grad(ctx, Aurora.G_MAIN, dp(Aurora.R_PILL));
                 tab.setBackground(bg);
                 icon.setColorFilter(0xFFFFFFFF);
-                label.setTextColor(0xFFFFFFFF);
-                Aurora.pulse(icon);
+                label.setTextColor(0xFFFFFFFF);   // 呼吸动画已移除
             } else {
                 tab.setBackground(null);
                 int muted = 0x99FFFFFF;
@@ -515,8 +514,7 @@ public class AnimeView extends LinearLayout {
             empty.setText("暂无观看记录");
             empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
             empty.setPadding(dp(4), dp(12), dp(4), dp(4));
-            empty.setTextColor(Aurora.G_ICE[0]);
-            Aurora.enter(empty, 60);
+            empty.setTextColor(0xFF6A5AE0);
             historyListBox.addView(empty);
             return;
         }
@@ -1030,8 +1028,7 @@ public class AnimeView extends LinearLayout {
             }
         }
 
-        // stagger 入场：每张卡错开 45ms，形成"流"的观感（原为瞬显）
-        Aurora.enterAll(listBox, 10);
+        // 入场动画已移除（用户要求：无过度动画）
     }
 
     /**
@@ -1052,26 +1049,30 @@ public class AnimeView extends LinearLayout {
         card.setBackground(Aurora.grad(ctx, Aurora.G_ICE, r));
         card.setPadding(dp(3), dp(3), dp(3), dp(3));
 
-        // 封面（占满卡片，稍后叠遮罩）
+        // 封面容器：**必须 clipToOutline 裁到圆角**
+        // 教训：给 ImageView.setBackground(圆角) 只圆背景、不裁图片内容 →
+        // 方形图片溢出，把卡片渐变边框压到只剩底部可见。
         FrameLayout coverBox = new FrameLayout(ctx);
+        final int boxRadius = dp(Aurora.R_IMAGE);
+        coverBox.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View v, android.graphics.Outline o) {
+                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), boxRadius);
+            }
+        });
+        coverBox.setClipToOutline(true);
         card.addView(coverBox, new LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(200)));
 
         android.widget.ImageView cover = new android.widget.ImageView(ctx);
         cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-        GradientDrawable cbg = new GradientDrawable();
-        cbg.setColor(color(com.google.android.material.R.attr.colorSurfaceContainerHigh));
-        cbg.setCornerRadius(dp(Aurora.R_IMAGE));
-        cover.setBackground(cbg);
         coverBox.addView(cover, new LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         if (e.cover != null && !e.cover.isEmpty()) loadCover(cover, e.cover);
 
-        // 底部渐变遮罩（透明 → 近黑），标题压其上
+        // 底部渐变遮罩（同被裁剪，与封面共用同一圆角）
         View scrim = new View(ctx);
         GradientDrawable sg = new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
                 new int[]{0xCC1A1030, 0x001A1030});
-        sg.setCornerRadius(dp(Aurora.R_IMAGE));
         coverBox.addView(scrim, new LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         scrim.setBackground(sg);
@@ -1478,7 +1479,15 @@ public class AnimeView extends LinearLayout {
         // ── Banner：封面 240dp，渐变遮罩，标题压底 ──
         FrameLayout banner = new FrameLayout(ctx);
         banner.setClipChildren(true);
-        GradientDrawable brBg = Aurora.grad(ctx, Aurora.G_ICE, dp(Aurora.R_CARD));
+        // 同探索卡片：必须 clipToOutline，否则方形封面会盖掉渐变圆角边框
+        final int bnRadius = dp(Aurora.R_CARD);
+        banner.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View v, android.graphics.Outline o) {
+                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), bnRadius);
+            }
+        });
+        banner.setClipToOutline(true);
+        GradientDrawable brBg = Aurora.grad(ctx, Aurora.G_MAIN, dp(Aurora.R_CARD));
         banner.setBackground(brBg);
         LayoutParams blp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(240));
         blp.topMargin = dp(4);
@@ -1486,10 +1495,6 @@ public class AnimeView extends LinearLayout {
 
         android.widget.ImageView cover = new android.widget.ImageView(ctx);
         cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-        GradientDrawable cBg = new GradientDrawable();
-        cBg.setColor(color(com.google.android.material.R.attr.colorSurfaceContainerHigh));
-        cBg.setCornerRadius(dp(Aurora.R_IMAGE));
-        cover.setBackground(cBg);
         banner.addView(cover, new LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         if (e.cover != null && !e.cover.isEmpty()) loadCover(cover, e.cover);
@@ -1498,7 +1503,6 @@ public class AnimeView extends LinearLayout {
         View scrim = new View(ctx);
         GradientDrawable sg = new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
                 new int[]{0xE6160C28, 0x00160C28});
-        sg.setCornerRadius(dp(Aurora.R_IMAGE));
         scrim.setBackground(sg);
         banner.addView(scrim, new LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
