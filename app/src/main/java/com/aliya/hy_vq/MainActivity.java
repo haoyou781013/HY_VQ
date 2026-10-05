@@ -1315,6 +1315,11 @@ public class MainActivity extends AppCompatActivity {
             return true;
         }
         // 顶层页面（侧边栏直达）统一返回首页
+        // 动漫页内部层级（详情页/非搜索 Tab）先消化返回
+        if (currentPageIndex == PAGE_ANIME && animeView != null
+                && animeView.onBackPressed()) {
+            return true;
+        }
         if (currentPageIndex == PAGE_FILEMGR
                 || currentPageIndex == PAGE_EMOJI
                 || currentPageIndex == PAGE_SHARE

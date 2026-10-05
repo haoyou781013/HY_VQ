@@ -792,6 +792,26 @@ public class AnimeView extends LinearLayout {
     }
 
     /** 回到第一段（元数据列表） */
+    /**
+     * 系统返回键处理。
+     *
+     * <p>Stage2（详情页/选源器）→ 先回 Stage1；非搜索 Tab → 先切回搜索 Tab；
+     * 都不是则交给上层（返回首页）。否则用户在详情页按返回会直接被踢回首页。</p>
+     *
+     * @return true 表示已消费该返回事件
+     */
+    public boolean onBackPressed() {
+        if (stageHeader != null && stageHeader.getVisibility() == View.VISIBLE) {
+            backToStage1();
+            return true;
+        }
+        if (currentTab != null && !"search".equals(currentTab)) {
+            switchTab("search");
+            return true;
+        }
+        return false;
+    }
+
     private void backToStage1() {
         currentEntry = null;
         selectorLoading = false;
