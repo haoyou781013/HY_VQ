@@ -71,7 +71,19 @@ public class DanmakuView extends View {
     private static final int LANES = 5;
 
     public DanmakuView(Context context) {
-        super(context);
+        this(context, null);
+    }
+
+    /**
+     * XML inflate 专用构造。
+     *
+     * <p><b>崩溃根因</b>：{@code activity_media_player.xml} 里写了
+     * {@code <com.aliya.hy_vq.player.DanmakuView>}，而本类只有单参构造 ——
+     * {@code LayoutInflater} 必须用 {@code (Context, AttributeSet)} 反射实例化，
+     * 找不到即抛 {@code NoSuchMethodException} → 播放页直接闪退。</p>
+     */
+    public DanmakuView(Context context, android.util.AttributeSet attrs) {
+        super(context, attrs);
         paint.setStyle(Paint.Style.FILL);
         paint.setShadowLayer(4, 1, 1, 0x80000000);
         laneLastAt = new long[LANES];
