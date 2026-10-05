@@ -374,18 +374,45 @@ public class AnimeView extends LinearLayout {
      * <p>原设计是单色圆角条 + 图标变色，信息弱；新设计让「选中」由**形状与色相**同时表达，
      * 远看也能一眼定位当前位置。</p>
      */
+    /**
+     * 底栏（按用户反馈重做）：
+     * <ul>
+     *   <li><b>高度</b>：原 50dp 显得太矮 → 提到 64dp 最小高；</li>
+     *   <li><b>背景</b>：原深紫不透明块在浅色页上"方方一块很显眼"，
+     *       改<b>浅色渐变</b>并与页面同调，视觉上不再是一块异物；</li>
+     *   <li><b>圆角</b>：用 clipToOutline 强制裁剪，杜绝"呈方形"；</li>
+     *   <li><b>切换</b>：无任何动画。</li>
+     * </ul>
+     */
     private LinearLayout buildBottomNav() {
         bottomNav = new LinearLayout(ctx);
         bottomNav.setOrientation(HORIZONTAL);
-        bottomNav.setGravity(Gravity.CENTER);
-        // 深紫底 + 大圆角，与内容区拉开层次
-        bottomNav.setBackground(Aurora.grad(ctx, new int[]{0xFF2E2350, 0xFF241A3A},
-                dp(Aurora.R_CARD)));
-        int pad = dp(5);
-        bottomNav.setPadding(pad, dp(5), pad, dp(5));
+        bottomNav.setGravity(Gravity.CENTER_VERTICAL);
+        bottomNav.setClipChildren(true);
+
+        // 浅色渐变（与主渐变同色相，仅降低饱和度）：浅紫 → 浅粉 → 浅橙
+        GradientDrawable bg = Aurora.grad(ctx,
+                new int[]{0xFFF4EEFF, 0xFFFFEEF4, 0xFFFFF4E9},
+                GradientDrawable.Orientation.TL_BR);
+        bg.setCornerRadius(dp(26));
+        bottomNav.setBackground(bg);
+        // 强制按圆角裁剪 —— 单靠 drawable 圆角在某些边界布局下会被裁成方形
+        final int navRadius = dp(26);
+        bottomNav.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View v, android.graphics.Outline o) {
+                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), navRadius);
+            }
+        });
+        bottomNav.setClipToOutline(true);
+
+        int pad = dp(6);
+        bottomNav.setPadding(pad, dp(7), pad, dp(7));   // 上下加高，解决"太低"
+        bottomNav.setMinimumHeight(dp(64));
+
         LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(8);
+        lp.bottomMargin = dp(6);
         bottomNav.setLayoutParams(lp);
 
         addAnimeTab("search", "探索", R.drawable.ic_search, v -> switchTab("search"));
@@ -467,8 +494,8 @@ public class AnimeView extends LinearLayout {
                 icon.setColorFilter(0xFFFFFFFF);
                 label.setTextColor(0xFFFFFFFF);   // 呼吸动画已移除
             } else {
-                tab.setBackground(null);
-                int muted = 0x99FFFFFF;
+                tab.setBackground(null);   // 浅色底上用深字，保证可读
+                int muted = 0xB0463A5F;
                 icon.setColorFilter(muted);
                 label.setTextColor(muted);
             }
@@ -479,7 +506,7 @@ public class AnimeView extends LinearLayout {
             Object[] tag = (Object[]) first.getTag();
             if (tag != null && tag.length >= 3) {
                 ((ImageView) tag[1]).setColorFilter(0xFFFFFFFF);
-                ((TextView) tag[2]).setTextColor(0xFFFFFFFF);
+                ((TextView) tag[2]).setTextColor(0xFFFFFFFF);   // 保持选中态白字
             }
         }
     }
