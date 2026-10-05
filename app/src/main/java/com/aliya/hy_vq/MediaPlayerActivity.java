@@ -77,6 +77,10 @@ public class MediaPlayerActivity extends Activity {
     public static final String EXTRA_HISTORY_KEY = "media_history_key";
     /** 续播起点（毫秒） */
     public static final String EXTRA_START_MS = "media_start_ms";
+    /** B站番剧 season_id（取弹幕用，<=0 表示不加载弹幕） */
+    public static final String EXTRA_DANMAKU_SEASON = "media_danmaku_season";
+    /** 集序号（1 起） */
+    public static final String EXTRA_DANMAKU_EP = "media_danmaku_ep";
 
     // ── 动漫模式（播放器内选集用；参考 Kazumi 的选集面板）──
     /** 集标题数组 */
@@ -167,6 +171,12 @@ public class MediaPlayerActivity extends Activity {
     private TextView tvPos, tvDur, tvTitle, tvCounter, tvAudioName;
     /** 播放器增强（对齐 Kazumi）：倍速与画面比例用文字按钮循环切换 */
     private TextView tvSpeed, tvRatio;
+    // ── 弹幕（基础版：B站弹幕源 + 自绘引擎）──
+    private com.aliya.hy_vq.player.DanmakuView danmakuView;
+    private TextView btnDanmaku;
+    private boolean danmakuOn = false;
+    private long danmakuSeasonId = -1;
+    private int danmakuEpNo = 1;
     private static final float[] SPEEDS = {1.0f, 1.25f, 1.5f, 2.0f, 0.5f, 0.75f};
     private static final String[] SPEED_LABELS = {"1.0×", "1.25×", "1.5×", "2.0×", "0.5×", "0.75×"};
     private static final int[] RATIOS = {
@@ -222,6 +232,7 @@ public class MediaPlayerActivity extends Activity {
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
             syncProgress();
+            syncDanmakuTime();
             handler.postDelayed(this, 500);
         }
     };
@@ -320,6 +331,7 @@ public class MediaPlayerActivity extends Activity {
                     updatePlayIcon(player.isPlaying());
                     handler.removeCallbacks(ticker);
                     handler.post(ticker);
+                    syncDanmakuTime();
                     if (player.getPlayWhenReady() && !player.isPlaying()) {
                         // READY 但未播（如暂停后的 seek），保持用户意图不动
                     }
@@ -369,6 +381,9 @@ public class MediaPlayerActivity extends Activity {
         btnNext.setOnClickListener(v -> step(1));
         ImageView btnList = findViewById(R.id.btn_player_list);
         if (btnList != null) btnList.setOnClickListener(v -> showPlaylistPicker());
+
+        // ── 弹幕（基础版）──
+        initDanmaku();
 
         // 内嵌错误浮层（用户要求：不要用弹出的界面）
         errorOverlay = findViewById(R.id.player_error_overlay);
@@ -691,6 +706,61 @@ public class MediaPlayerActivity extends Activity {
 
     private int dpInt(int v) {
         return (int) (getResources().getDisplayMetrics().density * v);
+    }
+
+    // ══════════════ 弹幕（基础版） ══════════════
+
+    /** 初始化弹幕：仅当有 season_id 时才展示开关并拉取弹幕 */
+    private void initDanmaku() {
+        danmakuView = findViewById(R.id.danmaku_view);
+        btnDanmaku = findViewById(R.id.btn_player_danmaku);
+        if (danmakuView == null || btnDanmaku == null) return;
+        if (danmakuSeasonId <= 0) return;        // 无 B站 元数据 → 不展示入口
+
+        btnDanmaku.setVisibility(View.VISIBLE);
+        btnDanmaku.setOnClickListener(v -> {
+            danmakuOn = !danmakuOn;
+            btnDanmaku.setText(danmakuOn ? "弹幕·开" : "弹幕");
+            btnDanmaku.setTextColor(danmakuOn
+                    ? 0xFF00E676 : android.graphics.Color.WHITE);
+            danmakuView.setEnabled(danmakuOn);
+            if (danmakuOn && danmakuView.count() == 0) loadDanmaku();
+            syncDanmakuTime();
+        });
+
+        // 后台预取弹幕（不阻塞起播）
+        new Thread(this::loadDanmaku, "danmaku-fetch").start();
+    }
+
+    private void loadDanmaku() {
+        try {
+            java.util.List<com.aliya.hy_vq.player.DanmakuView.Danmaku> list =
+                    com.aliya.hy_vq.anime.BilibiliDanmaku.fetch(danmakuSeasonId, danmakuEpNo);
+            final int n = list == null ? 0 : list.size();
+            runOnUiThread(() -> {
+                if (danmakuView == null) return;
+                if (list != null) danmakuView.setDanmaku(list);
+                if (n > 0) {
+                    danmakuView.setEnabled(danmakuOn);
+                    if (btnDanmaku != null && !danmakuOn) {
+                        btnDanmaku.setText("弹幕(" + n + ")");
+                    }
+                } else if (btnDanmaku != null) {
+                    btnDanmaku.setText("弹幕·无");
+                }
+                syncDanmakuTime();
+            });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 把播放进度同步给弹幕引擎（每次 ticker / 状态变化都调） */
+    private void syncDanmakuTime() {
+        if (danmakuView == null || player == null) return;
+        try {
+            danmakuView.syncTime(player.getCurrentPosition(), player.isPlaying());
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 把当前进度回写给观看历史（播放器与动漫模块之间靠 historyKey 解耦） */
@@ -1033,6 +1103,10 @@ public class MediaPlayerActivity extends Activity {
 
     @Override protected void onDestroy() {
         handler.removeCallbacks(ticker);
+        try {
+            if (danmakuView != null) danmakuView.clear();
+        } catch (Throwable ignored) {
+        }
         saveHistoryProgress();
         historyHandler.removeCallbacks(historyTick);
         try {

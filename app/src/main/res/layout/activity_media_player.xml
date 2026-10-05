@@ -21,6 +21,15 @@
         app:surface_type="surface_view"
         app:use_controller="false" />
 
+        <!-- 弹幕覆盖层（叠在播放画面上；不拦截触摸，点击仍走播放器控制） -->
+        <com.aliya.hy_vq.player.DanmakuView
+            android:id="@+id/danmaku_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clickable="false"
+            android:focusable="false"
+            android:visibility="gone" />
+
     <!-- 音频播放时的占位（无画面，用此替代黑屏） -->
     <LinearLayout
         android:id="@+id/audio_placeholder"
@@ -244,6 +253,19 @@
                     android:paddingHorizontal="10dp"
                     android:paddingVertical="6dp"
                     android:text="选集"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/btn_player_danmaku"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:background="#22FFFFFF"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="6dp"
+                    android:text="弹幕"
                     android:textColor="#FFFFFF"
                     android:textSize="12sp"
                     android:visibility="gone" />

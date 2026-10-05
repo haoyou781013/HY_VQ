@@ -1503,6 +1503,18 @@ public class AnimeView extends LinearLayout {
                 epTitles, epUrls, epIndex,
                 src != null ? src.rawJson : null,
                 ch != null ? ch.name : null);
+        // 弹幕（基础版）：带上 B站 season_id 与集序，播放器据此拉弹幕
+        if (currentEntry != null && currentEntry.seasonId > 0) {
+            i.putExtra(MediaPlayerActivity.EXTRA_DANMAKU_SEASON, currentEntry.seasonId);
+            int epNo = 1;
+            if (ep != null && ep.sort != null) {
+                try {
+                    epNo = Integer.parseInt(ep.sort.replaceAll("[^0-9]", ""));
+                } catch (Throwable ignored) {
+                }
+            }
+            i.putExtra(MediaPlayerActivity.EXTRA_DANMAKU_EP, epNo);
+        }
         try {
             ctx.startActivity(i);
             tvStatus.setText("已开始播放：" + title);

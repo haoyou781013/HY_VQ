@@ -40,6 +40,7 @@ public final class AnimeMetadata {
         public int scoreScale = 10;     // 10 或 100
         public int episodes = -1;       // 集数
         public int rank = -1;           // 热度排名（越小越热，Bangumi rating.rank）
+        public long seasonId = -1;      // B站番剧 season_id（取弹幕用）
         public List<String> tags = new ArrayList<>();
 
         /**
@@ -202,6 +203,7 @@ public final class AnimeMetadata {
                 if ((keep.cover == null || keep.cover.isEmpty()) && e.cover != null) keep.cover = e.cover;
                 if (e.score > keep.score) { keep.score = e.score; keep.scoreScale = e.scoreScale; }
                 if (e.episodes > keep.episodes) keep.episodes = e.episodes;
+                if (keep.seasonId <= 0 && e.seasonId > 0) keep.seasonId = e.seasonId;
                 if ((keep.desc == null || keep.desc.isEmpty()) && e.desc != null) keep.desc = e.desc;
                 if (keep.tags != null && e.tags != null && keep.tags.isEmpty()) keep.tags = e.tags;
                 // 标题择优：优先无「中配版/国语版」等后缀的干净标题
@@ -229,6 +231,7 @@ public final class AnimeMetadata {
                     if (d.cover == null || d.cover.isEmpty()) d.cover = e.cover;
                     if (d.desc == null || d.desc.isEmpty()) d.desc = e.desc;
                     if (d.episodes < 0 && e.episodes > 0) d.episodes = e.episodes;
+                    if (d.seasonId <= 0 && e.seasonId > 0) d.seasonId = e.seasonId;
                     if (d.score < 0 && e.score >= 0) { d.score = e.score; d.scoreScale = e.scoreScale; }
                     if (d.tags.isEmpty() && !e.tags.isEmpty()) d.tags = e.tags;
                     dup = true;
@@ -312,6 +315,9 @@ public final class AnimeMetadata {
             e.url = o.optString("url", "");
             e.source = "bilibili";
             e.episodes = o.optInt("ep_size", -1);
+            long sid = o.optLong("season_id", -1);
+            if (sid <= 0) sid = o.optLong("pgc_season_id", -1);
+            e.seasonId = sid;
             JSONObject ms = o.optJSONObject("media_score");
             if (ms != null) {
                 e.score = ms.optInt("score", -1);
