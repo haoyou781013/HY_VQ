@@ -52,6 +52,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 
 import com.aliya.hy_vq.databinding.ActivityMainBinding;
 
@@ -181,6 +183,28 @@ public class MainActivity extends AppCompatActivity {
     private final List<Dialog> activeDialogs = new ArrayList<>();
     /** 正在等待 onActivityResult 的弹窗（onStop 时不销毁，返回后继续使用） */
     private Dialog dialogAwaitingResult = null;
+
+    /**
+     * 换头像图片选择器。
+     *
+     * <p>全量死代码扫描发现的<b>断线功能</b>：编辑资料弹窗点头像会置
+     * {@code dialogAwaitingResult} 等待结果，但<b>全项目没有任何发起选择的 Intent，
+     * 也没有 onActivityResult</b>，唯一的 {@code saveAvatar(Uri)} 调用为 0 ——
+     * 弹窗会永远停在"等待中"。此处用 {@code registerForActivityResult} 补全链路。</p>
+     *
+     * <p>注意：必须在 Activity 走到 STARTED <b>之前</b>注册，字段初始化器满足该时机。</p>
+     */
+    private final ActivityResultLauncher<String> avatarPicker =
+            registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
+                try {
+                    if (uri != null) saveAvatar(uri);
+                } catch (Throwable t) {
+                    Toast.makeText(this, "保存头像失败", Toast.LENGTH_SHORT).show();
+                }
+                if (editAvatar != null) loadAvatar(editAvatar);
+                if (drawerAvatar != null) loadAvatar(drawerAvatar);
+                dialogAwaitingResult = null;   // 解除等待保护，避免弹窗永久挂起
+            });
 
     /** 应用级 DPI 覆盖：让「设置 → 显示密度」只对本应用生效（见 DpiUtils） */
     @Override
@@ -1743,7 +1767,8 @@ public class MainActivity extends AppCompatActivity {
 
         // 头像点击
         dialogAvatar.setOnClickListener(w -> {
-            editAvatar = dialogAvatar; // 暂存引用供 onActivityResult 刷新
+            editAvatar = dialogAvatar; // 暂存引用供结果回调刷新
+            avatarPicker.launch("image/*");   // ← 断线处：原先从未发起选择
             // ⭐ 标记本弹窗正在等待结果：系统图片选择器遮挡会触发 onStop，
             //    若不豁免，弹窗会被当泄漏窗口销毁，用户回来只看到头像变了、弹窗没了。
             dialogAwaitingResult = dialog;

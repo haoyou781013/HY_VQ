@@ -605,7 +605,7 @@ public class FileManagerModule extends HyVqModule {
         box.addView(ModuleUiKit.sectionHeader(ctx, "ROOT 权限"));
 
         final TextView stateTv = new TextView(ctx);
-        stateTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        stateTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         stateTv.setTextColor(ModuleUiKit.color(ctx,
                 com.google.android.material.R.attr.colorOnSurfaceVariant));
         stateTv.setLineSpacing(0, 1.3f);
@@ -728,7 +728,7 @@ public class FileManagerModule extends HyVqModule {
         box.addView(ModuleUiKit.sectionHeader(ctx, title));
         TextView tv = new TextView(ctx);
         tv.setText(message);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         tv.setTextColor(ModuleUiKit.color(ctx,
                 com.google.android.material.R.attr.colorOnSurface));
         tv.setLineSpacing(0, 1.3f);
@@ -3331,7 +3331,7 @@ public class FileManagerModule extends HyVqModule {
 
         // ⭐ v2.8.0 root 属性：权限 / 属主 / SELinux 上下文（App 侧拿不到，需 root stat）
         final TextView rootTv = new TextView(ctx);
-        rootTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        rootTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         rootTv.setTextColor(ModuleUiKit.color(ctx,
                 com.google.android.material.R.attr.colorOnSurfaceVariant));
         rootTv.setLineSpacing(0, 1.3f);
@@ -3836,7 +3836,7 @@ public class FileManagerModule extends HyVqModule {
             item.setLayoutParams(lp);
             TextView name = new TextView(ctx);
             name.setText(t.file.getName() + (t.dirty ? " •" : ""));
-            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
             name.setSingleLine(true);
             name.setMaxWidth(dp(170));
             name.setGravity(Gravity.CENTER_VERTICAL);
@@ -4697,7 +4697,7 @@ public class FileManagerModule extends HyVqModule {
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.setPadding(dp(14), dp(10), dp(4), dp(10));
         editorDrawerPath = new TextView(ctx);
-        editorDrawerPath.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        editorDrawerPath.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         editorDrawerPath.setTextColor(pal[2]);
         editorDrawerPath.setSingleLine(true);
         editorDrawerPath.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -4880,7 +4880,7 @@ public class FileManagerModule extends HyVqModule {
         row.addView(icon, new LinearLayout.LayoutParams(s, s));
         TextView tv = new TextView(ctx);
         tv.setText(text);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         tv.setTextColor(pal[1]);
         LinearLayout.LayoutParams tvLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         tvLp.setMarginStart(dp(10));
@@ -6723,7 +6723,7 @@ public class FileManagerModule extends HyVqModule {
         // ── 主地址：等宽大字，长按可选中 ──
         TextView tvUrl = new TextView(ctx);
         tvUrl.setText(mainUrl);
-        tvUrl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        tvUrl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         tvUrl.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
         tvUrl.setTextColor(primary);
         tvUrl.setTextIsSelectable(true);
@@ -7165,7 +7165,7 @@ public class FileManagerModule extends HyVqModule {
 
         TextView tvUrl = new TextView(ctx);
         tvUrl.setText(mainUrl);
-        tvUrl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        tvUrl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         tvUrl.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
         tvUrl.setTextColor(primary);
         tvUrl.setTextIsSelectable(true);

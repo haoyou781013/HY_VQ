@@ -2563,8 +2563,8 @@ public class AnimeView extends LinearLayout {
             }
         });
 
-        TextView btnClose = btn("关闭", Aurora.G_ACCENT[1],
-                color(com.google.android.material.R.attr.colorSurfaceContainerHigh));
+        // 关闭 = 次要操作 → 用 ghostBtn（渐变描边），与 gradBtn 主操作成对
+        TextView btnClose = ghostBtn("关闭");
         LayoutParams clp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         clp.topMargin = dp(14);

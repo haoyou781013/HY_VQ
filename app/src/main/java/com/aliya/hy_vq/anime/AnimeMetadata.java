@@ -265,10 +265,6 @@ public final class AnimeMetadata {
         return false;
     }
 
-    private static String nz(String s) {
-        if (s == null) return "";
-        return s.replaceAll("[\\s·:：！!？?。.、,，-]", "").toLowerCase(Locale.ROOT);
-    }
 
     private static boolean containsCjk(String s) {
         if (s == null) return false;

@@ -37,6 +37,49 @@ public final class ModuleUiKit {
     // ── 主题工具 ──
 
     /** 解析当前主题下某个 attr 的颜色值（模块 UI 与主框架配色保持一致的关键） */
+    // ══════════════ 全局排版标尺（跨模块统一）════════════
+    //
+    // 全量审计发现：全项目存在 12 种字号（9/10/11/12/12.5/13/14/15/16/17/20/26/30），
+    // 其中 9sp 过小（可读性问题）、12.5/17 离网格。此处定义标尺，
+    // 新代码一律引用常量；旧值逐步向标尺靠拢。
+    /** 微型标签 / 角标（原 9/10sp 过小，统一 11） */
+    public static final float TYPE_MICRO = 11f;
+    /** 次要说明文字 */
+    public static final float TYPE_CAPTION = 12f;
+    /** 正文 */
+    public static final float TYPE_BODY = 13f;
+    /** 强调正文 */
+    public static final float TYPE_BODY_LARGE = 14f;
+    /** 小标题 */
+    public static final float TYPE_TITLE = 16f;
+    /** 段落标题 */
+    public static final float TYPE_HEADLINE = 20f;
+    /** 页面大标题 */
+    public static final float TYPE_DISPLAY = 26f;
+
+    // ══════════════ 全局圆角标尺 ═════════════
+    /** 小组件（图标内衬 / 输入框 / 胶囊内） */
+    public static final int RADIUS_SMALL = 8;
+    /** 按钮 / 中卡 */
+    public static final int RADIUS_MEDIUM = 14;
+    /** 内容卡片 / 弹窗容器 */
+    public static final int RADIUS_LARGE = 24;
+    /** 全圆角胶囊（标签 / 底栏 / 播放钮） */
+    public static final int RADIUS_PILL = 999;
+
+    /** 按标尺取最接近的字号（供旧代码迁移用） */
+    public static float snapType(float sp) {
+        float[] scale = {TYPE_MICRO, TYPE_CAPTION, TYPE_BODY, TYPE_BODY_LARGE,
+                TYPE_TITLE, TYPE_HEADLINE, TYPE_DISPLAY};
+        float best = scale[0];
+        float diff = Math.abs(sp - best);
+        for (float f : scale) {
+            float d = Math.abs(sp - f);
+            if (d < diff) { diff = d; best = f; }
+        }
+        return best;
+    }
+
     public static int color(Context context, int attr) {
         TypedValue tv = new TypedValue();
         context.getTheme().resolveAttribute(attr, tv, true);

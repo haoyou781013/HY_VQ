@@ -259,7 +259,7 @@ public class FileListAdapter extends RecyclerView.Adapter<FileListAdapter.VH> {
 
         TextView badge = new TextView(context);
         badge.setText("虚");
-        badge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9);
+        badge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         badge.setTextColor(ModuleUiKit.color(context, com.google.android.material.R.attr.colorOnSecondaryContainer));
         badge.setBackground(ModuleUiKit.rounded(context, dp(6),
                 ModuleUiKit.color(context, com.google.android.material.R.attr.colorSecondaryContainer), 0));
