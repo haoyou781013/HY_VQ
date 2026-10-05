@@ -68,6 +68,17 @@
     </LinearLayout>
     <View android:layout_width="match_parent" android:layout_height="0.5dp" android:background="?attr/colorOutlineVariant" />
 
+
+    <!-- 动漫模块设置（源/弹幕/离线缓存） -->
+    <LinearLayout android:id="@+id/item_anime" android:layout_width="match_parent" android:layout_height="wrap_content" android:background="?attr/selectableItemBackground" android:gravity="center_vertical" android:paddingHorizontal="16dp" android:paddingVertical="13dp">
+        <com.google.android.material.card.MaterialCardView android:layout_width="40dp" android:layout_height="40dp" app:cardCornerRadius="12dp" app:cardElevation="0dp" app:cardBackgroundColor="?attr/colorSecondaryContainer">
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/ic_video" android:contentDescription="动漫模块" android:padding="9dp" app:tint="?attr/colorSecondary" />
+        </com.google.android.material.card.MaterialCardView>
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="14dp" android:text="动漫模块" android:textAppearance="?attr/textAppearanceBodyMedium" android:textColor="?attr/colorOnSurface" />
+        <TextView android:id="@+id/tv_anime_summary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="" android:textAppearance="?attr/textAppearanceBodySmall" android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginEnd="8dp" />
+        <ImageView android:layout_width="18dp" android:layout_height="18dp" android:src="@drawable/ic_chevron_right" android:contentDescription="进入" />
+    </LinearLayout>
+    <View android:layout_width="match_parent" android:layout_height="0.5dp" android:background="?attr/colorOutlineVariant" />
     <!-- 关于 -->
 
 

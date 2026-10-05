@@ -585,6 +585,135 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    /**
+     * 动漫模块设置（主设置页入口）。
+     * <p>与动漫页「源管理」读写<b>同一份偏好</b>（anime_prefs），改哪边都同步。</p>
+     */
+    private void showAnimeSettings() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(this, "动漫模块设置"));
+        final com.aliya.hy_vq.anime.SourceRepository repo =
+                new com.aliya.hy_vq.anime.SourceRepository(this);
+
+        // ── 弹幕默认开关 ──
+        addToggleRow(box, "弹幕默认开启", "anime_prefs", "danmaku_default_on", true);
+
+        // ── 源过滤开关 ──
+        addToggleRow(box, "源过滤（屏蔽黑名单源）", "anime_prefs", "filter_enabled",
+                repo.filterEnabled());
+
+        // ── 源状态 ──
+        TextView srcInfo = new TextView(this);
+        srcInfo.setText("源：" + repo.size() + " 个已导入"
+                + (repo.blockedNames().isEmpty() ? "" : "，屏蔽 " + repo.blockedNames().size() + " 个")
+                + (repo.hasTierOverride() ? "，已实测档位" : ""));
+        srcInfo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        srcInfo.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        srcInfo.setPadding(dp2(4), dp2(4), dp2(4), dp2(8));
+        box.addView(srcInfo);
+
+        // 订阅地址（可改）
+        TextView lab = new TextView(this);
+        lab.setText("订阅仓库地址");
+        lab.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        lab.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        box.addView(lab);
+
+        final EditText etUrl = new EditText(this);
+        etUrl.setText(repo.repoUrl());
+        etUrl.setSingleLine(true);
+        etUrl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        etUrl.setBackground(ModuleUiKit.rounded(this, 10, ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+        etUrl.setPadding(dp2(10), dp2(8), dp2(10), dp2(8));
+        box.addView(etUrl);
+
+        TextView save = updateTextButton("保存地址", v -> {
+            repo.setRepoUrl(etUrl.getText().toString().trim());
+            Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+        });
+        box.addView(save);
+
+        // ── 离线缓存 ──
+        final com.aliya.hy_vq.anime.OfflineCache oc =
+                new com.aliya.hy_vq.anime.OfflineCache(this);
+        java.util.List<com.aliya.hy_vq.anime.OfflineCache.Task> fin = oc.finished();
+        long bytes = 0;
+        for (com.aliya.hy_vq.anime.OfflineCache.Task t : fin) {
+            if (t.file != null) bytes += t.file.length();
+        }
+        TextView cacheInfo = new TextView(this);
+        cacheInfo.setText("离线缓存：" + fin.size() + " 个视频，占用 " + fmtSize(bytes));
+        cacheInfo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        cacheInfo.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        cacheInfo.setPadding(dp2(4), dp2(10), dp2(4), dp2(4));
+        box.addView(cacheInfo);
+
+        TextView clear = updateTextButton("清空离线缓存", v -> {
+            int n = 0;
+            for (com.aliya.hy_vq.anime.OfflineCache.Task t : oc.finished()) {
+                oc.remove(t);
+                n++;
+            }
+            Toast.makeText(this, "已清除 " + n + " 个", Toast.LENGTH_SHORT).show();
+            cacheInfo.setText("离线缓存：0 个视频，占用 0 B");
+        });
+        box.addView(clear);
+
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.END);
+        box.addView(btns);
+        final android.app.Dialog d = ModuleUiKit.glassDialog(this, box);
+        btns.addView(updateTextButton("关闭", v -> d.dismiss()));
+        d.show();
+    }
+
+    /** 设置页通用开关行（用项目风格，非原生 Switch） */
+    private void addToggleRow(LinearLayout box, String label, String prefName,
+                              String key, boolean def) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp2(4), dp2(6), dp2(4), dp2(6));
+
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tv.setTextColor(ModuleUiKit.color(this, com.google.android.material.R.attr.colorOnSurface));
+        row.addView(tv, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        final TextView sw = new TextView(this);
+        final android.content.SharedPreferences sp = getSharedPreferences(prefName, MODE_PRIVATE);
+        final boolean[] state = {sp.getBoolean(key, def)};
+        final Runnable paint = () -> {
+            sw.setText(state[0] ? "已开启" : "已关闭");
+            sw.setTextColor(ModuleUiKit.color(this, state[0]
+                    ? com.google.android.material.R.attr.colorOnPrimary
+                    : com.google.android.material.R.attr.colorOnSurfaceVariant));
+            sw.setBackground(ModuleUiKit.rippleBg(this, ModuleUiKit.rounded(this, 10,
+                    ModuleUiKit.color(this, state[0]
+                            ? com.google.android.material.R.attr.colorPrimary
+                            : com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
+        };
+        paint.run();
+        sw.setPadding(dp2(16), dp2(8), dp2(16), dp2(8));
+        sw.setClickable(true);
+        sw.setFocusable(true);
+        sw.setOnClickListener(v -> {
+            state[0] = !state[0];
+            sp.edit().putBoolean(key, state[0]).apply();
+            paint.run();
+        });
+        row.addView(sw);
+        box.addView(row);
+    }
+
     private void showDonateDialog() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -1785,6 +1914,25 @@ public class MainActivity extends AppCompatActivity {
             String currentDefault = prefs.getString("default_page", "home");
             tvDefault.setText("首页");
         }
+        // 动漫模块摘要（源数/弹幕/缓存，随时可能变化，进入时刷新）
+        TextView tvAnime = settingsView.findViewById(R.id.tv_anime_summary);
+        if (tvAnime != null) {
+            try {
+                com.aliya.hy_vq.anime.SourceRepository r = new com.aliya.hy_vq.anime.SourceRepository(this);
+                com.aliya.hy_vq.anime.OfflineCache oc = new com.aliya.hy_vq.anime.OfflineCache(this);
+                java.util.List<com.aliya.hy_vq.anime.OfflineCache.Task> fin = oc.finished();
+                long bytes = 0;
+                for (com.aliya.hy_vq.anime.OfflineCache.Task t : fin) {
+                    if (t.file != null) bytes += t.file.length();
+                }
+                String danmaku = getSharedPreferences("anime_prefs", MODE_PRIVATE)
+                        .getBoolean("danmaku_default_on", true) ? "弹幕开" : "弹幕关";
+                tvAnime.setText(r.size() + " 源 · " + danmaku
+                        + (fin.isEmpty() ? "" : " · 缓存 " + fmtSize(bytes)));
+            } catch (Throwable t) {
+                tvAnime.setText("");
+            }
+        }
         // 软件更新状态行（更新包版本随时可能变化，进入时刷新）
         updateUpdateStateLabel();
         switchContent(settingsView, PAGE_SETTINGS);
@@ -1818,6 +1966,8 @@ public class MainActivity extends AppCompatActivity {
         refreshDpiLabel();
         // 权限管理入口（检查各项权限申请情况）
         settingsView.findViewById(R.id.item_permission).setOnClickListener(v -> switchToPermissions());
+        // 动漫模块设置（源/弹幕/离线缓存）——与动漫页内设置共用同一份偏好
+        settingsView.findViewById(R.id.item_anime).setOnClickListener(v -> showAnimeSettings());
         // 软件更新入口（增量更新包导入中心）
         View itemUpdate = settingsView.findViewById(R.id.item_update);
         if (itemUpdate != null) itemUpdate.setOnClickListener(v -> switchToUpdate());

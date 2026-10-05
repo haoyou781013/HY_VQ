@@ -718,8 +718,21 @@ public class MediaPlayerActivity extends Activity {
         if (danmakuSeasonId <= 0) return;        // 无 B站 元数据 → 不展示入口
 
         btnDanmaku.setVisibility(View.VISIBLE);
+        // 读用户偏好（主设置可改默认值）
+        try {
+            danmakuOn = getSharedPreferences("anime_prefs", MODE_PRIVATE)
+                    .getBoolean("danmaku_default_on", true);
+        } catch (Throwable ignored) {
+        }
+        if (danmakuOn) {
+            btnDanmaku.setText("弹幕·开");
+            btnDanmaku.setTextColor(0xFF00E676);
+        }
         btnDanmaku.setOnClickListener(v -> {
             danmakuOn = !danmakuOn;
+            // 记住用户选择（覆盖默认）
+            getSharedPreferences("anime_prefs", MODE_PRIVATE)
+                    .edit().putBoolean("danmaku_default_on", danmakuOn).apply();
             btnDanmaku.setText(danmakuOn ? "弹幕·开" : "弹幕");
             btnDanmaku.setTextColor(danmakuOn
                     ? 0xFF00E676 : android.graphics.Color.WHITE);
