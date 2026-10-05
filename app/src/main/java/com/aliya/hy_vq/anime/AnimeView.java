@@ -325,10 +325,7 @@ public class AnimeView extends LinearLayout {
         addAnimeTab("info", "说明", R.drawable.ic_info,
                 v -> switchTab("info"));
 
-        bottomNav.setAlpha(0f);
-        bottomNav.setTranslationY(dp(10));
-        bottomNav.animate().alpha(1f).translationY(0f).setDuration(220).start();
-        updateBottomNav();
+        updateBottomNav();   // 无入场动画（用户要求）
         return bottomNav;
     }
 
@@ -575,7 +572,7 @@ public class AnimeView extends LinearLayout {
         if (listBox == null) return;
         listBox.removeAllViews();
         TextView hint = new TextView(ctx);
-        hint.setText("本周新番（B站番剧时间表）· 点击查看可用源");
+        hint.setText("热门番剧 · Bangumi 镜像 · 点击查看可用源");
         hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         hint.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
         hint.setPadding(dp(4), dp(6), dp(4), dp(4));
@@ -584,23 +581,115 @@ public class AnimeView extends LinearLayout {
 
         new Thread(() -> {
             try {
-                final List<AnimeMetadata.Entry> feed = AnimeMetadata.feedTimeline();
+                List<AnimeMetadata.Entry> feed = null;
+                try {
+                    feed = AnimeMetadata.feedPopular();          // 首选：Bangumi 镜像（有中文名）
+                } catch (Throwable ignored) {
+                }
+                if (feed == null || feed.isEmpty()) {
+                    try {
+                        feed = AnimeMetadata.feedTrending();     // 回退：AniList 热门
+                    } catch (Throwable ignored) {
+                    }
+                }
+                final List<AnimeMetadata.Entry> finalFeed = feed;
                 ui(() -> {
-                    if (feed == null || feed.isEmpty()) {
+                    if (finalFeed == null || finalFeed.isEmpty()) {
                         tvStatus.setText("推荐加载失败（不影响搜索）");
                         return;
                     }
-                    int i = 0;
-                    for (AnimeMetadata.Entry e : feed) {
-                        listBox.addView(buildMetadataCard(e));
-                        if (++i >= 20) break;
-                    }
-                    tvStatus.setText(feed.size() + " 部新番在播 · 或直接搜索");
+                    renderGrid(finalFeed);
+                    tvStatus.setText(finalFeed.size() + " 部热门番剧 · 或直接搜索");
                 });
             } catch (Throwable t) {
                 ui(() -> tvStatus.setText("推荐加载失败（不影响搜索）"));
             }
         }, "feed-load").start();
+    }
+
+    /** 大卡片网格（2 列，对齐 Kazumi 首页形态），无入场动画 */
+    private void renderGrid(List<AnimeMetadata.Entry> entries) {
+        if (listBox == null) return;
+        listBox.removeAllViews();
+        LinearLayout row = null;
+        for (int i = 0; i < entries.size(); i++) {
+            if (i % 2 == 0) {
+                row = new LinearLayout(ctx);
+                row.setOrientation(HORIZONTAL);
+                LayoutParams rlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
+                if (i > 0) rlp.topMargin = dp(8);
+                row.setLayoutParams(rlp);
+                listBox.addView(row);
+            }
+            final AnimeMetadata.Entry e = entries.get(i);
+            View card = buildGridCard(e);
+            LayoutParams lp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lp.rightMargin = dp(4);
+            card.setLayoutParams(lp);
+            row.addView(card);
+            // 第二列右边距
+            if (i % 2 == 0 && i == entries.size() - 1) {
+                // 末尾单卡：占满半行即可
+            }
+        }
+    }
+
+    /** 大卡片：大封面 + 标题 + 评分/集数（无动画） */
+    private View buildGridCard(final AnimeMetadata.Entry e) {
+        LinearLayout card = new LinearLayout(ctx);
+        card.setOrientation(VERTICAL);
+        card.setPadding(dp(6), dp(6), dp(6), dp(8));
+        card.setBackground(ModuleUiKit.rounded(ctx, 14,
+                color(com.google.android.material.R.attr.colorSurfaceContainerLow),
+                color(com.google.android.material.R.attr.colorOutlineVariant)));
+        card.setClickable(true);
+        card.setFocusable(true);
+
+        // 封面（大图，3:4）
+        android.widget.ImageView cover = new android.widget.ImageView(ctx);
+        cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        cover.setBackground(ModuleUiKit.rounded(ctx, 10,
+                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+        card.addView(cover, new LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(180)));
+        if (e.cover != null && !e.cover.isEmpty()) loadCover(cover, e.cover);
+
+        // 标题（2 行）
+        TextView title = new TextView(ctx);
+        title.setText(e.title);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        title.setMaxLines(2);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LayoutParams tlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.topMargin = dp(7);
+        title.setLayoutParams(tlp);
+        card.addView(title);
+
+        // 评分 · 集数
+        if (e.score >= 0 || e.episodes > 0) {
+            TextView meta = new TextView(ctx);
+            StringBuilder sb = new StringBuilder();
+            if (e.score >= 0) sb.append("★ ").append(e.scoreText());
+            if (e.episodes > 0) {
+                if (sb.length() > 0) sb.append("   ");
+                sb.append(e.episodes).append(" 集");
+            }
+            meta.setText(sb.toString());
+            meta.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            meta.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            LayoutParams mlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            mlp.topMargin = dp(2);
+            meta.setLayoutParams(mlp);
+            card.addView(meta);
+        }
+
+        card.setOnClickListener(v -> openSourceSelector(e));
+        return card;
     }
 
     private void doSearch() {
@@ -629,7 +718,7 @@ public class AnimeView extends LinearLayout {
                     tvStatus.setText("0 条结果");
                 } else {
                     lastSearchEntries = entries;
-                    renderMetadata(entries);
+                    renderGrid(entries);
                     tvStatus.setText(entries.size() + " 部 · 点任意一部查看可用源");
                 }
             });

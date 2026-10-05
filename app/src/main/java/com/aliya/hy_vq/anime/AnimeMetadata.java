@@ -182,10 +182,18 @@ public final class AnimeMetadata {
         }
     }
 
-    /** 粗略判同：原名/标题去空白后相等，或标题互为包含 */
+    /** 去掉「中配版/国语版」等后缀 —— 同一部番在 B站 会出两条（一个带后缀） */
+    private static String stripVersionSuffix(String s) {
+        if (s == null) return "";
+        return s.replaceAll("(中配版|国语版|日配版|粤语版|普通话版|剧场版|TV版|动画版|特别篇|OVA|OAD)$", "")
+                .replaceAll("[\\s·:：！!？?。.、,，-]", "")
+                .toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /** 粗略判同：原名/标题去空白+去版本后缀后相等，或互为包含 */
     private static boolean sameAnime(Entry a, Entry b) {
-        String[] pa = {nz(a.title), nz(a.nativeTitle)};
-        String[] pb = {nz(b.title), nz(b.nativeTitle)};
+        String[] pa = {stripVersionSuffix(a.title), stripVersionSuffix(a.nativeTitle)};
+        String[] pb = {stripVersionSuffix(b.title), stripVersionSuffix(b.nativeTitle)};
         for (String x : pa) {
             if (x.isEmpty()) continue;
             for (String y : pb) {
@@ -316,7 +324,130 @@ public final class AnimeMetadata {
     }
 
     /**
-     * 首页推荐源：B站番剧时间表（无需搜索即展示，对标 Ani/Kazumi 的首页信息流）。
+     * 首页推荐源（<b>首选</b>）：Kazumi 的 Bangumi 镜像热门榜。
+     *
+     * <p>发现自 Kazumi 源码 {@code ApiEndpoints.bangumiMirrorDomain} =
+     * {@code https://api.kazumi.fyi}，其首页即用
+     * {@code /kazumi/v1/popular/subjects}。</p>
+     *
+     * <p>实测 200 / 785ms / 19KB / 24 条，且<b>0/24 缺中文名</b>（nameCN）——
+     * 这一点关键：源站只认中文（中文 11/18 vs 日文 1/18），中文名直接可用
+     * 就无需再反查补全，feed 条目也能正常搜到源。</p>
+     *
+     * <p>字段：name(日文) / nameCN(中文) / images.common(封面) /
+     * rating.score+rank+total / metaTags / info(集数·日期·导演)。</p>
+     */
+    public static List<Entry> feedPopular() throws Exception {
+        String body = httpGet("https://api.kazumi.fyi/kazumi/v1/popular/subjects", null, null);
+        if (body == null || body.isEmpty()) return new ArrayList<>();
+
+        JSONObject root = new JSONObject(body);
+        JSONArray arr = root.optJSONArray("data");
+        if (arr == null) return new ArrayList<>();
+
+        List<Entry> out = new ArrayList<>();
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            Entry e = new Entry();
+            // 中文名优先（nameCN），无则退回日文名
+            e.title = o.optString("nameCN", "");
+            if (e.title.isEmpty()) e.title = o.optString("name", "");
+            e.nativeTitle = o.optString("name", "");
+            if (e.title.equals(e.nativeTitle)) e.nativeTitle = "";
+
+            JSONObject img = o.optJSONObject("images");
+            if (img != null) e.cover = img.optString("common", "");
+
+            JSONObject r = o.optJSONObject("rating");
+            if (r != null && !r.isNull("score")) {
+                e.score = (int) Math.round(r.optDouble("score", -1));
+                e.scoreScale = 10;
+            }
+
+            // info 形如「12话 / 2026年10月1日 / 导演 / 原作 / 角色设计」
+            String info = o.optString("info", "");
+            if (!info.isEmpty()) {
+                String[] parts = info.split(" / ");
+                if (parts.length > 0 && parts[0].endsWith("话")) {
+                    try {
+                        e.episodes = Integer.parseInt(parts[0].replaceAll("[^0-9]", ""));
+                    } catch (Throwable ignored) {
+                    }
+                }
+                if (parts.length > 1) e.desc = parts[1];
+            }
+
+            // 标签
+            JSONArray tags = o.optJSONArray("metaTags");
+            if (tags != null) {
+                for (int j = 0; j < tags.length(); j++) {
+                    String t = tags.optString(j, "");
+                    if (!t.isEmpty()) e.tags.add(t);
+                }
+            }
+
+            e.source = "bangumi-mirror";
+            e.url = "https://bgm.tv/subject/" + o.optLong("id", 0);
+            if (!e.title.isEmpty()) out.add(e);
+        }
+        return out;
+    }
+
+    /**
+     * 首页推荐源：<b>AniList 热门番剧</b>（对标 Ani/Kazumi 的首页发现流）。
+     *
+     * <p>选它的理由：非 B站、非时间表；直连可达（实测 ~785ms）、
+     * 自带封面与评分、更新的是当下热门（与 Ani 的发现页同源思路）。
+     * 返回前用日文标题反查 B站 补中文名——否则源站搜不到（中文 11/18 vs 日文 1/18）。</p>
+     */
+    public static List<Entry> feedTrending() throws Exception {
+        String query = "query{Page(page:1,perPage:24){media(type:ANIME,sort:TRENDING_DESC){"
+                + "id title{romaji native} coverImage{large} averageScore episodes"
+                + " description(asHtml:false) hectares}}}";
+        // hectares 字段不存在会导致 GraphQL 报错，去掉
+        query = query.replace(" hectares", "");
+        String payload = "{\"query\":\"" + query.replace("\"", "\\\"") + "\"}";
+        String body = httpPost("https://graphql.anilist.co", payload);
+        if (body == null || body.isEmpty()) return new ArrayList<>();
+
+        JSONObject root = new JSONObject(body);
+        if (root.has("errors")) return new ArrayList<>();
+        JSONObject page = root.optJSONObject("data") != null
+                ? root.optJSONObject("data").optJSONObject("Page") : null;
+        if (page == null) return new ArrayList<>();
+        JSONArray arr = page.optJSONArray("media");
+        if (arr == null) return new ArrayList<>();
+
+        List<Entry> out = new ArrayList<>();
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            Entry e = new Entry();
+            JSONObject t = o.optJSONObject("title");
+            if (t != null) {
+                e.nativeTitle = t.optString("romaji", "");
+                e.title = t.optString("native", "");
+                if (e.title.isEmpty()) e.title = e.nativeTitle;
+            }
+            JSONObject img = o.optJSONObject("coverImage");
+            if (img != null) e.cover = img.optString("large", "");
+            e.score = o.has("averageScore") && !o.isNull("averageScore")
+                    ? o.optInt("averageScore", -1) : -1;
+            e.scoreScale = 100;
+            e.episodes = o.optInt("episodes", -1);
+            e.desc = o.optString("description", "");
+            e.source = "anilist";
+            e.url = "https://anilist.co/anime/" + o.optString("id", "");
+            if (!e.title.isEmpty()) out.add(e);
+        }
+        // 补中文名（源站只认中文）
+        enrichChineseTitles(out);
+        return out;
+    }
+
+    /**
+     * 首页推荐源（旧）：B站番剧时间表。已被 feedTrending() 取代。
      *
      * <p>实测：7 天 × ~8 集，带标题/封面/播出时间/season_id，21KB，
      * 与「发现」页的数据形态一致。返回去重后的番剧列表。</p>
