@@ -1218,6 +1218,161 @@ public class AnimeView extends LinearLayout {
 
     // ══════════════════ 源管理 ══════════════════
 
+    /**
+     * 一键测评：对全部源跑 search→channels→resolve 三段实测，
+     * 按结果重算 tier 并写入覆盖层（独立于订阅 JSON，重导入不丢）。
+     *
+     * <p>为什么必须做：订阅标注的 tier 已与现实反向（t0 源全挂、能播的反标 t4），
+     * Stage2 线路胶囊按 tier 排序，假档位会让第一个胶囊是坏的。</p>
+     */
+    private void showTierEvalDialog() {
+        List<AnimeSource> srcs = repo.active();
+        if (srcs.isEmpty()) {
+            ModuleUiKit.toast(ctx, repo.isEmpty() ? "还没有源" : "所有源都被屏蔽了");
+            return;
+        }
+        final String keyword = (etKeyword != null
+                && !etKeyword.getText().toString().trim().isEmpty())
+                ? etKeyword.getText().toString().trim() : "葬送的芙莉莲";
+
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(ctx, "实测档位（tier）"));
+        TextView tip = new TextView(ctx);
+        tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tip.setLineSpacing(0, 1.4f);
+        tip.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tip.setPadding(dp(4), 0, dp(4), dp(8));
+        tip.setText("将对 " + srcs.size() + " 个源依次测：\n"
+                + "搜索 → 取线路 → 解析直链，按结果重算 tier（0 最优 / 9 死源）。\n"
+                + "测试关键词：" + keyword + "\n"
+                + "约需 1~3 分钟，期间请勿关闭。");
+        box.addView(tip);
+
+        final TextView progress = new TextView(ctx);
+        progress.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        progress.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+        progress.setPadding(dp(4), dp(4), dp(4), dp(4));
+        progress.setText("准备中…");
+        box.addView(progress);
+
+        final android.widget.ProgressBar pb = new android.widget.ProgressBar(
+                ctx, null, android.R.attr.progressBarStyleHorizontal);
+        pb.setMax(srcs.size());
+        pb.setProgress(0);
+        box.addView(pb, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)));
+
+        final Dialog d = ModuleUiKit.glassDialog(ctx, box, false);
+        d.setCancelable(false);
+        d.show();
+
+        TierEvaluator.evaluateAll(srcs, keyword, new TierEvaluator.Callback() {
+            @Override public void onProgress(int done, int total, String current) {
+                ui(() -> {
+                    pb.setProgress(done);
+                    progress.setText("已测 " + done + "/" + total + " · " + current);
+                });
+            }
+
+            @Override public void onDone(final List<TierEvaluator.Result> results) {
+                ui(() -> {
+                    // 写入覆盖层：源级 + 线路级
+                    java.util.Map<String, Integer> put = new java.util.HashMap<>();
+                    int dead = 0, usable = 0;
+                    for (TierEvaluator.Result r : results) {
+                        put.put(r.sourceName, r.tier);
+                        if (r.tier >= 9) dead++;
+                        if (r.resolveOk) usable++;
+                        for (java.util.Map.Entry<String, Integer> ce : r.channelTiers.entrySet()) {
+                            put.put(r.sourceName + "#" + ce.getKey(), ce.getValue());
+                        }
+                    }
+                    repo.putTiers(put);
+                    showTierResults(results, put.size(), usable, dead);
+                    d.dismiss();
+                    // 源面板刷新（按钮文案会变化）
+                    rebuildSourcePanel();
+                });
+            }
+        }, 180_000L);   // 180 秒总预算
+    }
+
+    /** 测评结果汇总 */
+    private void showTierResults(final List<TierEvaluator.Result> results,
+                                 int keys, int usable, int dead) {
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(ctx, "测评结果"));
+
+        TextView sum = new TextView(ctx);
+        sum.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        sum.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        sum.setPadding(dp(4), 0, dp(4), dp(8));
+        sum.setText("可直链播放 " + usable + " 个 · 死源 " + dead
+                + " 个 · 已写入 " + keys + " 条档位");
+        box.addView(sum);
+
+        ScrollView sv = new ScrollView(ctx);
+        LinearLayout col = new LinearLayout(ctx);
+        col.setOrientation(VERTICAL);
+        sv.addView(col);
+        box.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(380)));
+
+        // 按 tier 升序展示
+        List<TierEvaluator.Result> sorted = new ArrayList<>(results);
+        sorted.sort((a, b) -> a.tier - b.tier);
+        for (TierEvaluator.Result r : sorted) {
+            LinearLayout row = new LinearLayout(ctx);
+            row.setOrientation(HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(8), dp(5), dp(8), dp(5));
+
+            TextView t = new TextView(ctx);
+            t.setText("t" + r.tier);
+            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            t.setPadding(dp(6), dp(2), dp(6), dp(2));
+            t.setTextColor(r.tier <= 2
+                    ? color(com.google.android.material.R.attr.colorOnPrimary)
+                    : color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            t.setBackground(ModuleUiKit.rounded(ctx, 8,
+                    color(r.tier <= 2 ? com.google.android.material.R.attr.colorPrimary
+                            : com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+            row.addView(t);
+
+            TextView n = new TextView(ctx);
+            n.setText("  " + r.sourceName);
+            n.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            n.setMaxLines(1);
+            n.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            n.setLayoutParams(new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            row.addView(n);
+
+            TextView sm = new TextView(ctx);
+            sm.setText(r.summary());
+            sm.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            sm.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            row.addView(sm);
+
+            col.addView(row);
+        }
+
+        final Dialog d = ModuleUiKit.glassDialog(ctx, box);
+        d.show();
+    }
+
+    /** 重建源面板内容（测评后刷新按钮与状态） */
+    private void rebuildSourcePanel() {
+        if (sourcePanel == null) return;
+        sourcePanel.removeAllViews();
+        ScrollView sv = new ScrollView(ctx);
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(VERTICAL);
+        buildSourceContent(box, null);
+        sv.addView(box);
+        sourcePanel.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        refreshStatus();
+    }
+
     /** 源管理内容（内嵌到「源」Tab；d 为 null 时「关闭」切回搜索 Tab） */
     private void buildSourceContent(final LinearLayout box, final Dialog d) {
 
@@ -1388,6 +1543,18 @@ public class AnimeView extends LinearLayout {
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(VERTICAL);
         box.addView(ModuleUiKit.sectionHeader(ctx, "源管理"));
+
+        // ── 一键测评（tier 补全：订阅里的静态 tier 已与现实反向）──
+        TextView btnEval = btn(repo.hasTierOverride() ? "重新测评（已有实测档位）" : "一键测评 · 生成实测档位",
+                color(com.google.android.material.R.attr.colorOnPrimary),
+                color(com.google.android.material.R.attr.colorPrimary));
+        LayoutParams elp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        elp.bottomMargin = dp(10);
+        btnEval.setLayoutParams(elp);
+        btnEval.setGravity(Gravity.CENTER);
+        btnEval.setOnClickListener(v -> showTierEvalDialog());
+        box.addView(btnEval);
         final Dialog d = ModuleUiKit.glassDialog(ctx, box);
         buildSourceContent(box, d);
         d.show();

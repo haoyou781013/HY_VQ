@@ -37,13 +37,18 @@ public class SourceRepository {
     private static final String KEY_REPO_URL = "repo_url";
     private static final String KEY_FILTER_ON = "filter_enabled";
     private static final String KEY_BLOCKED = "blocked_sources";
+    /** 实测 tier 覆盖（独立于订阅 JSON：重导入订阅后仍生效） */
+    private static final String KEY_TIER_OVERRIDES = "tier_overrides";
 
     private final Context ctx;
     private final List<AnimeSource> sources = new ArrayList<>();
+    /** key = 源名 或 源名#线路名 → tier */
+    private final java.util.Map<String, Integer> tierOverrides = new java.util.HashMap<>();
 
     public SourceRepository(Context context) {
         this.ctx = context.getApplicationContext();
         load();
+        loadTierOverrides();
     }
 
     // ══════════════ 源列表 ══════════════
@@ -109,9 +114,73 @@ public class SourceRepository {
      * <p>★ 过滤放在这里而不是 UI 层：只要拿源的入口都走 {@code active()}，
      * 就不会出现"某个界面忘了过滤"导致被屏蔽的源又冒出来。</p>
      */
+    // ══════════════ 实测 tier 覆盖层 ══════════════
+
+    private void loadTierOverrides() {
+        tierOverrides.clear();
+        String raw = prefs().getString(KEY_TIER_OVERRIDES, "");
+        if (raw == null || raw.isEmpty()) return;
+        for (String kv : raw.split("\n")) {
+            int i = kv.indexOf('=');
+            if (i <= 0) continue;
+            try {
+                tierOverrides.put(kv.substring(0, i), Integer.parseInt(kv.substring(i + 1)));
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private void saveTierOverrides() {
+        StringBuilder sb = new StringBuilder();
+        for (java.util.Map.Entry<String, Integer> e : tierOverrides.entrySet()) {
+            sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
+        }
+        prefs().edit().putString(KEY_TIER_OVERRIDES, sb.toString()).apply();
+    }
+
+    /** 写入一次实测档位（key = 源名 或 源名#线路名） */
+    public void putTierOverride(String key, int tier) {
+        if (key == null || key.isEmpty()) return;
+        tierOverrides.put(key, tier);
+        saveTierOverrides();
+    }
+
+    public void putTiers(java.util.Map<String, Integer> map) {
+        if (map == null || map.isEmpty()) return;
+        tierOverrides.putAll(map);
+        saveTierOverrides();
+    }
+
+    public java.util.Map<String, Integer> tierOverrides() {
+        return new java.util.HashMap<>(tierOverrides);
+    }
+
+    public boolean hasTierOverride() {
+        return !tierOverrides.isEmpty();
+    }
+
+    public void clearTierOverrides() {
+        tierOverrides.clear();
+        prefs().edit().remove(KEY_TIER_OVERRIDES).apply();
+    }
+
+    /** 把实测档位套用到源对象（源级 + 线路级），不动订阅原始 JSON */
+    public void applyTiers(AnimeSource src) {
+        if (src == null || tierOverrides.isEmpty()) return;
+        Integer st = tierOverrides.get(src.name);
+        if (st != null) src.tier = st;
+        if (src.channelTiers == null) src.channelTiers = new java.util.HashMap<>();
+        String prefix = src.name + "#";
+        for (java.util.Map.Entry<String, Integer> e : tierOverrides.entrySet()) {
+            String k = e.getKey();
+            if (k.startsWith(prefix)) src.channelTiers.put(k.substring(prefix.length()), e.getValue());
+        }
+    }
+
     public List<AnimeSource> active() {
-        if (!filterEnabled()) return all();
-        return SourceFilter.filter(sources, blocked());
+        List<AnimeSource> l = filterEnabled() ? SourceFilter.filter(sources, blocked()) : all();
+        for (AnimeSource a : l) applyTiers(a);
+        return l;
     }
 
     /** 被屏蔽的源名（供 UI 提示） */
