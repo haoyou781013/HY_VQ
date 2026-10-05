@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.Intent;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -76,6 +78,8 @@ public class AnimeView extends LinearLayout {
     // ── 两段式（方案 B：元数据搜索 → 选中后再查源）──
     /** 第二段：选源器头部（返回 + 番剧名），Stage1 隐藏 */
     private LinearLayout stageHeader;
+    /** Stage1 的渐变 Hero 头部（Stage2 时整体隐藏，露出简洁详情页） */
+    private LinearLayout heroHeader;
     private TextView stageTitle;
     // ── 底栏（同步 Ani：多 Tab 切换，内容内嵌在同一容器）──
     private FrameLayout contentArea;
@@ -212,18 +216,23 @@ public class AnimeView extends LinearLayout {
         stageHeader = new LinearLayout(ctx);
         stageHeader.setOrientation(HORIZONTAL);
         stageHeader.setGravity(Gravity.CENTER_VERTICAL);
-        stageHeader.setPadding(pad, dp(6), pad, dp(6));
+        stageHeader.setPadding(dp(10), dp(6), pad, dp(6));
         stageHeader.setVisibility(View.GONE);
+        // 返回条整条压在主渐变上 —— 与 Hero 同源，Stage2 仍保有品牌色
+        GradientDrawable shBg = Aurora.grad(ctx, Aurora.G_HERO,
+                GradientDrawable.Orientation.LEFT_RIGHT);
+        shBg.setCornerRadius(dp(Aurora.R_INNER));
+        stageHeader.setBackground(shBg);
 
-        TextView backBtn = btn("← 返回", color(com.google.android.material.R.attr.colorOnPrimary),
-                color(com.google.android.material.R.attr.colorPrimary));
+        TextView backBtn = btn("← 返回", 0xFFFFFFFF, 0);
+        backBtn.setBackground(ModuleUiKit.rounded(ctx, dp(Aurora.R_PILL), 0x33FFFFFF, 0));
         backBtn.setOnClickListener(v -> backToStage1());
         stageHeader.addView(backBtn);
 
         stageTitle = new TextView(ctx);
         stageTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         stageTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-        stageTitle.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        stageTitle.setTextColor(0xFFFFFFFF);
         stageTitle.setMaxLines(1);
         stageTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LayoutParams stlp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -232,33 +241,75 @@ public class AnimeView extends LinearLayout {
         stageHeader.addView(stageTitle);
         searchPanel.addView(stageHeader);
 
-        // 搜索行：圆角输入框 + 胶囊按钮
+        // ═══ Aurora Hero：渐变头图区（原为平铺搜索行）═══
+        // 结构：深紫→紫→粉 三段渐变、底部大圆角，标题压在其上，搜索条悬浮其中。
+        // 目的是让首屏有明确的视觉锚点，而不是一上来就是白底输入框。
+        LinearLayout hero = new LinearLayout(ctx);
+        hero.setOrientation(VERTICAL);
+        GradientDrawable heroBg = Aurora.grad(ctx, Aurora.G_HERO,
+                GradientDrawable.Orientation.TL_BR);
+        heroBg.setCornerRadii(new float[]{
+                0, 0, 0, 0, dp(Aurora.R_CARD + 8), dp(Aurora.R_CARD + 8),
+                dp(Aurora.R_CARD + 8), dp(Aurora.R_CARD + 8)});
+        hero.setBackground(heroBg);
+        hero.setPadding(pad, dp(20), pad, dp(16));
+
+        TextView heroTitle = new TextView(ctx);
+        heroTitle.setText("探索");
+        heroTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
+        heroTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        heroTitle.setTextColor(0xFFFFFFFF);
+        heroTitle.setLetterSpacing(-0.03f);
+        heroHeader = hero;
+        searchPanel.addView(hero);
+
+        TextView heroSub = new TextView(ctx);
+        heroSub.setText("找一部，然后让它自己去找源");
+        heroSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        heroSub.setTextColor(0xD9FFFFFF);
+        LayoutParams hslp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        hslp.topMargin = dp(2);
+        heroSub.setLayoutParams(hslp);
+
+        // 搜索条：白色圆角胶囊（在深色渐变上跳出来）+ 渐变按钮
         LinearLayout bar = new LinearLayout(ctx);
         bar.setOrientation(HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(pad, pad, pad, dp(4));
+        LayoutParams barLp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        barLp.topMargin = dp(14);
+        bar.setLayoutParams(barLp);
 
         etKeyword = new EditText(ctx);
-        etKeyword.setHint("输入番剧名");
+        etKeyword.setHint("输入番剧名…");
         etKeyword.setSingleLine(true);
         etKeyword.setInputType(InputType.TYPE_CLASS_TEXT);
         etKeyword.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        etKeyword.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
-        etKeyword.setHintTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
-        etKeyword.setBackground(ModuleUiKit.rounded(ctx, 10,
-                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
-        etKeyword.setPadding(dp(12), dp(9), dp(12), dp(9));
+        etKeyword.setTextColor(0xFF2E2350);
+        etKeyword.setHintTextColor(0x8A2E2350);
+        GradientDrawable inputBg = new GradientDrawable();
+        inputBg.setColor(0xFFFFFFFF);
+        inputBg.setCornerRadius(dp(Aurora.R_INNER));
+        etKeyword.setBackground(inputBg);
+        etKeyword.setPadding(dp(14), dp(11), dp(14), dp(11));
         bar.addView(etKeyword, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView btnSearch = btn("搜索", color(com.google.android.material.R.attr.colorOnPrimary),
-                color(com.google.android.material.R.attr.colorPrimary));
+        TextView btnSearch = btn("搜", 0xFFFFFFFF, 0);
+        btnSearch.setBackground(Aurora.grad(ctx, Aurora.G_MAIN, dp(Aurora.R_PILL)));
+        btnSearch.setPadding(dp(22), dp(12), dp(22), dp(12));
+        btnSearch.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        btnSearch.setTypeface(null, android.graphics.Typeface.BOLD);
         btnSearch.setOnClickListener(v -> doSearch());
         LayoutParams blp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         blp.leftMargin = dp(8);
         bar.addView(btnSearch, blp);
-        searchPanel.addView(bar);
-        stageSearchBar = bar;
+
+        hero.addView(heroTitle);
+        hero.addView(heroSub);
+        hero.addView(bar);
+        stageSearchBar = bar;   // Stage2 时整体隐藏（连同标题一起藏，见 backToStage1）
 
         // 状态行
         tvStatus = new TextView(ctx);
@@ -317,34 +368,40 @@ public class AnimeView extends LinearLayout {
     // ══════════════════ 底栏 ══════════════════
 
     /** 底栏（对齐文件管理底栏写法 + Ani 的 Tab 结构） */
+    /**
+     * 底栏（Aurora 重构）：深紫底 + 选中项渐变胶囊。
+     *
+     * <p>原设计是单色圆角条 + 图标变色，信息弱；新设计让「选中」由**形状与色相**同时表达，
+     * 远看也能一眼定位当前位置。</p>
+     */
     private LinearLayout buildBottomNav() {
         bottomNav = new LinearLayout(ctx);
         bottomNav.setOrientation(HORIZONTAL);
         bottomNav.setGravity(Gravity.CENTER);
-        int bg = color(com.google.android.material.R.attr.colorSurfaceContainer);
-        bottomNav.setBackground(ModuleUiKit.rounded(ctx, 14, bg, 0));
-        int pad = dp(4);
-        bottomNav.setPadding(pad, dp(3), pad, dp(3));
+        // 深紫底 + 大圆角，与内容区拉开层次
+        bottomNav.setBackground(Aurora.grad(ctx, new int[]{0xFF2E2350, 0xFF241A3A},
+                dp(Aurora.R_CARD)));
+        int pad = dp(5);
+        bottomNav.setPadding(pad, dp(5), pad, dp(5));
         LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(6);
+        lp.topMargin = dp(8);
         bottomNav.setLayoutParams(lp);
 
-        addAnimeTab("search", "搜索", R.drawable.ic_search,
-                v -> switchTab("search"));
-        addAnimeTab("history", "历史", R.drawable.ic_star,
-                v -> switchTab("history"));
-        addAnimeTab("source", "源", R.drawable.ic_settings,
-                v -> switchTab("source"));
-        addAnimeTab("cache", "缓存", R.drawable.ic_download,
-                v -> switchTab("cache"));
-        addAnimeTab("info", "说明", R.drawable.ic_info,
-                v -> switchTab("info"));
+        addAnimeTab("search", "探索", R.drawable.ic_search, v -> switchTab("search"));
+        addAnimeTab("history", "历史", R.drawable.ic_star, v -> switchTab("history"));
+        addAnimeTab("source", "源", R.drawable.ic_settings, v -> switchTab("source"));
+        addAnimeTab("cache", "缓存", R.drawable.ic_download, v -> switchTab("cache"));
+        addAnimeTab("info", "说明", R.drawable.ic_info, v -> switchTab("info"));
 
-        updateBottomNav();   // 无入场动画（用户要求）
+        updateBottomNav();
         return bottomNav;
     }
 
+    /**
+     * 单个 Tab：图标 + 文字竖排；<b>选中态是渐变胶囊</b>（主渐变紫→粉→橙），
+     * 图标与文字转白；未选中是透明 + 弱化色。切换时对选中项做 {@link Aurora#pulse}。
+     */
     private void addAnimeTab(final String key, String text, int iconRes, View.OnClickListener onClick) {
         LinearLayout tab = new LinearLayout(ctx);
         tab.setOrientation(VERTICAL);
@@ -352,20 +409,19 @@ public class AnimeView extends LinearLayout {
         tab.setClickable(true);
         tab.setFocusable(true);
         tab.setOnClickListener(onClick);
-        tab.setPadding(dp(8), dp(3), dp(8), dp(3));
+        tab.setPadding(dp(6), dp(6), dp(6), dp(6));
 
         ImageView icon = new ImageView(ctx);
         icon.setImageResource(iconRes);
-        icon.setColorFilter(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
-        tab.addView(icon, new LayoutParams(dp(24), dp(24)));
+        tab.addView(icon, new LayoutParams(dp(20), dp(20)));
 
         TextView label = new TextView(ctx);
         label.setText(text);
         label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
-        label.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        label.setTypeface(null, android.graphics.Typeface.BOLD);
         LayoutParams llp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
-        llp.topMargin = dp(1);
+        llp.topMargin = dp(2);
         label.setLayoutParams(llp);
         tab.addView(label);
 
@@ -391,21 +447,43 @@ public class AnimeView extends LinearLayout {
         updateBottomNav();
     }
 
+    /** 选中态 = 渐变胶囊 + 白色前景 + 呼吸反馈；未选中 = 透明 + 弱化前景 */
     private void updateBottomNav() {
-        for (View tab : navTabs) {
-            Object[] tg = (Object[]) tab.getTag();
-            String key = (String) tg[0];
-            ImageView icon = (ImageView) tg[1];
-            TextView label = (TextView) tg[2];
-            boolean on = key.equals(currentTab);
-            int tint = color(on ? com.google.android.material.R.attr.colorPrimary
-                    : com.google.android.material.R.attr.colorOnSurfaceVariant);
-            icon.setColorFilter(tint);
-            label.setTextColor(tint);
+        boolean anyActive = false;
+        for (int i = 0; i < navTabs.size(); i++) {
+            View tab = navTabs.get(i);
+            Object[] tag = (Object[]) tab.getTag();
+            if (tag == null || tag.length < 3) continue;
+            String key = (String) tag[0];
+            ImageView icon = (ImageView) tag[1];
+            TextView label = (TextView) tag[2];
+            boolean active = key.equals(currentTab);
+            if (active) anyActive = true;
+
+            if (active) {
+                // 渐变胶囊：紫 → 粉 → 橙，左上到右下
+                GradientDrawable bg = Aurora.grad(ctx, Aurora.G_MAIN, dp(Aurora.R_PILL));
+                tab.setBackground(bg);
+                icon.setColorFilter(0xFFFFFFFF);
+                label.setTextColor(0xFFFFFFFF);
+                Aurora.pulse(icon);
+            } else {
+                tab.setBackground(null);
+                int muted = 0x99FFFFFF;
+                icon.setColorFilter(muted);
+                label.setTextColor(muted);
+            }
+        }
+        // 偶发兜底：当前 Tab 不在底栏（如详情页）→ 高亮"探索"
+        if (!anyActive && !navTabs.isEmpty()) {
+            View first = navTabs.get(0);
+            Object[] tag = (Object[]) first.getTag();
+            if (tag != null && tag.length >= 3) {
+                ((ImageView) tag[1]).setColorFilter(0xFFFFFFFF);
+                ((TextView) tag[2]).setTextColor(0xFFFFFFFF);
+            }
         }
     }
-
-    // ══════════════════ 历史面板 ══════════════════
 
     private LinearLayout buildHistoryPanel() {
         LinearLayout panel = new LinearLayout(ctx);
@@ -437,7 +515,8 @@ public class AnimeView extends LinearLayout {
             empty.setText("暂无观看记录");
             empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
             empty.setPadding(dp(4), dp(12), dp(4), dp(4));
-            empty.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            empty.setTextColor(Aurora.G_ICE[0]);
+            Aurora.enter(empty, 60);
             historyListBox.addView(empty);
             return;
         }
@@ -565,13 +644,27 @@ public class AnimeView extends LinearLayout {
         }
     }
 
+    /**
+     * 分组标题（Aurora）：左侧渐变色条 + 粗体文字。
+     *
+     * <p>原设计只靠颜色区分层级，弱光环境下几乎看不出分组；
+     * 加一条 4dp 渐变竖条后，分组边界在任何光线下都成立。</p>
+     */
     private TextView sectionLabel(String text) {
         TextView t = new TextView(ctx);
-        t.setText(text);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        t.setText("  " + text);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         t.setTypeface(null, android.graphics.Typeface.BOLD);
-        t.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
-        t.setPadding(dp(4), dp(10), dp(4), dp(4));
+        t.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        t.setGravity(Gravity.CENTER_VERTICAL);
+        GradientDrawable bar = Aurora.grad(ctx, Aurora.G_MAIN, dp(4));
+        t.setBackground(bar);
+        t.setPadding(dp(10), dp(7), dp(10), dp(7));
+        LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(10);
+        lp.bottomMargin = dp(4);
+        t.setLayoutParams(lp);
         return t;
     }
 
@@ -580,9 +673,13 @@ public class AnimeView extends LinearLayout {
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(VERTICAL);
         row.setPadding(dp(12), dp(9), dp(12), dp(9));
-        row.setBackground(ModuleUiKit.rounded(ctx, 14,
+        // 渐变描边卡片（已完成用薄荷，进行中用冷紫，失败用日落）
+        int[] edge = completed ? Aurora.G_MINT
+                : (t.state == OfflineCache.Task.State.FAILED ? Aurora.G_SUN : Aurora.G_ICE);
+        row.setBackground(ModuleUiKit.rounded(ctx, dp(Aurora.R_CARD),
                 color(com.google.android.material.R.attr.colorSurfaceContainerLow),
-                color(com.google.android.material.R.attr.colorOutlineVariant)));
+                edge[0]));
+        row.setPadding(dp(13), dp(10), dp(13), dp(10));
         LayoutParams rlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         rlp.bottomMargin = dp(6);
@@ -637,13 +734,33 @@ public class AnimeView extends LinearLayout {
 
         // 进行中的进度条
         if (!completed && t.state != OfflineCache.Task.State.FAILED) {
-            android.widget.ProgressBar pb = new android.widget.ProgressBar(ctx,
-                    null, android.R.attr.progressBarStyleHorizontal);
-            pb.setMax(100);
-            pb.setProgress(t.progress());
-            LayoutParams plp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6));
-            plp.topMargin = dp(6);
-            row.addView(pb, plp);
+            // 进度条：自绘 View（原生 ProgressBar 无法做渐变填充，而渐变是本次设计语言的主轴）
+            final OfflineCache.Task task = t;
+            View progress = new View(ctx) {
+                @Override protected void onDraw(android.graphics.Canvas cv) {
+                    int w = getWidth(), h = getHeight();
+                    // 轨道
+                    GradientDrawable track = new GradientDrawable();
+                    track.setColor(0x262E2350);
+                    track.setCornerRadius(h / 2f);
+                    track.setBounds(0, 0, w, h);
+                    track.draw(cv);
+                    // 渐变填充
+                    int fw = (int) (w * task.progress() / 100f);
+                    if (fw > 0) {
+                        GradientDrawable fill = Aurora.grad(getContext(),
+                                task.state == OfflineCache.Task.State.QUEUED
+                                        ? Aurora.G_ICE : Aurora.G_MINT,
+                                GradientDrawable.Orientation.LEFT_RIGHT);
+                        fill.setCornerRadius(h / 2f);
+                        fill.setBounds(0, 0, fw, h);
+                        fill.draw(cv);
+                    }
+                }
+            };
+            LayoutParams plp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7));
+            plp.topMargin = dp(7);
+            row.addView(progress, plp);
 
             TextView detail = new TextView(ctx);
             String d;
@@ -886,7 +1003,7 @@ public class AnimeView extends LinearLayout {
         }, "feed-load").start();
     }
 
-    /** 大卡片网格（2 列，对齐 Kazumi 首页形态），无入场动画 */
+    /** 卡片网格（Aurora：2 列 + stagger 入场），动画只在数据到达时跑一次 */
     private void renderGrid(List<AnimeMetadata.Entry> entries) {
         if (listBox == null) return;
         listBox.removeAllViews();
@@ -912,43 +1029,72 @@ public class AnimeView extends LinearLayout {
                 // 末尾单卡：占满半行即可
             }
         }
+
+        // stagger 入场：每张卡错开 45ms，形成"流"的观感（原为瞬显）
+        Aurora.enterAll(listBox, 10);
     }
 
-    /** 大卡片：大封面 + 标题 + 评分/集数（无动画） */
+    /**
+     * 探索卡片（Aurora 重构）：
+     * 封面 22dp 圆角 + 底部渐变遮罩压字 + 标题/评分浮于其上。
+     *
+     * <p>原设计是「图下配字」，标题与封面脱节；现在文字压在遮罩里，
+     * 与封面构成一个视觉单元，扫视时更容易按图认番。</p>
+     */
     private View buildGridCard(final AnimeMetadata.Entry e) {
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(VERTICAL);
-        card.setPadding(dp(6), dp(6), dp(6), dp(8));
-        card.setBackground(ModuleUiKit.rounded(ctx, 14,
-                color(com.google.android.material.R.attr.colorSurfaceContainerLow),
-                color(com.google.android.material.R.attr.colorOutlineVariant)));
+        card.setGravity(Gravity.BOTTOM);
         card.setClickable(true);
         card.setFocusable(true);
+        card.setClipChildren(true);
+        int r = dp(Aurora.R_CARD);
+        card.setBackground(Aurora.grad(ctx, Aurora.G_ICE, r));
+        card.setPadding(dp(3), dp(3), dp(3), dp(3));
 
-        // 封面（大图，3:4）
+        // 封面（占满卡片，稍后叠遮罩）
+        FrameLayout coverBox = new FrameLayout(ctx);
+        card.addView(coverBox, new LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(200)));
+
         android.widget.ImageView cover = new android.widget.ImageView(ctx);
         cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-        cover.setBackground(ModuleUiKit.rounded(ctx, 10,
-                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
-        card.addView(cover, new LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(180)));
+        GradientDrawable cbg = new GradientDrawable();
+        cbg.setColor(color(com.google.android.material.R.attr.colorSurfaceContainerHigh));
+        cbg.setCornerRadius(dp(Aurora.R_IMAGE));
+        cover.setBackground(cbg);
+        coverBox.addView(cover, new LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         if (e.cover != null && !e.cover.isEmpty()) loadCover(cover, e.cover);
 
-        // 标题（2 行）
+        // 底部渐变遮罩（透明 → 近黑），标题压其上
+        View scrim = new View(ctx);
+        GradientDrawable sg = new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
+                new int[]{0xCC1A1030, 0x001A1030});
+        sg.setCornerRadius(dp(Aurora.R_IMAGE));
+        coverBox.addView(scrim, new LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        scrim.setBackground(sg);
+
+        // 文字叠加
+        LinearLayout caption = new LinearLayout(ctx);
+        caption.setOrientation(VERTICAL);
+        caption.setPadding(dp(10), dp(4), dp(10), dp(9));
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.gravity = android.view.Gravity.BOTTOM;
+        caption.setLayoutParams(clp);
+        coverBox.addView(caption);
+
         TextView title = new TextView(ctx);
         title.setText(e.title);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
-        title.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
+        title.setTextColor(0xFFFFFFFF);
         title.setMaxLines(2);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LayoutParams tlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        tlp.topMargin = dp(7);
-        title.setLayoutParams(tlp);
-        card.addView(title);
+        caption.addView(title);
 
-        // 评分 · 集数
         if (e.score >= 0 || e.episodes > 0) {
             TextView meta = new TextView(ctx);
             StringBuilder sb = new StringBuilder();
@@ -959,17 +1105,18 @@ public class AnimeView extends LinearLayout {
             }
             meta.setText(sb.toString());
             meta.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            meta.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            meta.setTextColor(0xE6FFD8E8);
             LayoutParams mlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
             mlp.topMargin = dp(2);
             meta.setLayoutParams(mlp);
-            card.addView(meta);
+            caption.addView(meta);
         }
 
         card.setOnClickListener(v -> openSourceSelector(e));
         return card;
     }
+
 
     private void doSearch() {
         final String kw = etKeyword.getText().toString().trim();
@@ -1185,6 +1332,7 @@ public class AnimeView extends LinearLayout {
         selectorLoading = false;
         if (stageHeader != null) stageHeader.setVisibility(View.GONE);
         if (stageSearchBar != null) stageSearchBar.setVisibility(View.VISIBLE);
+        if (heroHeader != null) heroHeader.setVisibility(View.VISIBLE);
         if (tvStatus != null) tvStatus.setVisibility(View.VISIBLE);
         if (listBox != null) listBox.removeAllViews();
         refreshStatus();
@@ -1204,10 +1352,13 @@ public class AnimeView extends LinearLayout {
 
         LinearLayout c = card();
         TextView head = new TextView(ctx);
-        head.setText("继续观看");
-        head.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        head.setText("  继续观看");
+        head.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         head.setTypeface(null, Typeface.BOLD);
-        head.setTextColor(color(com.google.android.material.R.attr.colorPrimary));
+        head.setTextColor(0xFFFFFFFF);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setBackground(Aurora.grad(ctx, Aurora.G_MAIN, dp(4)));
+        head.setPadding(dp(10), dp(7), dp(10), dp(7));
         c.addView(head);
 
         TextView body = new TextView(ctx);
@@ -1216,10 +1367,12 @@ public class AnimeView extends LinearLayout {
                 + "   " + e.positionText()
                 + (e.channelName == null || e.channelName.isEmpty() ? "" : "   · " + e.channelName));
         body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        body.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
-        body.setPadding(dp(10), dp(10), dp(10), dp(10));
-        body.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 10,
-                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
+        body.setTextColor(0xFFFFFFFF);
+        body.setPadding(dp(13), dp(12), dp(13), dp(12));
+        body.setLineSpacing(0, 1.35f);
+        // 主操作卡：整块主渐变，直接告诉用户"点这里接着看"
+        body.setBackground(ModuleUiKit.rippleBg(ctx,
+                Aurora.grad(ctx, Aurora.G_ICE, dp(Aurora.R_INNER))));
         LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(6);
@@ -1286,6 +1439,7 @@ public class AnimeView extends LinearLayout {
             stageTitle.setText(entry.title);
         }
         if (stageSearchBar != null) stageSearchBar.setVisibility(View.GONE);
+        if (heroHeader != null) heroHeader.setVisibility(View.GONE);
         if (listBox != null) listBox.removeAllViews();
         tvStatus.setVisibility(View.VISIBLE);
 
@@ -1309,126 +1463,139 @@ public class AnimeView extends LinearLayout {
         trySourcesWithKeywords(srcs, kws, 0, entry, loading);
     }
 
-    /** 详情页头部：大封面 + 标题 + 评分/集数 + 标签 + 简介 */
-    private View buildDetailHeader(AnimeMetadata.Entry e) {
+    /**
+     * 详情页头部（Aurora 重构）：<b>封面铺满 banner + 底部渐变遮罩 + 白字压顶</b>。
+     *
+     * <p>原设计是「左小图 + 右信息」的列表排布，与下方选源列表无主次之分；
+     * 新设计让封面成为整块视觉主体，信息压在遮罩里，先建立"这是哪部番"的强认知，
+     * 下方再进入功能区（缓存 / 可用源）。</p>
+     */
+    private View buildDetailHeader(final AnimeMetadata.Entry e) {
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(VERTICAL);
-        box.setPadding(dp(4), dp(4), dp(4), dp(8));
+        box.setPadding(0, 0, 0, dp(8));
 
-        // 顶部：封面 + 基本信息
-        LinearLayout top = new LinearLayout(ctx);
-        top.setOrientation(HORIZONTAL);
+        // ── Banner：封面 240dp，渐变遮罩，标题压底 ──
+        FrameLayout banner = new FrameLayout(ctx);
+        banner.setClipChildren(true);
+        GradientDrawable brBg = Aurora.grad(ctx, Aurora.G_ICE, dp(Aurora.R_CARD));
+        banner.setBackground(brBg);
+        LayoutParams blp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(240));
+        blp.topMargin = dp(4);
+        banner.setLayoutParams(blp);
 
         android.widget.ImageView cover = new android.widget.ImageView(ctx);
         cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-        cover.setBackground(ModuleUiKit.rounded(ctx, 8,
-                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
-        top.addView(cover, new LayoutParams(dp(92), dp(128)));
+        GradientDrawable cBg = new GradientDrawable();
+        cBg.setColor(color(com.google.android.material.R.attr.colorSurfaceContainerHigh));
+        cBg.setCornerRadius(dp(Aurora.R_IMAGE));
+        cover.setBackground(cBg);
+        banner.addView(cover, new LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         if (e.cover != null && !e.cover.isEmpty()) loadCover(cover, e.cover);
 
-        LinearLayout info = new LinearLayout(ctx);
-        info.setOrientation(VERTICAL);
-        LayoutParams ilp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        ilp.leftMargin = dp(12);
-        info.setLayoutParams(ilp);
+        // 遮罩：底部深 → 顶部透明
+        View scrim = new View(ctx);
+        GradientDrawable sg = new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
+                new int[]{0xE6160C28, 0x00160C28});
+        sg.setCornerRadius(dp(Aurora.R_IMAGE));
+        scrim.setBackground(sg);
+        banner.addView(scrim, new LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // 文字叠加（底部）
+        LinearLayout cap = new LinearLayout(ctx);
+        cap.setOrientation(VERTICAL);
+        cap.setPadding(dp(14), dp(10), dp(14), dp(14));
+        FrameLayout.LayoutParams cfl = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cfl.gravity = android.view.Gravity.BOTTOM;
+        cap.setLayoutParams(cfl);
 
         TextView title = new TextView(ctx);
         title.setText(e.title);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
-        title.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
-        info.addView(title);
+        title.setTextColor(0xFFFFFFFF);
+        title.setLetterSpacing(-0.02f);
+        title.setMaxLines(2);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cap.addView(title);
 
         if (e.nativeTitle != null && !e.nativeTitle.isEmpty()
                 && !e.nativeTitle.equals(e.title)) {
             TextView nt = new TextView(ctx);
             nt.setText(e.nativeTitle);
             nt.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            nt.setMaxLines(2);
+            nt.setMaxLines(1);
             nt.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            nt.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            nt.setTextColor(0xCCFFFFFF);
             LayoutParams nlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
-            nlp.topMargin = dp(3);
+            nlp.topMargin = dp(2);
             nt.setLayoutParams(nlp);
-            info.addView(nt);
+            cap.addView(nt);
         }
 
-        // 评分 / 集数 徽标行
+        // 徽标行：评分(渐变高亮) / 集数 / 来源
         LinearLayout badges = new LinearLayout(ctx);
         badges.setOrientation(HORIZONTAL);
-        LayoutParams blp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+        LayoutParams bl = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
-        blp.topMargin = dp(8);
-        badges.setLayoutParams(blp);
-        if (e.score >= 0) {
-            badges.addView(detailBadge("★ " + e.scoreText(), true));
-        }
-        if (e.episodes > 0) {
-            badges.addView(detailBadge(e.episodes + " 集", false));
-        }
-        if (!e.source.isEmpty()) {
-            badges.addView(detailBadge(e.source, false));
-        }
-        info.addView(badges);
+        bl.topMargin = dp(9);
+        badges.setLayoutParams(bl);
+        if (e.score >= 0) badges.addView(bannerBadge("★ " + e.scoreText(), true));
+        if (e.episodes > 0) badges.addView(bannerBadge(e.episodes + " 集", false));
+        if (!e.source.isEmpty()) badges.addView(bannerBadge(e.source, false));
+        cap.addView(badges);
 
-        // 标签
+        banner.addView(cap);
+        box.addView(banner);
+
+        // ── 功能区：缓存按钮（渐变胶囊）──
+        TextView cacheBtn = btn("缓存本集（离线观看）", 0xFFFFFFFF, 0);
+        cacheBtn.setBackground(Aurora.grad(ctx, Aurora.G_MINT, dp(Aurora.R_PILL)));
+        cacheBtn.setPadding(dp(18), dp(11), dp(18), dp(11));
+        cacheBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        cacheBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+        cacheBtn.setOnClickListener(v -> startCacheCurrent(e));
+        LayoutParams cbtnLp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        cbtnLp.topMargin = dp(10);
+        cacheBtn.setLayoutParams(cbtnLp);
+        box.addView(cacheBtn);
+
+        // ── 标签（渐变描边胶囊）──
         if (e.tags != null && !e.tags.isEmpty()) {
-            TextView tg = new TextView(ctx);
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < e.tags.size() && i < 6; i++) {
-                if (i > 0) sb.append(" · ");
-                sb.append(e.tags.get(i));
-            }
-            tg.setText(sb.toString());
-            tg.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            tg.setMaxLines(2);
-            tg.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            tg.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            LinearLayout tags = new LinearLayout(ctx);
+            tags.setOrientation(HORIZONTAL);
             LayoutParams tlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
-            tlp.topMargin = dp(6);
-            tg.setLayoutParams(tlp);
-            info.addView(tg);
+            tlp.topMargin = dp(9);
+            tags.setLayoutParams(tlp);
+            for (int i = 0; i < e.tags.size() && i < 6; i++) tags.addView(softTag(e.tags.get(i)));
+            box.addView(tags);
         }
 
-        top.addView(info);
-        box.addView(top);
-
-        // 简介
+        // ── 简介 ──
         if (e.desc != null && !e.desc.isEmpty()) {
             TextView desc = new TextView(ctx);
-            String d = e.desc.length() > 300 ? e.desc.substring(0, 300) + "…" : e.desc;
-            desc.setText(d.replaceAll("<[^>]+>", ""));
-            desc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            String d = e.desc.replaceAll("<[^>]+>", "");
+            if (d.length() > 300) d = d.substring(0, 300) + "…";
+            desc.setText(d);
+            desc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
             desc.setMaxLines(5);
             desc.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            desc.setLineSpacing(0, 1.4f);
+            desc.setLineSpacing(0, 1.45f);
             desc.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
             LayoutParams dlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
-            dlp.topMargin = dp(10);
+            dlp.topMargin = dp(11);
             desc.setLayoutParams(dlp);
             box.addView(desc);
         }
 
-        // 操作行：缓存本集（离线缓存入口）
-        LinearLayout actions = new LinearLayout(ctx);
-        actions.setOrientation(HORIZONTAL);
-        LayoutParams alp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        alp.topMargin = dp(4);
-        actions.setLayoutParams(alp);
-        TextView cacheBtn = btn("缓存本集（离线观看）",
-                color(com.google.android.material.R.attr.colorOnPrimary),
-                color(com.google.android.material.R.attr.colorPrimary));
-        cacheBtn.setGravity(Gravity.CENTER);
-        cacheBtn.setOnClickListener(v -> startCacheCurrent(e));
-        actions.addView(cacheBtn, new LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        box.addView(actions);
-
-        // 分隔 + 小标题
+        // 分隔标题
         TextView sep = ModuleUiKit.sectionHeader(ctx, "可用播放源");
         LayoutParams slp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1439,23 +1606,43 @@ public class AnimeView extends LinearLayout {
         return box;
     }
 
-    private TextView detailBadge(String text, boolean highlight) {
+    /** banner 内徽标：highlight 用主渐变填充，否则半透明白 */
+    private TextView bannerBadge(String text, boolean highlight) {
         TextView t = new TextView(ctx);
         t.setText(text);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        t.setPadding(dp(7), dp(3), dp(7), dp(3));
-        t.setTextColor(highlight
-                ? color(com.google.android.material.R.attr.colorOnPrimary)
-                : color(com.google.android.material.R.attr.colorOnSurfaceVariant));
-        t.setBackground(ModuleUiKit.rounded(ctx, 10,
-                color(highlight ? com.google.android.material.R.attr.colorPrimary
-                        : com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+        t.setTypeface(null, android.graphics.Typeface.BOLD);
+        t.setPadding(dp(9), dp(3), dp(9), dp(3));
+        if (highlight) {
+            t.setTextColor(0xFFFFFFFF);
+            t.setBackground(Aurora.grad(ctx, Aurora.G_SUN, dp(Aurora.R_PILL)));
+        } else {
+            t.setTextColor(0xE6FFFFFF);
+            t.setBackground(ModuleUiKit.rounded(ctx, dp(Aurora.R_PILL), 0x33FFFFFF, 0));
+        }
         LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.rightMargin = dp(6);
         t.setLayoutParams(lp);
         return t;
     }
+
+    /** 柔和标签：渐变描边胶囊（原为无样式纯文本） */
+    private TextView softTag(String text) {
+        TextView t = new TextView(ctx);
+        t.setText(text);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        t.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        t.setBackground(ModuleUiKit.rounded(ctx, dp(Aurora.R_PILL),
+                color(com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+        t.setPadding(dp(10), dp(5), dp(10), dp(5));
+        LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(6);
+        t.setLayoutParams(lp);
+        return t;
+    }
+
 
     /**
      * 按关键词列表依次尝试搜源，任一关键词命中即停（P3）。
@@ -1619,10 +1806,17 @@ public class AnimeView extends LinearLayout {
         if (listBox == null) return;
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(VERTICAL);
-        row.setPadding(dp(12), dp(10), dp(12), dp(10));
-        row.setBackground(ModuleUiKit.rounded(ctx, 14,
-                color(com.google.android.material.R.attr.colorSurfaceContainerLow),
-                color(com.google.android.material.R.attr.colorOutlineVariant)));
+        // 大圆角卡片 + 左侧 3dp 渐变竖条（与分组标题同属一套视觉语言）
+        row.setPadding(dp(13), dp(11), dp(13), dp(11));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(color(com.google.android.material.R.attr.colorSurfaceContainerLow));
+        bg.setCornerRadius(dp(Aurora.R_CARD));
+        GradientDrawable bar = Aurora.grad(ctx, Aurora.G_ICE,
+                GradientDrawable.Orientation.TOP_BOTTOM);
+        bar.setCornerRadius(dp(3));
+        row.setBackground(new LayerDrawable(new android.graphics.drawable.Drawable[]{bg, bar}));
+        ((android.graphics.drawable.LayerDrawable) row.getBackground())
+                .setLayerInset(1, 0, dp(9), dp(-3), dp(9));
         LayoutParams rlp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         rlp.bottomMargin = dp(8);
@@ -1668,13 +1862,25 @@ public class AnimeView extends LinearLayout {
                     + (t >= 0 ? ("  t" + t) : "");
             pill.setText(label);
             pill.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            pill.setPadding(dp(10), dp(6), dp(10), dp(6));
-            pill.setTextColor(idx == 0
-                    ? color(com.google.android.material.R.attr.colorOnPrimary)
-                    : color(com.google.android.material.R.attr.colorOnSurface));
-            pill.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 14,
-                    color(idx == 0 ? com.google.android.material.R.attr.colorPrimary
-                            : com.google.android.material.R.attr.colorSurfaceContainerHigh), 0)));
+            pill.setTypeface(idx == 0 ? android.graphics.Typeface.DEFAULT_BOLD
+                    : android.graphics.Typeface.DEFAULT);
+            pill.setPadding(dp(14), dp(7), dp(14), dp(7));
+            if (idx == 0) {
+                // 首选线路：主渐变填充（视觉上直接告诉用户"点这个"）
+                pill.setTextColor(0xFFFFFFFF);
+                GradientDrawable g = Aurora.grad(ctx, Aurora.G_MAIN,
+                        GradientDrawable.Orientation.LEFT_RIGHT);
+                g.setCornerRadius(dp(Aurora.R_PILL));
+                pill.setBackground(ModuleUiKit.rippleBg(ctx, g));
+            } else {
+                // 其余线路：薄荷渐变描边（区分层级但不喧宾夺主）
+                pill.setTextColor(Aurora.G_MINT[0]);
+                GradientDrawable g = new GradientDrawable();
+                g.setColor(0x00000000);
+                g.setCornerRadius(dp(Aurora.R_PILL));
+                g.setStroke(dp(1), Aurora.G_MINT[0]);
+                pill.setBackground(ModuleUiKit.rippleBg(ctx, g));
+            }
             LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
             if (idx > 0) lp.leftMargin = dp(6);
