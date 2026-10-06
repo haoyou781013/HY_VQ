@@ -333,4 +333,70 @@
         <item name="colorSurfaceContainerLowest">@color/theme_cyan_surface_container_low</item>
     </style>
 
+    <!-- ═══════════════════════════════════════════════════════════════════
+         播放页专属暗色主题（只给 MediaPlayerActivity 用，其余页面仍是浅色）。
+
+         用户诉求：播放场景夜间居多，浅色刺眼；App 其余部分保持浅色不变 ——
+         因此**不建 values-night/**（那会让全 App 跟随系统变暗），
+         而是把暗色做成**单个 Activity 的主题**，由 AndroidManifest 指定。
+
+         配色规则：
+         · 父级沿用 Base.AppTheme（形状预设 / 系统栏结构完全继承，只换颜色）；
+         · 全部色值与浅色主题**同色相**（主色系 h≈207° 蓝），只压亮度、反相明暗；
+         · colorPrimary 必须「配白字 ≥4.5:1（WCAG AA）」且「深底上可读 ≥3:1」：
+           浅色 #42A5F5 配白字仅 2.65:1，暗色侧改用 **#1565C0**（对白字 5.75:1，
+           对面板底 #1C2129 约 3.6:1），两个方向都达标。
+           （#1976D2 也可行 4.61:1，余量偏小，故取更深一档。）
+         · 系统栏换 glass_dark_* 磨砂 + 关闭 windowLightStatusBar/NavigationBar。
+         ═══════════════════════════════════════════════════════════════════ -->
+    <style name="Theme.HY_VQ.Player" parent="Base.AppTheme">
+        <!-- 系统栏：暗色磨砂（与浅色主题同构，只换色与栏位图标明暗） -->
+        <item name="android:statusBarColor">@color/glass_dark_40</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@color/glass_dark_50</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <!-- 背景：深色纯底（避免浅色渐变在窗口创建瞬间白闪） -->
+        <item name="android:windowBackground">#101318</item>
+
+        <!-- 主色系：深蓝，同色相压暗 -->
+        <item name="colorPrimary">#1565C0</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorPrimaryContainer">#103A66</item>
+        <item name="colorOnPrimaryContainer">#BBDEFB</item>
+        <!-- 次/第三色：保持浅色原值，改配深色 on 文字（同色相不改 hue） -->
+        <item name="colorSecondary">#64B5F6</item>
+        <item name="colorOnSecondary">#062842</item>
+        <item name="colorSecondaryContainer">#0D2C46</item>
+        <item name="colorOnSecondaryContainer">#BBDEFB</item>
+        <item name="colorTertiary">#90CAF9</item>
+        <item name="colorOnTertiary">#0B2942</item>
+        <item name="colorTertiaryContainer">#123A5F</item>
+        <item name="colorOnTertiaryContainer">#E3F2FD</item>
+
+        <!-- 表面与文字 -->
+        <item name="colorSurface">#14171C</item>
+        <item name="colorOnSurface">#E7ECF2</item>
+        <item name="android:colorBackground">#14171C</item>
+        <item name="colorOnBackground">#E7ECF2</item>
+        <item name="colorSurfaceVariant">#232A33</item>
+        <item name="colorOnSurfaceVariant">#B6C2CE</item>
+
+        <!-- 容器层级：最暗 → 最亮，梯度方向与浅色主题一致 -->
+        <item name="colorSurfaceContainerLowest">#101318</item>
+        <item name="colorSurfaceContainerLow">#171B21</item>
+        <item name="colorSurfaceContainer">#1C2129</item>
+        <item name="colorSurfaceContainerHigh">#242A33</item>
+        <item name="colorSurfaceContainerHighest">#2C333E</item>
+
+        <!-- 描边 -->
+        <item name="colorOutline">#8A929C</item>
+        <item name="colorOutlineVariant">#43474E</item>
+
+        <!-- 错误（M3 暗色标准红系，非本项目蓝色系，按规范取暗色值） -->
+        <item name="colorError">#FFB4AB</item>
+        <item name="colorOnError">#690005</item>
+        <item name="colorErrorContainer">#93000A</item>
+        <item name="colorOnErrorContainer">#FFDAD6</item>
+    </style>
+
 </resources>

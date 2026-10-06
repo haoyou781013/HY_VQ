@@ -85,11 +85,13 @@
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
             android:launchMode="singleTop" />
 
-        <!-- 内置音视频播放器：文件管理点击音视频直接调用，不走系统外部应用 -->
+        <!-- 内置音视频播放器：文件管理点击音视频直接调用，不走系统外部应用。
+             播放页专属暗色主题（Theme.HY_VQ.Player）：播放场景夜间居多，浅色刺眼，
+             只暗这一页；application 级 AppTheme 不变，其余页面仍为浅色。 -->
         <activity
             android:name=".MediaPlayerActivity"
             android:exported="false"
-            android:theme="@style/AppTheme"
+            android:theme="@style/Theme.HY_VQ.Player"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
             android:launchMode="singleTop" />
 
