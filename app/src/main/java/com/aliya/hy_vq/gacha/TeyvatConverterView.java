@@ -114,8 +114,11 @@ public class TeyvatConverterView extends LinearLayout {
                 com.google.android.material.R.attr.colorOnSurface));
         input.setHintTextColor(ModuleUiKit.color(ctx,
                 com.google.android.material.R.attr.colorOnSurfaceVariant));
+        // 加描边：否则输入框与下方输出框都是无边浅色块，用户会误以为不可交互、
+        // 直接去点下面的渲染输出框
         input.setBackground(ModuleUiKit.rounded(ctx, 12,
-                ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+                ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerHigh),
+                ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOutline)));
         input.setPadding(dp(12), dp(11), dp(12), dp(11));
         LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -133,7 +136,7 @@ public class TeyvatConverterView extends LinearLayout {
                 com.google.android.material.R.attr.colorOnSurface));
         out.setBackground(ModuleUiKit.rounded(ctx, 12,
                 ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerLow),
-                ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOutlineVariant)));
+                ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOutline)));
         LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         op.topMargin = dp(10);
@@ -177,8 +180,10 @@ public class TeyvatConverterView extends LinearLayout {
             } else {
                 c.setTextColor(ModuleUiKit.color(ctx,
                         com.google.android.material.R.attr.colorOnSurface));
+                // 未选中也描边 —— 否则只有浅底，看着像标签文本而非可点选项
                 c.setBackground(ModuleUiKit.rounded(ctx, 999,
-                        ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
+                        ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerHigh),
+                        ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOutline)));
             }
         }
         render();
