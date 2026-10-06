@@ -93,7 +93,7 @@ public final class ModuleUiKit {
     }
 
     private static String hex(int color) {
-        return hex(color);
+        return String.format(java.util.Locale.US, "#%06X", color & 0xFFFFFF);
     }
 
 
