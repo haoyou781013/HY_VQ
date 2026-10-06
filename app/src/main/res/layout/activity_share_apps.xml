@@ -21,13 +21,13 @@
 
         <ImageView
             android:id="@+id/share_back"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
-            android:padding="10dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="13dp"
             android:src="@drawable/ic_arrow_back"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="返回"
-            app:tint="?attr/colorOnSurface" />
+            app:tint="?attr/colorOnSurface" android:scaleType="centerInside" />
 
         <TextView
             android:id="@+id/share_title"
@@ -51,13 +51,13 @@
 
         <ImageView
             android:id="@+id/share_refresh"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
-            android:padding="10dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="13dp"
             android:src="@drawable/ic_refresh"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="刷新"
-            app:tint="?attr/colorPrimary" />
+            app:tint="?attr/colorPrimary" android:scaleType="centerInside" />
     </LinearLayout>
 
     <TextView

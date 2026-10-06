@@ -246,7 +246,13 @@ public class AnimeView extends LinearLayout {
         TextView back = findViewById(R.id.stage_back);
         if (back != null) back.setOnClickListener(v -> backToStage1());
         TextView searchBtn = findViewById(R.id.btn_search);
-        if (searchBtn != null) searchBtn.setOnClickListener(v -> doSearch());
+        if (searchBtn != null) {
+            // XML 里是 colorOnPrimary(白字) + selectableItemBackground(近白) → 几乎不可见
+            // 这里补主色胶囊背景（并按对比度压暗），文字才立得住
+            searchBtn.setBackground(primaryBg(dp(16)));
+            searchBtn.setTextColor(0xFFFFFFFF);
+            searchBtn.setOnClickListener(v -> doSearch());
+        }
         if (etKeyword != null) {
             etKeyword.setOnEditorActionListener((v, actionId, event) -> {
                 doSearch();
@@ -644,7 +650,9 @@ public class AnimeView extends LinearLayout {
     /** 主操作填充底（colorPrimary），用于按钮 / 分组色条 / 主行动卡 */
     private GradientDrawable primaryBg(int radiusDp) {
         GradientDrawable d = new GradientDrawable();
-        d.setColor(color(com.google.android.material.R.attr.colorPrimary));
+        // 主题 primary 是浅色，配白字只有 1.16~2.65:1（WCAG AA 需 4.5:1）
+        // → 使用点按需压暗，主题仍是唯一色源、色相不变
+        d.setColor(ModuleUiKit.onPrimarySafe(color(com.google.android.material.R.attr.colorPrimary)));
         d.setCornerRadius(radiusDp);
         return d;
     }
@@ -1190,7 +1198,9 @@ public class AnimeView extends LinearLayout {
                     tvStatus.setText("0 条结果");
                 } else {
                     lastSearchEntries = entries;
-                    renderGrid(entries);
+                    // 搜索结果 → **列表**（NN/g：搜索是"已知要找什么"，需快速扫读）
+                    // 而首页发现页才用卡片网格（只需关键要点的并列内容）
+                    renderMetadata(entries);
                     tvStatus.setText(entries.size() + " 部 · 点任意一部查看可用源");
                 }
             });
