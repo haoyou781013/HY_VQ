@@ -145,6 +145,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int PAGE_GACHA = 11;
     /** 原神帮助页（含抽卡分析入口） */
     private static final int PAGE_GENSHIN_HELP = 13;
+    private static final int PAGE_TEYVAT = 14;      // 提瓦特文字转换（原神帮助的子页）
     private static final int PAGE_ANIME = 12;      // 动漫（多源聚合搜索）
     private static final int PAGE_MODULE_BASE = 100;
 
@@ -1085,178 +1086,29 @@ public class MainActivity extends AppCompatActivity {
         updateDrawerSelection();
     }
 
+    // ── 提瓦特文字转换：独立页（与抽卡分析同款形态）──
+    private com.aliya.hy_vq.gacha.TeyvatConverterView teyvatView;
+
+    private void switchToTeyvat() {
+        if (teyvatView == null) {
+            teyvatView = new com.aliya.hy_vq.gacha.TeyvatConverterView(this);
+        }
+        currentModuleId = null;      // 非模块：不参与模块选中态
+        switchContent(teyvatView, PAGE_TEYVAT);
+        resetToolbar();
+        binding.toolbarTitle.setText("提瓦特文字 BETA");
+        updateDrawerSelection();
+    }
+
     /** 构建原神帮助页（程序化 UI，对齐项目卡片风格） */
     // ══════════════════ 提瓦特文字转换（内嵌，不新增 PAGE）══════════════════
 
-    private LinearLayout teyvatBox;      // 可见性切换
-    private TextView teyvatInput, teyvatOut;
-    private int teyvatStyle = 0;         // 0通用 1稻妻 2须弥沙漠 3古体
-    private java.util.List<TextView> teyvatChips = new java.util.ArrayList<>();
 
     /** 构造转换器区块（默认 GONE，点入口卡后展开） */
-    private View buildTeyvatConverter() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(0, dp2(4), 0, dp2(8));
-
-        // 标题
-        TextView h = new TextView(this);
-        h.setText("提瓦特文字转换");
-        h.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        h.setTypeface(null, android.graphics.Typeface.BOLD);
-        h.setTextColor(ModuleUiKit.color(this,
-                com.google.android.material.R.attr.colorOnSurface));
-        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        hp.bottomMargin = dp2(8);
-        h.setLayoutParams(hp);
-        box.addView(h);
-
-        // 说明
-        TextView sub = new TextView(this);
-        sub.setText("输入拉丁字母，即时渲染为所选提瓦特文字。共 4 种可选。");
-        sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        sub.setTextColor(ModuleUiKit.color(this,
-                com.google.android.material.R.attr.colorOnSurfaceVariant));
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        sp.bottomMargin = dp2(10);
-        sub.setLayoutParams(sp);
-        box.addView(sub);
-
-        // 类型选择 chips（横向可换行）
-        final String[] names = {"通用·蒙德", "稻妻", "须弥沙漠", "古体·坎瑞亚"};
-        final int[] fonts = {R.font.teyvat_common, R.font.teyvat_inazuma,
-                R.font.teyvat_deshret, R.font.teyvat_khaenriah};
-        LinearLayout chipsRow = null;
-        for (int i = 0; i < names.length; i++) {
-            if (chipsRow == null || teyvatChips.size() % 4 == 0) {
-                chipsRow = new LinearLayout(this);
-                chipsRow.setOrientation(LinearLayout.HORIZONTAL);
-                LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                if (teyvatChips.size() > 0) cp.topMargin = dp2(6);
-                chipsRow.setLayoutParams(cp);
-                box.addView(chipsRow);
-            }
-            final int idx = i;
-            TextView chip = new TextView(this);
-            chip.setText(names[i]);
-            chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            chip.setPadding(dp2(14), dp2(8), dp2(14), dp2(8));
-            chip.setClickable(true);
-            chip.setFocusable(true);
-            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            clp.rightMargin = dp2(6);
-            chip.setLayoutParams(clp);
-            chip.setOnClickListener(v -> selectTeyvatStyle(idx, names[idx]));
-            chipsRow.addView(chip);
-            teyvatChips.add(chip);
-        }
-
-        // 输入
-        teyvatInput = new EditText(this);
-        teyvatInput.setHint("输入要转换的拉丁文字，如 TEYVAT");
-        teyvatInput.setSingleLine(false);
-        teyvatInput.setMaxLines(3);
-        teyvatInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
-        teyvatInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        teyvatInput.setTextColor(ModuleUiKit.color(this,
-                com.google.android.material.R.attr.colorOnSurface));
-        teyvatInput.setHintTextColor(ModuleUiKit.color(this,
-                com.google.android.material.R.attr.colorOnSurfaceVariant));
-        teyvatInput.setBackground(ModuleUiKit.rounded(this, 12,
-                ModuleUiKit.color(this, com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
-        teyvatInput.setPadding(dp2(12), dp2(10), dp2(12), dp2(10));
-        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        ip.topMargin = dp2(12);
-        teyvatInput.setLayoutParams(ip);
-        box.addView(teyvatInput);
-
-        // 输出
-        teyvatOut = new TextView(this);
-        teyvatOut.setText(" ");
-        teyvatOut.setTextSize(TypedValue.COMPLEX_UNIT_SP, 34);
-        teyvatOut.setLineSpacing(0, 1.4f);
-        teyvatOut.setPadding(dp2(14), dp2(16), dp2(14), dp2(16));
-        teyvatOut.setTextColor(ModuleUiKit.color(this,
-                com.google.android.material.R.attr.colorOnSurface));
-        teyvatOut.setBackground(ModuleUiKit.rounded(this, 12,
-                ModuleUiKit.color(this, com.google.android.material.R.attr.colorSurfaceContainerLow),
-                ModuleUiKit.color(this, com.google.android.material.R.attr.colorOutlineVariant)));
-        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        op.topMargin = dp2(10);
-        teyvatOut.setLayoutParams(op);
-        box.addView(teyvatOut);
-
-        // 实时转换
-        TextWatcher tw = new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence c, int s, int a, int b) { }
-            @Override public void onTextChanged(CharSequence c, int s, int a, int b) { renderTeyvat(); }
-            @Override public void afterTextChanged(android.text.Editable e) { }
-        };
-        teyvatInput.addTextChangedListener(tw);
-
-        // 免责声明
-        TextView foot = new TextView(this);
-        foot.setText("字形非官方，仅供娱乐参考，一切以官方为准。\n"
-                + "字体整理：Wenti-D/GenshinFonts（仓库无授权声明，仅个人非商业用途）"
-                + "；文字破译参考 @提瓦特图研所 / Genshin Impact Wiki。");
-        foot.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        foot.setLineSpacing(0, 1.35f);
-        foot.setTextColor(ModuleUiKit.color(this,
-                com.google.android.material.R.attr.colorOnSurfaceVariant));
-        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        fp.topMargin = dp2(8);
-        foot.setLayoutParams(fp);
-        box.addView(foot);
-
-        selectTeyvatStyle(0, names[0]);
-        return box;
-    }
 
     /** 切换字体系并重绘 */
-    private void selectTeyvatStyle(int idx, String label) {
-        teyvatStyle = idx;
-        for (int i = 0; i < teyvatChips.size(); i++) {
-            TextView c = teyvatChips.get(i);
-            boolean on = i == idx;
-            c.setTextColor(on ? 0xFFFFFFFF
-                    : ModuleUiKit.color(this, com.google.android.material.R.attr.colorOnSurface));
-            c.setBackground(ModuleUiKit.rounded(this, 999,
-                    on ? ModuleUiKit.color(this, com.google.android.material.R.attr.colorPrimary)
-                       : ModuleUiKit.color(this, com.google.android.material.R.attr.colorSurfaceContainerHigh), 0));
-        }
-        renderTeyvat();
-    }
 
     /** 按当前字体系渲染输入内容 */
-    private void renderTeyvat() {
-        if (teyvatOut == null || teyvatInput == null) return;
-        String raw = teyvatInput.getText() == null ? "" : teyvatInput.getText().toString();
-        if (raw.trim().isEmpty()) {
-            teyvatOut.setText(" ");
-            teyvatOut.setTextColor(ModuleUiKit.color(this,
-                    com.google.android.material.R.attr.colorOnSurfaceVariant));
-            return;
-        }
-        int[] ids = {R.font.teyvat_common, R.font.teyvat_inazuma,
-                R.font.teyvat_deshret, R.font.teyvat_khaenriah};
-        try {
-            android.graphics.Typeface tf = androidx.core.content.res.ResourcesCompat
-                    .getFont(this, ids[Math.max(0, Math.min(3, teyvatStyle))]);
-            teyvatOut.setTypeface(tf);
-        } catch (Throwable t) {
-            teyvatOut.setTypeface(android.graphics.Typeface.DEFAULT);
-        }
-        teyvatOut.setTextColor(ModuleUiKit.color(this,
-                com.google.android.material.R.attr.colorOnSurface));
-        teyvatOut.setText(raw);
-    }
 
     private View buildGenshinHelpView() {
         LinearLayout root = new LinearLayout(this);
@@ -1407,33 +1259,8 @@ public class MainActivity extends AppCompatActivity {
         root.addView(tCard);
 
         // 转换器（默认收起）
-        teyvatBox = new LinearLayout(this);
-        teyvatBox.setOrientation(LinearLayout.VERTICAL);
-        teyvatBox.setBackground(ModuleUiKit.rounded(this, 14,
-                ModuleUiKit.color(this, com.google.android.material.R.attr.colorSurfaceContainerLow),
-                ModuleUiKit.color(this, com.google.android.material.R.attr.colorOutlineVariant)));
-        LinearLayout.LayoutParams vb = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        vb.bottomMargin = dp2(12);
-        teyvatBox.setLayoutParams(vb);
-        teyvatBox.setPadding(dp2(14), dp2(2), dp2(14), dp2(2));
-        teyvatBox.setVisibility(View.GONE);
-        teyvatBox.addView(buildTeyvatConverter());
-        root.addView(teyvatBox);
-
-        tCard.setOnClickListener(v -> {
-            boolean show = teyvatBox.getVisibility() == View.GONE;
-            teyvatBox.setVisibility(show ? View.VISIBLE : View.GONE);
-            if (show) {
-                // 展开后滚到底，让输入框与输出区进入视野
-                teyvatBox.post(() -> {
-                    android.view.ViewParent vp = teyvatBox.getParent();
-                    if (vp instanceof android.widget.ScrollView) {
-                        ((android.widget.ScrollView) vp).fullScroll(View.FOCUS_DOWN);
-                    }
-                });
-            }
-        });
+        // 点卡片 → 跳独立页（与抽卡分析同款 switchContent 模式，不做内嵌展开）
+        tCard.setOnClickListener(v -> switchToTeyvat());
         return root;
     }
 
@@ -1741,6 +1568,10 @@ public class MainActivity extends AppCompatActivity {
         }
         if (currentModuleId != null) {
             switchToHome();
+            return true;
+        }
+        if (currentPageIndex == PAGE_TEYVAT) {
+            switchToGenshinHelp();
             return true;
         }
         if (currentPageIndex == PAGE_GACHA) {
