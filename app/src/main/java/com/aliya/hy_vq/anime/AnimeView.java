@@ -307,12 +307,6 @@ public class AnimeView extends LinearLayout {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
 
-
-    private LayoutParams fullMatch() {
-        return new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT);
-    }
-
     // ══════════════════ 底栏 ══════════════════
 
     /** 底栏（对齐文件管理底栏写法 + Ani 的 Tab 结构） */
@@ -475,27 +469,6 @@ public class AnimeView extends LinearLayout {
         }
     }
 
-
-    private LinearLayout buildHistoryPanel() {
-        LinearLayout panel = new LinearLayout(ctx);
-        panel.setOrientation(VERTICAL);
-        panel.setPadding(dp(14), dp(6), dp(14), dp(6));
-
-        continueBox = new LinearLayout(ctx);
-        continueBox.setOrientation(VERTICAL);
-        panel.addView(continueBox);
-
-        TextView head = sectionLabel("观看历史");
-        panel.addView(head);
-
-        ScrollView sv = new ScrollView(ctx);
-        historyListBox = new LinearLayout(ctx);
-        historyListBox.setOrientation(VERTICAL);
-        sv.addView(historyListBox);
-        panel.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        return panel;
-    }
-
     /** 渲染完整观看历史 */
     private void renderHistory() {
         if (historyListBox == null) return;
@@ -550,45 +523,7 @@ public class AnimeView extends LinearLayout {
         }
     }
 
-    // ══════════════════ 源面板 / 说明面板 ══════════════════
-
-    /** 源面板：把原「源管理」弹窗内容内嵌到 Tab */
-    private LinearLayout buildSourcePanel() {
-        LinearLayout panel = new LinearLayout(ctx);
-        panel.setOrientation(VERTICAL);
-        panel.setPadding(dp(14), dp(6), dp(14), dp(6));
-
-        ScrollView sv = new ScrollView(ctx);
-        LinearLayout box = new LinearLayout(ctx);
-        box.setOrientation(VERTICAL);
-        buildSourceContent(box, null);
-        sv.addView(box);
-        panel.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        return panel;
-    }
-
     // ══════════════════ 缓存面板（离线缓存） ══════════════════
-
-    private LinearLayout buildCachePanel() {
-        LinearLayout panel = new LinearLayout(ctx);
-        panel.setOrientation(VERTICAL);
-        panel.setPadding(dp(14), dp(6), dp(14), dp(6));
-        panel.addView(sectionLabel("离线缓存"));
-
-        TextView tip = new TextView(ctx);
-        tip.setText("在番剧详情页点「缓存本集」即可离线观看；已缓存的视频在下方列表。");
-        tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        tip.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
-        tip.setPadding(dp(4), 0, dp(4), dp(6));
-        panel.addView(tip);
-
-        ScrollView sv = new ScrollView(ctx);
-        cacheListBox = new LinearLayout(ctx);
-        cacheListBox.setOrientation(VERTICAL);
-        sv.addView(cacheListBox);
-        panel.addView(sv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        return panel;
-    }
 
     /** 重绘缓存列表（下载中 / 已完成 两段） */
     private void renderCachePanel() {
@@ -653,14 +588,6 @@ public class AnimeView extends LinearLayout {
         // 主题 primary 是浅色，配白字只有 1.16~2.65:1（WCAG AA 需 4.5:1）
         // → 使用点按需压暗，主题仍是唯一色源、色相不变
         d.setColor(ModuleUiKit.onPrimarySafe(color(com.google.android.material.R.attr.colorPrimary)));
-        d.setCornerRadius(radiusDp);
-        return d;
-    }
-
-    /** 卡片底（colorSurfaceContainerLow） */
-    private GradientDrawable surfaceBg(int radiusDp) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color(com.google.android.material.R.attr.colorSurfaceContainerLow));
         d.setCornerRadius(radiusDp);
         return d;
     }
@@ -904,67 +831,6 @@ public class AnimeView extends LinearLayout {
         if (bytes < 1048576) return String.format(java.util.Locale.CHINA, "%.1f KB", bytes / 1024.0);
         if (bytes < 1073741824L) return String.format(java.util.Locale.CHINA, "%.1f MB", bytes / 1048576.0);
         return String.format(java.util.Locale.CHINA, "%.2f GB", bytes / 1073741824.0);
-    }
-
-    /** 说明面板：模块能力与合规说明（阶段 4 的模块告知在此可随时查看） */
-    /**
-     * 说明 Tab —— <b>首个 Compose 页面</b>（[AnimeInfoScreen]）。
-     * <p>用 ComposeView 内嵌进 XML View 体系，验证「新页面用 Compose」链路；
-     * 旧页面仍是 XML View，按约定渐进迁移。</p>
-     */
-    private LinearLayout buildInfoPanel() {
-        LinearLayout panel = new LinearLayout(ctx);
-        panel.setOrientation(VERTICAL);
-
-        // 用 ComposeView 承载 Compose 内容（AnimeInfoHost 是 Kotlin object 门面：
-        // @Composable 函数无法从 Java 直调，故在此处封装）
-        final int sourceCount = repo.size();
-        final boolean danmakuOn = ctx.getSharedPreferences("anime_prefs",
-                android.content.Context.MODE_PRIVATE)
-                .getBoolean("danmaku_default_on", true);
-        final int cacheCount = offlineCache != null ? offlineCache.finished().size() : 0;
-        android.view.View composeView = AnimeInfoHost.create(
-                ctx, /* moduleCount */ 1, sourceCount, danmakuOn, cacheCount);
-        panel.addView(composeView, new LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        return panel;
-    }
-
-    private LinearLayout buildInfoPanelXml() {
-        LinearLayout panel = new LinearLayout(ctx);
-        panel.setOrientation(VERTICAL);
-        panel.setPadding(dp(14), dp(6), dp(14), dp(6));
-        panel.addView(sectionLabel("动漫模块说明"));
-
-        TextView tv = new TextView(ctx);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        tv.setLineSpacing(0, 1.45f);
-        tv.setTextColor(color(com.google.android.material.R.attr.colorOnSurface));
-        tv.setText(String.join(System.lineSeparator(), new String[]{
-            "【两段式搜索】",
-            "第一步只查元数据库（B站/AniList），秒回并带封面评分；",
-            "选中某部番后，第二步才去查该番的播放源。",
-            "",
-            "【自动选源】",
-            "线路按 tier 升序排列，未评测排后；点线路胶囊即可播放，",
-            "解析失败会自动改用内置浏览器（WebView）解析。",
-            "",
-            "【数据来源】",
-            "· 元数据：B站番剧索引 / AniList（仅标题封面评分，不涉及播放）",
-            "· 播放源：你自行导入的第三方订阅，本软件不提供、不存储内容",
-            "· 源由第三方维护，随时可能失效（属此类工具的固有问题）",
-            "",
-            "【安全提示】",
-            "为解析部分加密源，会启动内置浏览器并开启 JavaScript，",
-            "这会在本机执行第三方页面脚本，请知悉此风险。",
-            "",
-            "【合规】",
-            "请确保你的使用行为符合当地法律法规。",
-            "",
-            "—— 详见「关于」页与首次启动协议 ——"
-        }));
-        panel.addView(tv);
-        return panel;
     }
 
     /** 项目统一的按钮写法（对齐 GachaView.btn）：圆角 TextView，而非原生 Button */    private TextView btn(String text, int fg, int bg) {
@@ -2562,28 +2428,6 @@ public class AnimeView extends LinearLayout {
         });
         box.addView(btnClose);
 
-    }
-
-    /** 源管理弹窗入口（保留给 Stage2/其他场景复用） */
-    private void showSourceManager() {
-        LinearLayout box = new LinearLayout(ctx);
-        box.setOrientation(VERTICAL);
-        box.addView(sectionLabel("源管理"));
-
-        // ── 一键测评（tier 补全：订阅里的静态 tier 已与现实反向）──
-        TextView btnEval = btn(repo.hasTierOverride() ? "重新测评（已有实测档位）" : "一键测评 · 生成实测档位",
-                color(com.google.android.material.R.attr.colorOnPrimary),
-                color(com.google.android.material.R.attr.colorPrimary));
-        LayoutParams elp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        elp.bottomMargin = dp(10);
-        btnEval.setLayoutParams(elp);
-        btnEval.setGravity(Gravity.CENTER);
-        btnEval.setOnClickListener(v -> showTierEvalDialog());
-        box.addView(btnEval);
-        final Dialog d = ModuleUiKit.glassDialog(ctx, box);
-        buildSourceContent(box, d);
-        d.show();
     }
 
     private void renderBlocked(LinearLayout blockCol) {

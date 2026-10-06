@@ -965,17 +965,6 @@ public class MediaPlayerActivity extends Activity {
         }, "anime-switch-ep").start();
     }
 
-    /** 倍速循环切换（Kazumi 的播放器基础功能之一） */
-    private void cycleSpeed() {
-        speedIdx = (speedIdx + 1) % SPEEDS.length;
-        float sp = SPEEDS[speedIdx];
-        try {
-            if (player != null) player.setPlaybackSpeed(sp);
-            if (tvSpeed != null) tvSpeed.setText(SPEED_LABELS[speedIdx]);
-        } catch (Throwable ignored) {
-        }
-    }
-
     /** 画面比例循环切换：适应 / 拉伸 / 裁剪 */
     private void cycleRatio() {
         ratioIdx = (ratioIdx + 1) % RATIOS.length;

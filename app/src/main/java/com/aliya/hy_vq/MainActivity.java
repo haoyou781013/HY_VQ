@@ -1513,12 +1513,6 @@ public class MainActivity extends AppCompatActivity {
         binding.btnBackCustom.setOnClickListener(v -> goBack());
     }
 
-
-
-    private void setToolbarTitle(String title) {
-        binding.toolbarTitle.setText(title);
-    }
-
     private void resetToolbar() {
         binding.btnBackCustom.setVisibility(View.GONE);
         binding.btnBackCustom.setOnClickListener(null);
@@ -3460,11 +3454,6 @@ public class MainActivity extends AppCompatActivity {
         parent.addView(row);
     }
 
-    /** 更新页可见时同步刷新（通知开关会改变其内容） */
-    private void refreshUpdateViewIfVisible() {
-        if (updateView != null && updateView.getParent() != null) renderUpdateView();
-    }
-
     private File updateCacheDir() {
         return getExternalCacheDir() != null ? getExternalCacheDir() : getCacheDir();
     }
@@ -3510,23 +3499,6 @@ public class MainActivity extends AppCompatActivity {
         android.content.pm.PackageInfo pi =
                 getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(), 0);
         return pi == null ? apk.getName() : "v" + pi.versionName + " (code " + pi.versionCode + ")";
-    }
-
-    /** 人类可读的传输速度（B/s → KB/s、MB/s） */
-    private static String humanSpeed(double bps) {
-        if (bps <= 0) return "—";
-        if (bps < 1024) return String.format(java.util.Locale.US, "%.0f B/s", bps);
-        if (bps < 1024 * 1024) return String.format(java.util.Locale.US, "%.0f KB/s", bps / 1024);
-        return String.format(java.util.Locale.US, "%.2f MB/s", bps / 1048576);
-    }
-
-    /** 人类可读的剩余时长 */
-    private static String humanDuration(long sec) {
-        if (sec <= 0) return "即将完成";
-        if (sec < 60) return sec + " 秒";
-        long m = sec / 60, ss = sec % 60;
-        if (m < 60) return m + " 分 " + ss + " 秒";
-        return (m / 60) + " 小时 " + (m % 60) + " 分";
     }
 
     private String fmtSize(long b) {

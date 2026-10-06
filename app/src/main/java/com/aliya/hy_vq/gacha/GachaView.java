@@ -238,15 +238,6 @@ public class GachaView extends LinearLayout {
         return t;
     }
 
-    private TextView kv(String k, String v, int valueColor) {
-        TextView t = new TextView(ctx);
-        t.setText(k + "  " + v);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        t.setTextColor(valueColor);
-        t.setPadding(0, dp(2), 0, dp(2));
-        return t;
-    }
-
     // ══════════════════════════════════════════════
     //  已存档帐号列表
     // ══════════════════════════════════════════════

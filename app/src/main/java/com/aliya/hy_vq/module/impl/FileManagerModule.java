@@ -311,13 +311,6 @@ public class FileManagerModule extends HyVqModule {
         }
     }
 
-    /** 路径是否可恢复：SAF 内容 URI / 分类伪路径直接放行；普通路径要求仍存在 */
-    private boolean isRestorablePath(String path) {
-        if (path == null || path.isEmpty()) return false;
-        if (path.startsWith("content://") || path.startsWith(PREFIX_CAT) || path.startsWith(PREFIX_TRASH)) return true;
-        return new File(path).exists();
-    }
-
     /** 持久化浏览状态（排序 / 隐藏文件 / 双窗格路径 / 活动窗格）：切换目录与 detach 时调用 */
     private void persistState() {
         if (ctx == null || paneL == null || paneR == null) return;
@@ -4069,52 +4062,6 @@ public class FileManagerModule extends HyVqModule {
         return tv;
     }
 
-    /** 左上角三条杠菜单（参考 ZeroTermux editor_menu：退出/保存等；玻璃圆角面板 + 图标行；
-     *  面板跟随系统主题——addMenuRow 文字/图标为系统色，深色编辑器主题下避免对比不足） */
-    private void showEditorMenu(View anchor) {
-        LinearLayout panel = new LinearLayout(ctx);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        int surface = ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorSurfaceContainerHigh);
-        int stroke = ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOutlineVariant);
-        android.graphics.drawable.GradientDrawable gd = ModuleUiKit.rounded(ctx, 14,
-                (surface & 0x00FFFFFF) | 0xF2000000, stroke);
-        panel.setBackground(gd);
-        int p4 = dp(4);
-        panel.setPadding(p4, p4, p4, p4);
-        final PopupWindow popup = new PopupWindow(panel,
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true);
-        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-        popup.setElevation(dp(8));
-        addMenuRow(panel, "跳转行", R.drawable.ic_goto, v -> {
-            popup.dismiss();
-            showGotoLineDialog();
-        });
-        addMenuRow(panel, "编码与行尾符", R.drawable.ic_encode, v -> {
-            popup.dismiss();
-            showEncodeDialog();
-        });
-        addMenuRow(panel, "编辑器设置", R.drawable.ic_settings, v -> {
-            popup.dismiss();
-            showEditorSettings();
-        });
-        addMenuRow(panel, "HTML/Markdown 预览", R.drawable.ic_preview, v -> {
-            popup.dismiss();
-            showPreviewDialog();
-        });
-        addMenuRow(panel, "保存当前文件", R.drawable.ic_save, v -> {
-            popup.dismiss();
-            if (currentEditTab != null) saveEditorTab(currentEditTab, null);
-        });
-        addMenuRow(panel, "全部保存", R.drawable.ic_save, v -> {
-            popup.dismiss();
-            saveAllEditorTabs();
-        });
-        addMenuRow(panel, "关闭编辑器", R.drawable.ic_more_vert, v -> {
-            popup.dismiss();
-            confirmEditorExit();
-        });
-        popup.showAsDropDown(anchor, 0, dp(2));
-    }
     /** 全部保存：逐标签排队写回（任务队列串行，安全） */
     private void saveAllEditorTabs() {
         if (editorTabs.isEmpty()) return;
@@ -6607,91 +6554,6 @@ public class FileManagerModule extends HyVqModule {
     private static final String FTP_USER = "hyvq";
     private static volatile String ftpPass = "";
 
-    /** ⭐ FTP使用说明：Dialog 展示完整步骤（可滚动），替代 toast（toast 显示短/内容不全/无法滚动，用户反馈后改造） */
-    private void showFtpHelp() {
-        LinearLayout box = new LinearLayout(ctx);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.addView(ModuleUiKit.sectionHeader(ctx, "FTP使用说明"));
-        ScrollView sv = new ScrollView(ctx);
-        TextView tv = new TextView(ctx);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        int pad = dp(16);
-        tv.setPadding(pad, pad, pad, pad);
-        tv.setLineSpacing(dp(3), 1.0f);
-        tv.setTextColor(ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOnSurface));
-        tv.setText("本应用内置极简 FTP 服务器（需登录），"
-                + "用于手机与电脑之间传输文件。\n\n"
-                + "【登录凭据】\n"
-                + "· 用户名：" + FTP_USER + "\n"
-                + "· 密码：启动服务器时随机生成，会显示在提示与下方\n\n"
-                + "【使用步骤】\n"
-                + "1. 点下方「启动服务器」，手机开始监听端口 2121；\n"
-                + "2. 记下弹出的用户名与密码；\n"
-                + "3. 查看手机 IP：进入 Wi-Fi 设置 → 当前网络详情；\n"
-                + "4. 电脑上打开「文件资源管理器」（Win+E），地址栏输入：\n"
-                + "    ftp://手机IP:2121\n"
-                + "    例如 ftp://192.168.1.100:2121\n"
-                + "5. 在弹出的登录框输入上面的用户名与密码；\n"
-                + "6. 连接后即可浏览 / 下载 / 上传 / 删除"
-                + " /storage/emulated/0 下的文件；\n"
-                + "7. 使用完毕务必点「停止服务器」，避免手机持续暴露在局域网。\n\n"
-                + "【注意事项】\n"
-                + "· 手机与电脑需连接同一个 Wi-Fi；\n"
-                + "· 密码每次启动都会变化，仅在本次运行期间有效；\n"
-                + "· 每次连接都必须登录，未登录无法读写任何文件；\n"
-                + "· 请勿在公共网络开启；\n"
-                + "· 若无法连接，请检查路由器是否开启 AP 隔离。\n\n"
-                + "【重要】不要用浏览器访问 ftp:// 地址。Chrome、Firefox、Edge\n"
-                + "以及所有国产浏览器均已移除 FTP 支持，输入后会直接跳到搜索页。\n"
-                + "手机端请用支持 FTP 的文件管理器（如 MT 管理器、Solid Explorer、\n"
-                + "MiXplorer）新建 FTP 连接；电脑端用「文件资源管理器」或 FileZilla。");
-        if (!ftpPass.isEmpty()) {
-            tv.append("\n\n【当前密码】" + ftpPass);
-        }
-        sv.addView(tv);
-        box.addView(sv, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(460)));
-        LinearLayout btns = new LinearLayout(ctx);
-        btns.setOrientation(LinearLayout.HORIZONTAL);
-        btns.setGravity(Gravity.END);
-        box.addView(btns);
-        final android.app.Dialog dialog = ModuleUiKit.glassDialog(ctx, box);
-        btns.addView(textButton("关闭", v -> dialog.dismiss()));
-        dialog.show();
-    }
-
-    private void startFtpServer() {
-        if (ftpRunning) return;
-        try {
-            // ⭐ 安全修复：每次启动生成一次性随机密码（6 位数字），停止即失效
-            ftpPass = String.format(Locale.US, "%06d",
-                    new java.security.SecureRandom().nextInt(1_000_000));
-            ftpCtrlSocket = new java.net.ServerSocket(FTP_PORT);
-            ftpRunning = true;
-            Thread t = new Thread(() -> {
-                while (ftpRunning) {
-                    try {
-                        final Socket s = ftpCtrlSocket.accept();
-                        new Thread(() -> handleFtp(s), "HyVqFtpConn").start();
-                    } catch (Throwable ignored) {
-                        break;
-                    }
-                }
-            }, "HyVqFtpAccept");
-            t.setDaemon(true);
-            t.start();
-            java.util.List<String> ips = localIps();
-            if (ips.isEmpty()) {
-                ModuleUiKit.toast(ctx, "FTP 已启动，但未获取到局域网 IP（请确认已连 WiFi）");
-            } else {
-                // ⭐ 改为持续可见的弹窗：原 toast 一闪而过，用户来不及看清地址与密码
-                showFtpRunningDialog(ips);
-            }
-        } catch (Throwable t) {
-            ModuleUiKit.toast(ctx, "FTP 启动失败：" + t.getMessage());
-        }
-    }
-
     private void stopFtpServer() {
         ftpRunning = false;
         ftpPass = "";   // 清空一次性密码，重新启动时会生成新的
@@ -6824,36 +6686,6 @@ public class FileManagerModule extends HyVqModule {
     private static volatile boolean httpRunning = false;
     private static final int HTTP_PORT = 8080;
     private static volatile String httpPass = "";
-
-    private void startHttpServer() {
-        if (httpRunning) return;
-        try {
-            httpPass = String.format(Locale.US, "%06d",
-                    new java.security.SecureRandom().nextInt(1_000_000));
-            httpSocket = new java.net.ServerSocket(HTTP_PORT);
-            httpRunning = true;
-            Thread t = new Thread(() -> {
-                while (httpRunning) {
-                    try {
-                        final Socket s = httpSocket.accept();
-                        new Thread(() -> handleHttp(s), "HyVqHttpConn").start();
-                    } catch (Throwable ignored) {
-                        break;
-                    }
-                }
-            }, "HyVqHttpAccept");
-            t.setDaemon(true);
-            t.start();
-            java.util.List<String> ips = localIps();
-            if (ips.isEmpty()) {
-                ModuleUiKit.toast(ctx, "HTTP 已启动，但未获取到局域网 IP（请确认已连 WiFi）");
-            } else {
-                showHttpRunningDialog(ips);
-            }
-        } catch (Throwable t) {
-            ModuleUiKit.toast(ctx, "HTTP 启动失败：" + t.getMessage());
-        }
-    }
 
     private void stopHttpServer() {
         httpRunning = false;
@@ -7294,12 +7126,6 @@ public class FileManagerModule extends HyVqModule {
         for (String k : cell.keySet()) if (!out.contains(k)) out.add(k);
         for (String k : other.keySet()) if (!out.contains(k)) out.add(k);
         return out;
-    }
-
-    /** 单个对外 IP（优先 WiFi） */
-    private static String localIp() {
-        java.util.List<String> l = localIps();
-        return l.isEmpty() ? null : l.get(0);
     }
 
     /** 单连接 FTP 命令循环：USER/PASS 认证（一次性随机密码）、PASV 被动模式、
