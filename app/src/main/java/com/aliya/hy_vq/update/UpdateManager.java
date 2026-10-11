@@ -61,8 +61,31 @@ public final class UpdateManager {
     private static final String ENTRY_MANIFEST = "manifest.json";
     private static final String ENTRY_DEX = "classes.dex";
 
-    /** 壳内置公钥（SPKI/X.509 SubjectPublicKeyInfo，dev 密钥对；正式发布替换为正式公钥，见 keystore/hyvq_pubkey.b64） */
-    private static final String PUBKEY_B64 =
+    /**
+     * 壳内置验签公钥（SPKI / X.509 SubjectPublicKeyInfo，base64）。
+     *
+     * <p><b>2026-10-11 过渡期改为双公钥</b>：历史版本内置的是一把从未配套发布过
+     * 私钥的 dev 公钥（2048 位），而实际发布签名用的是 release keystore（4096 位）。
+     * 两者不是同一对密钥，直接换成 release 公钥会让过渡期内的新包在老壳上装不上，
+     * 因此这里同时保留两把，任一验签通过即接受。</p>
+     *
+     * <p><b>后续动作</b>：等最低支持版本升过本次的 versionCode 后，把
+     * {@link #PUBKEY_B64_LEGACY_DEV} 删除，只留 release 公钥。</p>
+     */
+    private static final String PUBKEY_B64_RELEASE =
+            "MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAx95nAi/1HZaHrSpqNoyNr5E55dZszzAC" +
+            "EqtWlYv/EwxvbnzTHV/XIlJw1QGL/2iLISlzX85hYUaRS8DrsfaVyUUMJFGSj1xvDAhLoBi8xQiQ" +
+            "qz3OqKi9dOVSjnOw8iUYhlbTpqAQAfaGooXQx3Qixk2En2PnSYs2xWgEr9XpIQFJca/mTJrviL+A" +
+            "Qmw2daBONbw6atvDKvnBPXs/jyyVvWHRynqU9ih3ZNf+Hoxp64LvtKsnZvyLC0ON76FAI91jOqZw" +
+            "/lWNL3X4q3xKNz3Xw+zqesdJqGy5u4dg+hHx//dt5gFNj62FZN3TiJqFxo7EAWCTq0zRvZXkg87d" +
+            "wyndQSVqqzB1whN0+ML3VtBPGLtuxrYhOXow16GmL2o8oM9xv9T72C3+qpbFKanI/UctNejxmUvY" +
+            "CU3lHdYIBJZiuYk+7SWma6GxT65K+VsB4EzyAkPbhKnylXPURtnascmpLuVO7KXfW/K8Qq3V823c" +
+            "N/ap7Vz0vNMWoHEbPtsOctCrNI2xYUMhsERK8Is9gNI9YJnp2gnb3obPRvurgTqUukUoegj2Zv9i" +
+            "X/QznbQAPKJJNJMe/gn15V6N97NWX7whLcK/SNSICQkChvqMx02NKVwUEKyN7kB5jnUSohGA2sUv" +
+            "JbrkXaF9BcL4bQsxP9bDzT4l9uSzWLhkFc20rQzEqh0CAwEAAQ==";
+
+    /** 过渡期保留：历史内置的 dev 公钥（无配套私钥，仅为不破坏老壳的兼容性而留） */
+    private static final String PUBKEY_B64_LEGACY_DEV =
             "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtO7qy7qprOxDWTFZ8YkzVdHtle3DgruEO8bvDTF+Pde8ydyEJALYH6BRqEMrmjGe39kivpjNsJTXWKWHgjbOJZgM4d2jOemcKOEB8NIBYZNBAiG5FzH9sLSpmTfd0K0cZgpj/br8+ct0D4rlbC2FEK5rRSsiNYT5I+uNnydkXGjoeh1NqSR/WA5iYhwemN3x4JwBbe/K0x2WRCHxQuErDwdTmBrB4knHiz5lirDF9pk9g5NUDLhBUHHhqUgY8C0gO/vp5jpyFEK1GlHo3XD7bKxuWrNB4hwyP05sWYJz2/oaQQ2WJGFyVrsQmyYnU2+7NkDmQ8h52Q+b6an53lyYIwIDAQAB";
 
     /** 签名算法（与 tools/SignTool.java 一致） */
@@ -385,20 +408,31 @@ public final class UpdateManager {
                 return false;
             }
             byte[] sigBytes = Base64.getDecoder().decode(sigB64);
-            byte[] keyBytes = Base64.getDecoder().decode(PUBKEY_B64);
-            PublicKey pub = KeyFactory.getInstance("RSA")
-                    .generatePublic(new X509EncodedKeySpec(keyBytes));
-            Signature sig = Signature.getInstance(SIG_ALG);
-            sig.initVerify(pub);
-            sig.update(canonical(m).getBytes("UTF-8"));
-            return sig.verify(sigBytes);
+            byte[] canonicalBytes = canonical(m).getBytes("UTF-8");
+            // 过渡期：release 公钥优先，失败再试 legacy dev 公钥
+            if (verifyWith(PUBKEY_B64_RELEASE, canonicalBytes, sigBytes)) return true;
+            return verifyWith(PUBKEY_B64_LEGACY_DEV, canonicalBytes, sigBytes);
         } catch (Throwable t) {
             Log.e(TAG, "verify signature failed", t);
             return false;
         }
     }
 
-    /** canonical 拼接（与 tools/SignTool.java 保持一致，改签名两端必须同步） */
+    /** 用一把公钥验签；该钥长度不匹配（2048 vs 4096 位）也算失败，不抛异常 */
+    private static boolean verifyWith(String pubKeyB64, byte[] canonicalBytes, byte[] sigBytes) {
+        try {
+            PublicKey pub = KeyFactory.getInstance("RSA").generatePublic(
+                    new X509EncodedKeySpec(Base64.getDecoder().decode(pubKeyB64)));
+            Signature sig = Signature.getInstance(SIG_ALG);
+            sig.initVerify(pub);
+            sig.update(canonicalBytes);
+            return sig.verify(sigBytes);
+        } catch (Throwable t) {
+            // 密钥长度不匹配等 → 换下一把
+            return false;
+        }
+    }
+
     static String canonical(JSONObject m) {
         return m.optString("format", "")
                 + "|" + m.optInt("versionCode", 0)

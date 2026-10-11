@@ -1,39 +1,99 @@
 package com.aliya.hy_vq.util;
 
 /**
- * 共享的 Markdown → HTML 渲染器（无第三方库）。
+ * Markdown 渲染工具（零第三方依赖，手写解析）。
  *
- * <p>供「更新详情页」与「文件管理预览」共用，确保两处渲染一致。</p>
- *
- * <h3>支持的语法</h3>
- * <pre>
- * 标题 #~###### / Setext（=== ---）
- * 粗体 **x** __x__ / 斜体 *x* _x_ / 删除线 ~~x~~
- * 行内代码 `x` / 围栏代码块 ```lang … ```
- * 无序列表 - * + / 有序列表 1. / 任务列表 - [ ] - [x]
- * 引用 > / 分隔线 --- *** ___ / 表格 | a | b |
- * 链接 [text](url) / 图片 ![alt](url) / 自动链接 <url> / 裸 URL
- * 换行（行尾两个空格）/ 段落分隔（空行）
- * </pre>
- *
- * <h3>编码处理</h3>
- * HTML 转义按标准顺序：先 &amp; 再 &lt; &gt; 再引号，避免双重转义。
+ * <p>供<b>检查更新</b>的版本详情弹窗（GitHub Release notes）与<b>文件管理</b>的
+ * md 预览共用。渲染目标为 <b>GitHub Flavored Markdown</b> 子集。
  */
 public final class MarkdownUtils {
+
+    /** HTML 实体占位符起始符：用私有码位区，escape 内部使用，不会出现在正常文本里 */
+    private static final char ESC_MARK = '\uE000';
+
+    /** {@link #ESC_MARK} 的字符串形式，供 {@code String.replace} 使用 */
+    private static final String ESC_MARK_STR = String.valueOf(ESC_MARK);
 
     private MarkdownUtils() {
     }
 
-    // ══════════════ HTML 转义 ══════════════
-
-    /** HTML 实体转义（按标准顺序，避免双重转义） */
     public static String escape(String s) {
         if (s == null || s.isEmpty()) return "";
-        return s.replace("&", "&amp;")
+        // GFM：用户输入的 HTML 实体（&amp; &copy; &#169; &nbsp; …）应原样保留，
+        // 不能被 escape() 再转义成 &amp;amp;（那样页面上会显示字面量 "&amp;"）。
+        // 做法：先把合法实体换成私有码位占位符 → 做标准转义 → 再把占位符换回 &。
+        if (s.indexOf('&') < 0) {
+            return s.replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .replace("\"", "&quot;")
+                    .replace("'", "&#39;");
+        }
+        StringBuilder sb = new StringBuilder(s.length() + 16);
+        int i = 0;
+        int n = s.length();
+        while (i < n) {
+            char ch = s.charAt(i);
+            if (ch == '&') {
+                // 实体必须以 ';' 结尾，且长度受控（&name; / &#123; / &#xAB;）
+                int semi = s.indexOf(';', i + 1);
+                if (semi > i + 1 && semi - i <= 10 && isEntityBody(s, i + 1, semi)) {
+                    // 合法实体 → 占位符（保留原文，稍后原样还原）
+                    sb.append(ESC_MARK).append(s, i + 1, semi).append(';');
+                    i = semi + 1;
+                    continue;
+                }
+                // 裸 & 不是实体 → 直接转义成 &amp;（必须在这里转义：
+                // 最后那步 replace 只还原占位符，管不到它）
+                sb.append("&amp;");
+                i++;
+                continue;
+            }
+            sb.append(ch);
+            i++;
+        }
+        return sb.toString()
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;")
-                .replace("'", "&#39;");
+                .replace("'", "&#39;")
+                // 占位符此时仍未被上面的替换污染，还原成原始实体
+                .replace(ESC_MARK_STR, "&");
+    }
+
+    /**
+     * 判断 {@code s[from, to)} 是否是一个合法的实体名（不含首尾的 & 与 ;）。
+     *
+     * <p>接受 {@code amp} / {@code copy} 等命名实体，以及 {@code #169} /
+     * {@code #x1F600} 这两种数字实体。</p>
+     */
+    private static boolean isEntityBody(String s, int from, int to) {
+        if (from >= to) return false;
+        if (s.charAt(from) == '#') {
+            int i = from + 1;
+            if (i < to && (s.charAt(i) == 'x' || s.charAt(i) == 'X')) {
+                i++;
+                if (i >= to) return false;
+                for (; i < to; i++) {
+                    char c = s.charAt(i);
+                    boolean hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+                            || (c >= 'A' && c <= 'F');
+                    if (!hex) return false;
+                }
+                return true;
+            }
+            for (; i < to; i++) {
+                char c = s.charAt(i);
+                if (c < '0' || c > '9') return false;
+            }
+            return true;
+        }
+        // 命名实体：字母数字即可（不维护白名单，浏览器自己兜底）
+        for (int i = from; i < to; i++) {
+            char c = s.charAt(i);
+            boolean ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+            if (!ok) return false;
+        }
+        return true;
     }
 
     // ══════════════ 行内语法 ══════════════
@@ -98,6 +158,9 @@ public final class MarkdownUtils {
         boolean inCode = false;
         boolean inTable = false;
         boolean inList = false;       // <ul>/<ol> 是否已打开
+        String[] tableAlign = null;   // GFM：表格分隔行给出的逐列对齐方式
+        int tableRows = 0;            // 表格已渲染行数（0 → 下一行是表头）
+        String pendingRow = null;      // 表格首行缓存（表头在分隔行之上，需延迟判定）
         boolean inOrderedList = false;
         boolean inBlockquote = false;
         String[] lines = md.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1);
@@ -156,26 +219,78 @@ public final class MarkdownUtils {
                 prevHeadingLevel = 0;
             }
 
-            // ── 表格 ──
+// ── 表格 ──
             if (t.startsWith("|") && t.endsWith("|") && t.length() >= 2) {
                 String[] cells = t.substring(1, t.length() - 1).split("\\|", -1);
                 boolean isSep = cells.length > 0;
                 for (String c : cells) {
-                    if (!c.trim().matches(":?-{3,}:?")) { isSep = false; break; }
+                    if (!c.trim().matches(":?-+:?")) { isSep = false; break; }
                 }
-                if (isSep) continue; // 跳过分隔行
+                if (isSep) {
+                    // GFM：分隔行不渲染成数据，而是记录逐列对齐方式
+                    // （':--' 左 / '--:' 右 / ':--:' 居中 / '--' 默认左），
+                    // 并把「暂存的首行」回填成 <th> 表头（表头在分隔行之上）。
+                    tableAlign = new String[cells.length];
+                    for (int ci = 0; ci < cells.length; ci++) {
+                        String d = cells[ci].trim();
+                        boolean l = d.startsWith(":");
+                        boolean r = d.endsWith(":");
+                        tableAlign[ci] = (l && r) ? "center" : (r ? "right" : "left");
+                    }
+                    if (!inTable) {
+                        inTable = true;
+                        out.append("<table>\n");
+                        // 首行暂存在 pendingRow 里 —— 现在能确定它是表头了
+                        if (pendingRow != null) {
+                            String[] hc = pendingRow.substring(1, pendingRow.length() - 1).split("\\|", -1);
+                            out.append("<tr>");
+                            for (int ci = 0; ci < hc.length; ci++) {
+                                String al = (ci < tableAlign.length)
+                                        ? " align=\"" + tableAlign[ci] + "\"" : "";
+                                out.append("<th" + al + ">")
+                                        .append(inline(hc[ci].trim())).append("</th>");
+                            }
+                            out.append("</tr>\n");
+                            pendingRow = null;
+                            tableRows = 1;      // 表头已占一行
+                        }
+                    }
+                    continue;
+                }
                 closeList(out, inList, inOrderedList); inList = false; inOrderedList = false;
                 closeBlockquote(out, inBlockquote); inBlockquote = false;
+                // GFM：表头在分隔行「之上」→ 第一行先暂存，等分隔行来确认。
+                // 若整块都没有分隔行（|a| 后直接换行），它压根不是表格。
+                if (!inTable && tableAlign == null) {
+                    pendingRow = t;
+                    continue;
+                }
                 if (!inTable) {
                     inTable = true;
                     out.append("<table>\n");
                 }
+                boolean header = (tableRows == 0);
+                tableRows++;
                 out.append("<tr>");
-                for (String c : cells) out.append("<td>").append(inline(c.trim())).append("</td>");
+                for (int ci = 0; ci < cells.length; ci++) {
+                    String c = cells[ci];
+                    // GFM：单元格里的 \| 是字面量竖线，不能当列分隔符
+                    c = c.replace("\\|", "|");
+                    String al = (tableAlign != null && ci < tableAlign.length)
+                            ? " align=\"" + tableAlign[ci] + "\"" : "";
+                    String body = inline(c.trim());
+                    out.append(header ? "<th" + al + ">" + body + "</th>"
+                            : "<td" + al + ">" + body + "</td>");
+                }
                 out.append("</tr>\n");
                 continue;
             }
-            if (inTable) closeTable(out, inTable); inTable = false;
+            // 非表格行：把暂存的首行按普通段落补上（GFM 里这不是表格）
+            if (pendingRow != null) {
+                out.append("<p>").append(inline(pendingRow)).append("</p>\n");
+                pendingRow = null;
+            }
+            if (inTable) { closeTable(out, inTable); inTable = false; tableAlign = null; tableRows = 0; }
 
             // ── ATX 标题 # ~ ###### ──
             int h = 0;
@@ -213,9 +328,12 @@ public final class MarkdownUtils {
             if (t.matches("^[-*+]\\s+\\[[ xX]\\]\\s+.*")) {
                 boolean checked = t.contains("[x]") || t.contains("[X]");
                 String text = t.replaceAll("^[-*+]\\s+\\[[ xX]\\]\\s+", "");
-                out.append("<li class=\"task\">")
-                   .append(checked ? "☑ " : "☐ ")
-                   .append(inline(text)).append("</li>\n");
+                // GFM/HTML5：任务列表用真 <input type="checkbox">，与 GitHub 渲染一致。
+                // disabled：只读预览里不可点（对齐 GitHub 预览态），外观完全相同。
+                out.append("<li class=\"task\"><input type=\"checkbox\" disabled")
+                        .append(checked ? " checked" : "")
+                        .append("> ")
+                        .append(inline(text)).append("</li>\n");
                 continue;
             }
 
@@ -230,7 +348,20 @@ public final class MarkdownUtils {
             // ── 有序列表 ──
             if (t.matches("\\d+[.)]\\s+.*")) {
                 if (inList) closeList(out, true, false); inList = false;
-                if (!inOrderedList) { inOrderedList = true; out.append("<ol>\n"); }
+                // GFM：有序列表保留 markdown 里的起始序号（"3. c" 渲染成从 3 开始）
+                int dot0 = t.indexOf('.');
+                if (dot0 < 0) dot0 = t.indexOf(')');
+                int startNo = 1;
+                try {
+                    startNo = Integer.parseInt(t.substring(0, dot0).trim());
+                } catch (Throwable ignore) {
+                    // 数字异常回落到默认 1
+                }
+                if (!inOrderedList) {
+                    inOrderedList = true;
+                    if (startNo != 1) out.append("<ol start=\"").append(startNo).append("\">\n");
+                    else out.append("<ol>\n");
+                }
                 int dot = t.indexOf('.');
                 if (dot < 0) dot = t.indexOf(')');
                 out.append("<li>").append(inline(t.substring(dot + 1).trim())).append("</li>\n");
@@ -262,6 +393,11 @@ public final class MarkdownUtils {
         closeTable(out, inTable);
         closeList(out, inList, inOrderedList);
         closeBlockquote(out, inBlockquote);
+        // 收尾：输入结束时若还有暂存的表格首行，它没有分隔行 → 不是表格，按段落输出
+        if (pendingRow != null) {
+            out.append("<p>").append(inline(pendingRow)).append("</p>\n");
+            pendingRow = null;
+        }
         return out.toString();
     }
 

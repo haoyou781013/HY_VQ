@@ -4596,10 +4596,9 @@ public class FileManagerModule extends HyVqModule {
             }
         }));
         box.addView(top);
-        android.webkit.WebView wv = new android.webkit.WebView(ctx);
-        wv.getSettings().setJavaScriptEnabled(true);
-        wv.getSettings().setTextZoom(100);
-        wv.setBackgroundColor(pal[0]);
+          // 统一走 MarkdownWebView；⚠️ 不再开启 JavaScript —— 预览的是用户
+          // 任意 .md/.html 文件，开 JS 等于给每个文件一个脚本执行入口
+          android.webkit.WebView wv = com.aliya.hy_vq.util.MarkdownWebView.create(ctx, pal[0], null);
         wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
         box.addView(wv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         webDialog = new android.app.Dialog(ctx);

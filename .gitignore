@@ -36,3 +36,7 @@ captures/
 .session/
 memory/
 .开发者用_AI只读/
+
+# 构建产物
+update_packages/
+*.apk

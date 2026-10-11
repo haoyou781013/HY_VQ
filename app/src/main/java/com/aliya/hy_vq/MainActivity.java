@@ -2687,15 +2687,15 @@ public class MainActivity extends AppCompatActivity {
 
         boolean isLight = !isNightMode(this);
         String html = com.aliya.hy_vq.util.MarkdownUtils.toDocument(mdSrc, null, isLight);
-        android.webkit.WebView wv = new android.webkit.WebView(this);
-        wv.getSettings().setTextZoom(100);
-        wv.getSettings().setBuiltInZoomControls(false);
-        wv.setBackgroundColor(ModuleUiKit.color(this,
-                isLight ? com.google.android.material.R.attr.colorSurface
-                        : com.google.android.material.R.attr.colorOnSurface));
-        wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
-        box.addView(wv, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp2(340)));
+          // 统一走 MarkdownWebView：远程图可加载、外链交系统浏览器、无 JS
+          android.webkit.WebView wv = com.aliya.hy_vq.util.MarkdownWebView.create(this,
+                  ModuleUiKit.color(this, isLight
+                          ? com.google.android.material.R.attr.colorSurface
+                          : com.google.android.material.R.attr.colorOnSurface),
+                  null);
+          wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+          box.addView(wv, new LinearLayout.LayoutParams(
+                  ViewGroup.LayoutParams.MATCH_PARENT, dp2(340)));
 
         LinearLayout btns = new LinearLayout(this);
         btns.setOrientation(LinearLayout.HORIZONTAL);
