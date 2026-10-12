@@ -2245,9 +2245,17 @@ public class MainActivity extends AppCompatActivity {
         String body = "";
         String publishedAt = "";
         String apkName = "";
-        String apkUrl = "";     // GitHub 精确下载直链
+        String apkUrl = "";     // GitHub/Gitee 精确下载直链
         String apkCnUrl = "";   // 国内备用直链（123 云盘，可为空）
         long apkSize = 0L;
+        // 增量包（.zip）：有则小更新优先用它，体积仅几 KB；
+        // 没有才回退下载完整 APK（用户 2026-10-12 定的规则）。
+        String patchName = "";
+        String patchUrl = "";
+        String patchCnUrl = "";
+        long patchSize = 0L;
+
+        boolean hasPatch() { return !patchUrl.isEmpty() || !patchCnUrl.isEmpty(); }
 
         String date() {
             return publishedAt.length() >= 10 ? publishedAt.substring(0, 10) : publishedAt;
@@ -2728,7 +2736,8 @@ public class MainActivity extends AppCompatActivity {
                     if (hit) {
                         verifyAndInstall(c, null, null);
                     } else {
-                        startUpdate(ri.apkUrl, ri.apkCnUrl, null, ri.apkSize, ri.ver, null);
+                        startUpdate(ri.apkUrl, ri.apkCnUrl, null, ri.apkSize, ri.ver, null,
+                                ri.patchUrl, ri.patchCnUrl, ri.patchSize);
                     }
                 }));
         // 有缓存时提供导出选项（不安装，仅保存到公共目录）
@@ -2773,7 +2782,8 @@ public class MainActivity extends AppCompatActivity {
                     verifyAndInstall(c, null, null);
                 } else {
                     startUpdate(newest.apkUrl, newest.apkCnUrl, null,
-                            newest.apkSize, newest.ver, null);
+                            newest.apkSize, newest.ver, null,
+                            newest.patchUrl, newest.patchCnUrl, newest.patchSize);
                 }
                 return;
             }
@@ -2855,7 +2865,19 @@ public class MainActivity extends AppCompatActivity {
                         org.json.JSONObject a = assets.getJSONObject(k);
                         String nm = a.optString("name", "");
                         String assetUrl = a.optString("browser_download_url", "");
-                        if (!nm.endsWith(".apk") || assetUrl.isEmpty()) continue;
+                        if (assetUrl.isEmpty()) continue;
+                        // 增量包：文件名形如 hyv_update_v{code}_{ver}.zip
+                        if (nm.endsWith(".zip") && nm.contains("hyv_update")) {
+                            boolean pb = ri.patchUrl.isEmpty()
+                                    || (nm.contains(ri.ver) && !ri.patchName.contains(ri.ver));
+                            if (pb) {
+                                ri.patchName = nm;
+                                ri.patchUrl = assetUrl;
+                                ri.patchSize = a.optLong("size", 0L);
+                            }
+                            continue;
+                        }
+                        if (!nm.endsWith(".apk")) continue;
                         boolean better = ri.apkUrl.isEmpty()
                                 || (nm.contains(ri.ver) && !ri.apkName.contains(ri.ver));
                         if (better) {
@@ -2870,6 +2892,12 @@ public class MainActivity extends AppCompatActivity {
                     // 这样即使 GitHub 列表读取成功，下载时 GitHub 不可达也能自动回退国内源。
                     // （若国内源并无该文件，回退尝试会失败并被忽略，不影响主流程）
                     ri.apkCnUrl = CN_BASE + "HY_VQ-v" + ri.ver + ".apk";
+                }
+                if (ri.hasPatch()) {
+                    ri.patchCnUrl = CN_BASE + ri.patchName;
+                }
+                // 有 APK 就算完整版；只有增量包也算可用版本（该版本主打小更新）
+                if (!ri.apkUrl.isEmpty() || ri.hasPatch()) {
                     out.add(ri);
                 }
             }
@@ -2901,8 +2929,17 @@ public class MainActivity extends AppCompatActivity {
                 ri.body = o.optString("body", "");
                 ri.publishedAt = o.optString("publishedAt", "");
                 ri.apkName = o.optString("apk", "");
+                // 增量包（可选字段，versions.json 里为 hyv_update_v{code}_{ver}.zip）
+                String patch = o.optString("patch", "");
+                if (!patch.isEmpty()) {
+                    ri.patchName = patch;
+                    ri.patchUrl = CN_BASE + patch;
+                    ri.patchSize = o.optLong("patchSize", 0L);
+                }
                 ri.apkSize = o.optLong("size", 0L);
                 if (!ri.apkName.isEmpty()) ri.apkCnUrl = CN_BASE + ri.apkName;
+                // 123 云盘兜底路径下同样支持增量包（文件名与 Release 资产同名）
+                if (!ri.patchName.isEmpty()) ri.patchCnUrl = CN_BASE + ri.patchName;
                 out.add(ri);
             }
         } catch (Exception ignored) {
@@ -3019,7 +3056,8 @@ public class MainActivity extends AppCompatActivity {
         btns.addView(updateTextButton(hasCache ? "立即安装" : "立即更新", v -> {
             dialog.dismiss();
             if (hasCache) verifyAndInstall(cached, null, null);
-            else startUpdate(ri.apkUrl, ri.apkCnUrl, null, ri.apkSize, ri.ver, null);
+            else startUpdate(ri.apkUrl, ri.apkCnUrl, null, ri.apkSize, ri.ver, null,
+                    ri.patchUrl, ri.patchCnUrl, ri.patchSize);
         }));
         // 有缓存时提供导出选项
         if (hasCache) {
@@ -3512,6 +3550,82 @@ public class MainActivity extends AppCompatActivity {
         return new File(updateCacheDir(), "hyvq_update_v" + ver + ".apk");
     }
 
+    /** 按文件名取缓存文件（增量包用，文件名来自 Release 资产名） */
+    private File updateCacheFileByName(String name) {
+        return new File(updateCacheDir(), name);
+    }
+
+    /**
+     * 无进度条的静默下载（增量包只有几 KB，不需要进度弹窗）。
+     *
+     * @param onDone (ok, path) —— ok=false 时 path 为失败原因文本
+     */
+    private void startUpdateRaw(final String url, final String cnUrl, final String expectMd5,
+                                final long expectSize, final String verName, final String unusedDialog,
+                                final File target, final boolean silent,
+                                final PatchCallback onDone) {
+        new Thread(() -> {
+            String error = null;
+            String path = null;
+            java.util.List<String[]> attempts = new java.util.ArrayList<>();
+            if (url != null && !url.isEmpty()) {
+                String h = android.net.Uri.parse(url).getHost();
+                if (h != null && h.contains("gitee.com")) {
+                    attempts.add(new String[]{"Gitee 直链", url});
+                } else {
+                    for (String mir : GH_MIRRORS) {
+                        String m = mirrorUrl(mir, url);
+                        if (m != null) attempts.add(new String[]{
+                                "镜像 " + mir.replace("https://", "").replace("/", ""), m});
+                    }
+                    attempts.add(new String[]{"GitHub 直链", url});
+                }
+            }
+            if (cnUrl != null && !cnUrl.isEmpty()) attempts.add(new String[]{"123云盘", cnUrl});
+            for (String[] att : attempts) {
+                try {
+                    java.net.HttpURLConnection conn = openRemote(att[1], "GET");
+                    int code = conn.getResponseCode();
+                    if (code != 200 && code != 206) {
+                        conn.disconnect();
+                        continue;
+                    }
+                    File tmp = new File(target.getAbsolutePath() + ".part");
+                    try (java.io.InputStream in = conn.getInputStream();
+                         java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+                        byte[] buf = new byte[16384];
+                        int r;
+                        while ((r = in.read(buf)) > 0) out.write(buf, 0, r);
+                    }
+                    conn.disconnect();
+                    // 防超大文件（增量包应仅几 KB；超过 8MB 视为异常）
+                    if (tmp.length() > 8L * 1024 * 1024) {
+                        tmp.delete();
+                        error = "增量包体积异常";
+                        continue;
+                    }
+                    if (target.exists()) target.delete();
+                    if (!tmp.renameTo(target)) {
+                        error = "缓存写入失败";
+                        continue;
+                    }
+                    path = target.getAbsolutePath();
+                    break;
+                } catch (Exception e) {
+                    error = e.getMessage();
+                }
+            }
+            final String fErr = error;
+            final String fPath = path;
+            runOnUiThread(() -> onDone.onDone(fPath != null, fErr != null ? fErr : fPath));
+        }).start();
+    }
+
+    /** 静默下载回调 */
+    private interface PatchCallback {
+        void onDone(boolean ok, String pathOrError);
+    }
+
     /** 清理缓存安装包：keep 为 null 时全部清除，否则只保留 keep */
     private void cleanUpdateCache(File keep) {
         File[] fs = updateCacheDir().listFiles();
@@ -3560,6 +3674,101 @@ public class MainActivity extends AppCompatActivity {
     private void startUpdate(final String apkUrl, final String cnUrl, final String expectMd5,
                              final long expectSize, final String verName,
                              final android.app.Dialog dialog) {
+        startUpdate(apkUrl, cnUrl, expectMd5, expectSize, verName, dialog, null, null, 0L);
+    }
+
+    /**
+     * 更新入口（带增量包分流）。
+     *
+     * <p>用户 2026-10-12 定的规则：<b>该版本发布了增量包 → 提示用户走增量更新（几 KB）；
+     * 没发布增量包 → 下载完整 APK。</b>不静默下载，一律先问用户。</p>
+     *
+     * @param patchUrl 增量包直链，为空表示该版本没有增量包
+     * @param patchCnUrl 增量包国内直链（123 云盘）
+     * @param patchSize 增量包字节数，用于展示与缓存校验
+     */
+    private void startUpdate(final String apkUrl, final String cnUrl, final String expectMd5,
+                             final long expectSize, final String verName,
+                             final android.app.Dialog dialog,
+                             final String patchUrl, final String patchCnUrl, final long patchSize) {
+        // 该版本有增量包 → 先问用户，不静默下载
+        if (patchUrl != null && !patchUrl.isEmpty()) {
+            confirmPatchUpdate(verName, patchUrl, patchCnUrl, patchSize, apkUrl, cnUrl, expectSize, dialog);
+            return;
+        }
+        doStartApkUpdate(apkUrl, cnUrl, expectMd5, expectSize, verName, dialog);
+    }
+
+    /**
+     * 增量更新确认弹窗。
+     * 失败（验签/安装异常）时自动回退到完整 APK 下载，用户无感。
+     */
+    private void confirmPatchUpdate(final String verName, final String patchUrl, final String patchCnUrl,
+                                    final long patchSize, final String apkUrl, final String cnUrl,
+                                    final long apkSize, final android.app.Dialog dialog) {
+        if (dialog != null && dialog.isShowing()) dialog.dismiss();
+        final String save = patchUrl.startsWith("https://gitee.com/")
+                ? patchUrl.substring(patchUrl.lastIndexOf('/') + 1)
+                : null;
+        if (dialog != null) {
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("发现增量更新 v" + verName)
+                    .setMessage("本次更新提供了增量包，仅 " + fmtSize(patchSize)
+                            + "，远小于完整安装包（" + fmtSize(apkSize) + "）。\n\n"
+                            + "增量包只更新部分功能代码，更快更省流量。\n\n"
+                            + "是否使用增量包更新？")
+                    .setPositiveButton("使用增量包", (d, w) -> doStartPatchUpdate(
+                            patchUrl, patchCnUrl, verName, save, apkUrl, cnUrl, apkSize))
+                    .setNegativeButton("用完整安装包", (d, w) ->
+                            doStartApkUpdate(apkUrl, cnUrl, null, apkSize, verName, null))
+                    .setCancelable(true)
+                    .show();
+            return;
+        }
+        doStartPatchUpdate(patchUrl, patchCnUrl, verName, save, apkUrl, cnUrl, apkSize);
+    }
+
+    /** 增量包更新主流程：下载 → 安装 → 失败自动回退完整 APK */
+    private void doStartPatchUpdate(final String patchUrl, final String patchCnUrl, final String verName,
+                                    final String saveName, final String apkUrl, final String cnUrl,
+                                    final long apkSize) {
+        final File target = updateCacheFileByName(saveName != null ? saveName
+                : "hyv_update_v" + verName + ".zip");
+        // 缓存命中直接装
+        if (target.exists() && target.length() > 0) {
+            installPatchOrFallback(target, verName, apkUrl, cnUrl, apkSize);
+            return;
+        }
+        // 下载进度弹窗复用 APK 的（下载量小，几秒就完）
+        startUpdateRaw(patchUrl, patchCnUrl, null, target.length() > 0 ? target.length() : 0L,
+                verName, null, target, true,
+                (ok, path) -> installPatchOrFallback(new File(path), verName, apkUrl, cnUrl, apkSize));
+    }
+
+    /** 增量包装成功 → 交给 UpdateManager；失败 → 静默回退完整 APK */
+    private void installPatchOrFallback(File zip, String verName, final String apkUrl,
+                                        final String cnUrl, final long apkSize) {
+        if (zip == null || !zip.exists()) {
+            doStartApkUpdate(apkUrl, cnUrl, null, apkSize, verName, null);
+            return;
+        }
+        UpdateManager.InstallResult r = UpdateManager.importAndInstall(this, zip);
+        if (r != null && r.ok) {
+            Toast.makeText(this, "增量包已安装，重启后生效", Toast.LENGTH_LONG).show();
+            updateFlowBusy = false;
+            return;
+        }
+        // 失败回退：静默下载完整 APK，用户无需干预
+        Toast.makeText(this, "增量包不可用（"
+                + (r == null ? "未知原因" : String.valueOf(r.message)) + "），改为完整更新",
+                Toast.LENGTH_LONG).show();
+        doStartApkUpdate(apkUrl, cnUrl, null, apkSize, verName, null);
+    }
+
+    /** 实际的 APK 下载入口（原 startUpdate 的实现体） */
+    private void doStartApkUpdate(final String apkUrl, final String cnUrl, final String expectMd5,
+                                  final long expectSize, final String verName,
+                                  final android.app.Dialog dialog) {
         final File target = updateCacheFileByVer(verName);
         boolean hit = target.exists() && target.length() > 0
                 && (expectSize <= 0 || target.length() == expectSize);
