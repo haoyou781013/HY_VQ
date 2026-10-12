@@ -86,6 +86,7 @@ import com.aliya.hy_vq.module.ModuleRegistry;
 import com.aliya.hy_vq.module.ModuleServices;
 import com.aliya.hy_vq.module.impl.FileManagerModule;
 import com.aliya.hy_vq.module.impl.GithubModule;
+import com.aliya.hy_vq.module.HyVqModule;
 import com.aliya.hy_vq.module.ModuleUiKit;
 import com.aliya.hy_vq.module.PermissionCenterView;
 import com.aliya.hy_vq.update.HyVqAppEntry;
@@ -1057,6 +1058,29 @@ public class MainActivity extends AppCompatActivity {
         d.show();
     }
 
+    /**
+     * 打开 GitHub 模块。
+     * <p>该模块已注册进 ModuleRegistry，但侧边栏模块区自 2026-09-06 起整体隐藏
+     * （rebuildDrawerModuleSlot 开头直接 return），故这里直接取实例打开页面，
+     * 并复用 switchToModule 的内容切换与返回逻辑。</p>
+     */
+    private void openGithub() {
+        HyVqModule m = moduleRegistry.get("github");
+        if (m == null) {
+            GithubModule gm = new GithubModule();
+            gm.onAttach(this, moduleServices);
+            moduleRegistry.install(gm);
+            m = gm;
+        }
+        View v = m.createMainView(LayoutInflater.from(this), contentFrame);
+        if (v == null) return;
+        currentModuleId = m.id;
+        switchContent(v, nextModulePageIndex++);
+        resetToolbar();
+        binding.toolbarTitle.setText("GitHub");
+        updateDrawerSelection();
+    }
+
     /** 打开文件管理：内置一级功能（非模块） */
     private void openFileManager() {
         if (fileManager == null) {
@@ -1702,6 +1726,15 @@ public class MainActivity extends AppCompatActivity {
             shareBtn.setOnClickListener(v -> {
                 binding.drawerLayout.closeDrawers();
                 binding.drawerLayout.postDelayed(this::openShareApps, 160);
+            });
+        }
+        // GitHub（API 客户端模块）：侧边栏模块区 2026-09-06 起整体隐藏，
+        // 故与文件管理一样在 navView 里单列一个一级入口。
+        View ghBtn = binding.navView.findViewById(R.id.nav_github);
+        if (ghBtn != null) {
+            ghBtn.setOnClickListener(v -> {
+                binding.drawerLayout.closeDrawers();
+                binding.drawerLayout.postDelayed(this::openGithub, 160);
             });
         }
         // 文件管理（内置一级功能，非模块）
