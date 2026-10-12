@@ -85,6 +85,7 @@ import com.aliya.hy_vq.module.HyVqModule;
 import com.aliya.hy_vq.module.ModuleRegistry;
 import com.aliya.hy_vq.module.ModuleServices;
 import com.aliya.hy_vq.module.impl.FileManagerModule;
+import com.aliya.hy_vq.module.impl.GithubModule;
 import com.aliya.hy_vq.module.ModuleUiKit;
 import com.aliya.hy_vq.module.PermissionCenterView;
 import com.aliya.hy_vq.update.HyVqAppEntry;
@@ -308,6 +309,11 @@ public class MainActivity extends AppCompatActivity {
         // 因此不出现在模块列表、不受模块启停控制，由侧边栏/首页入口直接打开。
         fileManager = new FileManagerModule();
         fileManager.onAttach(this, moduleServices);
+        // GitHub：API 客户端形态（2026-10-12 实测 api.github.com 国内 5/5 通畅，
+        // 走 api 而非网页 github.com，故不需要任何代理；登录用 token 而非 Cookie）
+        GithubModule github = new GithubModule();
+        github.onAttach(this, moduleServices);
+        moduleRegistry.install(github);
         // 加载已持久化的外置模块
         loadInstalledModules();
         // 首次构建侧边栏模块区
