@@ -4,9 +4,12 @@
 #
 #   顺序（用户指定 2026-10-11，2026-10-12 调整）：
 #     ① Gitee（国内主源）—— **暂定**：尚未开通，无凭据时自动跳过
-#     ② GitHub 镜像（备份 + 海外访问）
+#     ② GitHub 镜像（海外访问 + 备份）
 #     ③ 123云盘（离线归档）
-#     ④ GitHub 更新源（检查更新接口读 GitHub Releases）
+#     ④ GitHub 更新源（客户端兜底直连）
+#
+#   客户端取版本列表的顺序与此一致：
+#     Gitee → gh-proxy 镜像 → GitHub 直连 → 123云盘
 #
 #   Gitee 凭据就位后取消暂定：
 #     export GITEE_USER=<账号> GITEE_TOKEN=<私人令牌>

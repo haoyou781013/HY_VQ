@@ -2125,13 +2125,28 @@ public class MainActivity extends AppCompatActivity {
     private static final String GH_OWNER = "haoyou781013";
     /** 更新源与源码同仓：APK 走该仓的 Release 资产 */
     private static final String GH_REPO = "HY_VQ";
+    /** Gitee 账号（国内主源，暂定：账号未开通时客户端会自动跳过该源） */
+    private static final String GITEE_USER = "haoyou781013";
+    /**
+     * 版本列表来源优先级（用户指定 2026-10-12：国内优先）：
+     * <pre>
+     *   ① Gitee Releases        国内主源（暂定，未开通则自动跳过）
+     *   ② GitHub 加速镜像       gh-proxy / ghproxy.net，零凭据
+     *   ③ GitHub Releases       官方源
+     *   ④ 123 云盘 WebDAV       离线兜底（内置只读凭据）
+     * </pre>
+     * Gitee 与 GitHub 的 Releases API 结构一致（tag_name / body / assets.browser_download_url），
+     * 故可复用同一套解析逻辑。
+     */
+    private static final String GITEE_RELEASES =
+            "https://gitee.com/api/v5/repos/" + GITEE_USER + "/" + GH_REPO + "/releases?per_page=100";
     /** 启动时自动检查更新的偏好键（默认开启） */
     private static final String PREF_AUTO_CHECK_UPDATE = "auto_check_update";
-    /** 国内备用更新源：123 云盘 WebDAV（内置**只读**凭据，泄漏也无法写入） */
+    /** 国内兜底更新源（优先级 ④）：123 云盘 WebDAV（内置**只读**凭据，泄漏也无法写入） */
     private static final String CN_BASE = "https://webdav.123pan.cn/webdav/HY_VQ-updates/";
     private static final String CN_VERSIONS = CN_BASE + "versions.json";
     private static final String CN_HOST = "webdav.123pan.cn";
-    /** GitHub 直链的国内加速镜像（依次尝试；不需要任何凭据） */
+    /** GitHub 直链的国内加速镜像（优先级 ②；依次尝试，不需要任何凭据） */
     private static final String[] GH_MIRRORS = {
             "https://gh-proxy.com/",
             "https://ghproxy.net/",
@@ -2772,19 +2787,53 @@ public class MainActivity extends AppCompatActivity {
 
 
     /** 扫描全部可用版本（GitHub Releases API），返回列表按版本号倒序 */
-    /** 扫描可用版本：GitHub 优先（信息最全），失败则回退国内 123 云盘 */
+    /**
+     * 扫描可用版本（源优先级：国内优先，用户 2026-10-12 指定）。
+     * <pre>
+     *   ① Gitee Releases    国内主源（暂定：账号未开通 → 请求失败自动跳过）
+     *   ② GitHub Releases   经 gh-proxy / ghproxy.net 镜像，零凭据
+     *   ③ GitHub 直连       官方源
+     *   ④ 123 云盘          离线兜底（内置只读凭据）
+     * </pre>
+     * Gitee 仓库未开通时，GITEE_RELEASES 会返回 404 → 自然落到下一级，
+     * 不需要在此处做额外的开关判断。
+     */
     private java.util.List<ReleaseInfo> fetchReleases() {
-        java.util.List<ReleaseInfo> gh = fetchReleasesFromGitHub();
+        // ① Gitee（国内主源）
+        java.util.List<ReleaseInfo> gt = fetchReleasesFrom(GITEE_RELEASES, "");
+        if (!gt.isEmpty()) return gt;
+        // ② GitHub 经国内加速镜像
+        java.util.List<ReleaseInfo> mir = fetchReleasesFromMirrors();
+        if (!mir.isEmpty()) return mir;
+        // ③ GitHub 官方直连
+        java.util.List<ReleaseInfo> gh = fetchReleasesFrom(REMOTE_RELEASES, "application/vnd.github+json");
         if (!gh.isEmpty()) return gh;
+        // ④ 123 云盘（离线兜底）
         return fetchReleasesFrom123();
     }
 
-    /** GitHub Releases API（含完整更新日志与精确直链） */
-    private java.util.List<ReleaseInfo> fetchReleasesFromGitHub() {
+    /**
+     * 依次尝试 GitHub 加速镜像取版本列表。
+     * 镜像前缀只是替换域名路径，API 响应结构不变，故复用同一解析器。
+     */
+    private java.util.List<ReleaseInfo> fetchReleasesFromMirrors() {
+        for (String mir : GH_MIRRORS) {
+            java.util.List<ReleaseInfo> r =
+                    fetchReleasesFrom(mirrorUrl(mir, REMOTE_RELEASES), "application/vnd.github+json");
+            if (!r.isEmpty()) return r;
+        }
+        return new java.util.ArrayList<>();
+    }
+
+    /**
+     * 从 Releases API 取版本列表（含完整更新日志与精确直链）。
+     * <p>Gitee 与 GitHub 的响应结构一致，故用同一段解析逻辑；
+     * 差异仅在 accept 头与域名，故抽出 url/accept 形参。</p>
+     */
+    private java.util.List<ReleaseInfo> fetchReleasesFrom(String url, String accept) {
         java.util.List<ReleaseInfo> out = new java.util.ArrayList<>();
         try {
-            java.net.HttpURLConnection conn = openRemote(
-                    REMOTE_RELEASES, "GET", "application/vnd.github+json");
+            java.net.HttpURLConnection conn = openRemote(url, "GET", accept);
             if (conn.getResponseCode() != 200) {
                 conn.disconnect();
                 return out;
@@ -2805,13 +2854,13 @@ public class MainActivity extends AppCompatActivity {
                     for (int k = 0; k < assets.length(); k++) {
                         org.json.JSONObject a = assets.getJSONObject(k);
                         String nm = a.optString("name", "");
-                        String url = a.optString("browser_download_url", "");
-                        if (!nm.endsWith(".apk") || url.isEmpty()) continue;
+                        String assetUrl = a.optString("browser_download_url", "");
+                        if (!nm.endsWith(".apk") || assetUrl.isEmpty()) continue;
                         boolean better = ri.apkUrl.isEmpty()
                                 || (nm.contains(ri.ver) && !ri.apkName.contains(ri.ver));
                         if (better) {
                             ri.apkName = nm;
-                            ri.apkUrl = url;
+                            ri.apkUrl = assetUrl;
                             ri.apkSize = a.optLong("size", 0L);
                         }
                     }
@@ -3595,14 +3644,21 @@ public class MainActivity extends AppCompatActivity {
      */
     private java.util.List<SourceTestResult> testAllSources(String apkUrl, String cnUrl) {
         java.util.List<String[]> targets = new java.util.ArrayList<>();
+        // 源优先级与版本列表一致：Gitee → 镜像 → GitHub → 123云盘。
+        // 最终下载顺序由测速结果决定（快的先用），这里的顺序只影响同速时的先后。
         if (apkUrl != null && !apkUrl.isEmpty()) {
-            targets.add(new String[]{"GitHub 直链", apkUrl});
-            for (String mir : GH_MIRRORS) {
-                String m = mirrorUrl(mir, apkUrl);
-                if (m != null) {
-                    String host = mir.replace("https://", "").replace("/", "");
-                    targets.add(new String[]{"镜像 " + host, m});
+            String host = android.net.Uri.parse(apkUrl).getHost();
+            if (host != null && host.contains("gitee.com")) {
+                targets.add(new String[]{"Gitee 直链", apkUrl});
+            } else {
+                for (String mir : GH_MIRRORS) {
+                    String m = mirrorUrl(mir, apkUrl);
+                    if (m != null) {
+                        String h = mir.replace("https://", "").replace("/", "");
+                        targets.add(new String[]{"镜像 " + h, m});
+                    }
                 }
+                targets.add(new String[]{"GitHub 直链", apkUrl});
             }
         }
         if (cnUrl != null && !cnUrl.isEmpty()) {
@@ -3846,11 +3902,17 @@ public class MainActivity extends AppCompatActivity {
                 // 构建尝试列表
                 java.util.List<String[]> attempts = new java.util.ArrayList<>();
                 if (apkUrl != null && !apkUrl.isEmpty()) {
-                    attempts.add(new String[]{"GitHub 直链", apkUrl});
-                    for (String mir : GH_MIRRORS) {
-                        String m = mirrorUrl(mir, apkUrl);
-                        if (m != null) attempts.add(new String[]{
-                            "镜像 " + mir.replace("https://", "").replace("/", ""), m});
+                    // 与 testAllSources 同规则：Gitee 直链不做镜像包装
+                    String h = android.net.Uri.parse(apkUrl).getHost();
+                    if (h != null && h.contains("gitee.com")) {
+                        attempts.add(new String[]{"Gitee 直链", apkUrl});
+                    } else {
+                        for (String mir : GH_MIRRORS) {
+                            String m = mirrorUrl(mir, apkUrl);
+                            if (m != null) attempts.add(new String[]{
+                                    "镜像 " + mir.replace("https://", "").replace("/", ""), m});
+                        }
+                        attempts.add(new String[]{"GitHub 直链", apkUrl});
                     }
                 }
                 if (cnUrl != null && !cnUrl.isEmpty()) {
