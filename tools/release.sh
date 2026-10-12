@@ -38,6 +38,18 @@ RCLONE_CONF=/storage/emulated/0/Android/haoyou781/.rclone
 
 cd "$PROJ" || exit 1
 
+# 容错 JSON 取值：接口报错/限流时不崩脚本，只返回空串
+# （2026-10-12 实测：GitHub API 偶发返回空 body，python json.load 会抛
+#  JSONDecodeError 把整个发布流程打断，而实际 Release 可能已建好）
+jget() { python3 -c '
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(d.get(sys.argv[1],"") if isinstance(d,dict) else "")
+except Exception:
+    print("")
+' "$1" 2>/dev/null; }
+
 echo "════════════════════════════════════════════════"
 echo " HY_VQ v$VER 发布流程"
 echo " ① Gitee → ② GitHub 镜像 → ③ 123云盘 → ④ GitHub 更新源"
@@ -74,7 +86,7 @@ if ! curl -s -o /dev/null -w "%{http_code}" "https://gitee.com/api/v5/repos/$GIT
   curl -s -X POST "https://gitee.com/api/v5/user/repos" \
     -d "access_token=$GITEE_TOKEN" -d "name=HY_VQ" -d "path=HY_VQ" \
     -d "description=原神语音助手" -d "private=false" -d "auto_init=false" \
-    | python3 -c "import json,sys; d=json.load(sys.stdin); print('   ✅' if 'path' in d else '   ❌ '+str(d)[:120])"
+    | jget path | grep -q . && echo "   ✅ 仓库已就绪" || echo "   ❌ 建仓失败（检查 token 与 projects 权限）"
 fi
 
 git remote add gitee "git@gitee.com:$GITEE_USER/HY_VQ.git" 2>/dev/null || \
@@ -103,7 +115,7 @@ else: print('   ⚠️', str(d)[:150])"
     case "$f" in *.apk) N="HY_VQ-v$VER.apk";; esac
     curl -s -X POST "https://gitee.com/api/v5/repos/$GITEE_USER/HY_VQ/releases/$RID/assets" \
       -F "access_token=$GITEE_TOKEN" -F "file=@$f" \
-      | python3 -c "import json,sys; d=json.load(sys.stdin); print('   ✅', d.get('name','?')) if 'browser_download_url' in d else print('   ❌', str(d)[:100])"
+      | jget browser_download_url | grep -q . && echo "   ✅ $N" || echo "   ❌ $N 上传失败"
   done
 fi   # GITEE_ON
 fi
@@ -119,18 +131,18 @@ else
   # Release
   REL=$(curl -s "https://api.github.com/repos/haoyou781013/HY_VQ/releases/tags/v$VER" \
         -H "Authorization: Bearer $GH_TOKEN")
-  RID=$(echo "$REL" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
+  RID=$(echo "$REL" | jget id)
   if [ -z "$RID" ]; then
     python3 -c "
 import json
 print(json.dumps({'tag_name':'v$VER','name':'HY_VQ v$VER','body':open('/tmp/relnotes.md',encoding='utf-8').read() if __import__('os').path.exists('/tmp/relnotes.md') else ''},ensure_ascii=False))" > /tmp/rel.json
     RID=$(curl -s -X POST "https://api.github.com/repos/haoyou781013/HY_VQ/releases" \
       -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/json" \
-      --data-binary @/tmp/rel.json | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
+      --data-binary @/tmp/rel.json | jget id)
     echo "   ✅ Release 已建 id=$RID"
   fi
   UP=$(curl -s "https://api.github.com/repos/haoyou781013/HY_VQ/releases/$RID" \
-       -H "Authorization: Bearer $GH_TOKEN" | python3 -c "import json,sys; print(json.load(sys.stdin)['upload_url'].split('{')[0])")
+       -H "Authorization: Bearer $GH_TOKEN" | jget upload_url | cut -d'{' -f1)
   for f in "$APK" update_packages/*.zip; do
     [ -f "$f" ] || continue
     N=$(basename "$f"); case "$f" in *.apk) N="HY_VQ-v$VER.apk";; esac
@@ -163,8 +175,10 @@ else
   echo "▶ ④ GitHub 更新源（客户端检查更新读这里）"
   # 检查客户端能否看到新版本
   SEEN=$(curl -s "https://api.github.com/repos/haoyou781013/HY_VQ/releases/latest" \
-         -H "Authorization: Bearer $GH_TOKEN" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tag_name',''), d.get('published_at','')[:10])")
-  echo "   客户端可见: $SEEN"
+         -H "Authorization: Bearer $GH_TOKEN" | jget tag_name)
+  SEEN_DATE=$(curl -s "https://api.github.com/repos/haoyou781013/HY_VQ/releases/latest" \
+         -H "Authorization: Bearer $GH_TOKEN" | jget published_at)
+  echo "   客户端可见: $SEEN ${SEEN_DATE:0:10}"
   echo "   更新检查 URL: https://api.github.com/repos/haoyou781013/HY_VQ/releases?per_page=100"
 fi
 
