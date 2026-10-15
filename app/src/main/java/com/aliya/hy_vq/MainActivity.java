@@ -2164,12 +2164,14 @@ public class MainActivity extends AppCompatActivity {
     private static final String GH_OWNER = "haoyou781013";
     /** 更新源与源码同仓：APK 走该仓的 Release 资产 */
     private static final String GH_REPO = "HY_VQ";
-    /** Gitee 账号（国内主源，暂定：账号未开通时客户端会自动跳过该源） */
-    private static final String GITEE_USER = "haoyou781013";
+    /** Gitee 账号（国内主源）
+     *  2026-10-16：此前写的是不存在的 haoyou781013（gitee.com/haoyou781013 → 404），
+     *  该源因此从未生效。现改为真实账号 haoyou781，仓库 gitee.com/haoyou781/hy_vq。 */
+    private static final String GITEE_USER = "haoyou781";
     /**
      * 版本列表来源优先级（用户指定 2026-10-12：国内优先）：
      * <pre>
-     *   ① Gitee Releases        国内主源（暂定，未开通则自动跳过）
+     *   ① Gitee Releases        国内主源（haoyou781/hy_vq，已开通）
      *   ② GitHub 加速镜像       gh-proxy / ghproxy.net，零凭据
      *   ③ GitHub Releases       官方源
      *   ④ 123 云盘 WebDAV       离线兜底（内置只读凭据）
@@ -2839,7 +2841,7 @@ public class MainActivity extends AppCompatActivity {
     /**
      * 扫描可用版本（源优先级：国内优先，用户 2026-10-12 指定）。
      * <pre>
-     *   ① Gitee Releases    国内主源（暂定：账号未开通 → 请求失败自动跳过）
+     *   ① Gitee Releases    国内主源（haoyou781/hy_vq）
      *   ② GitHub Releases   经 gh-proxy / ghproxy.net 镜像，零凭据
      *   ③ GitHub 直连       官方源
      *   ④ 123 云盘          离线兜底（内置只读凭据）
