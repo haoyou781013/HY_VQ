@@ -109,9 +109,10 @@ libs/terracotta/               Terracotta P2P 运行库归档（不参与构建�
 |---|---|
 | 版本清单 | `https://raw.githubusercontent.com/haoyou781013/HY_VQ/main/latest.json` |
 | 安装包 | `https://github.com/haoyou781013/HY_VQ/releases/latest/download/<apk 文件名>` |
-| 国内备用源 | `https://webdav.123pan.cn/webdav/HY_VQ-updates/`（123 云盘，内置只读凭据） |
+| 国内主源 | `https://gitee.com/haoyou781/hy_vq/releases/`（Gitee，公开免鉴权） |
+| 国内兜底 | `https://webdav.123pan.cn/webdav/HY_VQ-updates/`（123 云盘，已失效） |
 
-更新机制：**默认走 GitHub**，连接失败时自动回退到国内备用源。
+更新机制：**国内优先**（Gitee → GitHub 镜像 → GitHub 直连 → 123 云盘兜底）。
 国内源同时保存 `versions.json`（全量版本历史）与各版本 APK，作为 GitHub 不可达时的完整替代。
 
 公开仓库的 raw 文件与 Release 资产均为**无鉴权直链**，因此客户端 APK 内不含任何账号或密钥。
