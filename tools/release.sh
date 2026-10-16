@@ -28,8 +28,14 @@ VER=${1:?用法: release.sh <versionName> [--no-github]}
 SKIP_GH=${2:-}
 
 PROJ=/root/HY_VQ
+# 自动加载 Gitee 凭据（2026-10-13 起）。已有环境变量则优先用环境变量。
+if [ -f /root/.gitee-env ]; then . /root/.gitee-env; fi
 GITEE_USER=${GITEE_USER:-}
 GITEE_TOKEN=${GITEE_TOKEN:-}
+# ⚠️ Gitee 仓库名是小写 hy_vq（GitHub 侧才是大写 HY_VQ）——
+#    2026-10-13 用令牌调 /api/v5/users/haoyou781/repos 实测确认。
+GITEE_REPO=${GITEE_REPO:-hy_vq}
+GH_REPO=HY_VQ
 # Gitee 暂定：两者都配齐才算启用①，否则跳过（不算失败）
 GITEE_ON=0
 if [ -n "$GITEE_USER" ] && [ -n "$GITEE_TOKEN" ]; then GITEE_ON=1; fi
@@ -80,7 +86,7 @@ for k in $(git config --global --get-regexp 'url\..*\.insteadof' 2>/dev/null | c
 done
 
 # 仓库不存在则创建
-if ! curl -s -o /dev/null -w "%{http_code}" "https://gitee.com/api/v5/repos/$GITEE_USER/HY_VQ" \
+if ! curl -s -o /dev/null -w "%{http_code}" "https://gitee.com/api/v5/repos/$GITEE_USER/$GITEE_REPO" \
      | grep -q 200; then
   echo "   创建仓库…"
   curl -s -X POST "https://gitee.com/api/v5/user/repos" \
@@ -89,17 +95,18 @@ if ! curl -s -o /dev/null -w "%{http_code}" "https://gitee.com/api/v5/repos/$GIT
     | jget path | grep -q . && echo "   ✅ 仓库已就绪" || echo "   ❌ 建仓失败（检查 token 与 projects 权限）"
 fi
 
-git remote add gitee "git@gitee.com:$GITEE_USER/HY_VQ.git" 2>/dev/null || \
-  git remote set-url gitee "git@gitee.com:$GITEE_USER/HY_VQ.git"
+git remote add gitee "git@gitee.com:$GITEE_USER/$GITEE_REPO.git" 2>/dev/null || \
+  git remote set-url gitee "git@gitee.com:$GITEE_USER/$GITEE_REPO.git"
 git push gitee main 2>&1 | tail -2 | sed 's/^/   /'
 git push gitee "refs/tags/v$VER" 2>&1 | tail -1 | sed 's/^/   /'
 
 # Release（用与 GitHub 相同的更新日志）
 if [ -f /tmp/relnotes.md ]; then
-  curl -s -X POST "https://gitee.com/api/v5/repos/$GITEE_USER/HY_VQ/releases" \
+  curl -s -X POST "https://gitee.com/api/v5/repos/$GITEE_USER/$GITEE_REPO/releases" \
     -d "access_token=$GITEE_TOKEN" \
     -d "tag_name=v$VER" -d "name=HY_VQ v$VER" \
-    -d "body@/tmp/relnotes.md" -d "prerelease=false" \
+    --data-urlencode "body@/tmp/relnotes.md" -d "prerelease=false" \
+    -d "target_commitish=main" \
     | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
@@ -113,7 +120,8 @@ else: print('   ⚠️', str(d)[:150])"
     [ -f "$f" ] || continue
     N=$(basename "$f")
     case "$f" in *.apk) N="HY_VQ-v$VER.apk";; esac
-    curl -s -X POST "https://gitee.com/api/v5/repos/$GITEE_USER/HY_VQ/releases/$RID/assets" \
+    # ⚠️ Gitee 的上传端点是 attach_files（/assets 会 404，实测 2026-10-13）
+    curl -s -X POST "https://gitee.com/api/v5/repos/$GITEE_USER/$GITEE_REPO/releases/$RID/attach_files" \
       -F "access_token=$GITEE_TOKEN" -F "file=@$f" \
       | jget browser_download_url | grep -q . && echo "   ✅ $N" || echo "   ❌ $N 上传失败"
   done
@@ -185,7 +193,7 @@ fi
 echo ""
 echo "════════════════════════════════════════════════"
 echo " ✅ v$VER 发布完成"
-[ "$GITEE_ON" = "1" ] && echo "   ① Gitee   https://gitee.com/$GITEE_USER/HY_VQ" || echo "   ① Gitee   （暂定 · 未启用）"
+[ "$GITEE_ON" = "1" ] && echo "   ① Gitee   https://gitee.com/$GITEE_USER/$GITEE_REPO" || echo "   ① Gitee   （暂定 · 未启用）"
 echo "   ② GitHub  https://github.com/haoyou781013/HY_VQ/releases/tag/v$VER"
 echo "   ③ 123云盘 HY_VQ-updates/"
 echo "════════════════════════════════════════════════"
