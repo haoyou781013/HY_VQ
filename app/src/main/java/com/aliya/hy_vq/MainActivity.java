@@ -331,6 +331,15 @@ public class MainActivity extends AppCompatActivity {
         if (loadedPlugins > 0) {
             Log.i("HY_VQ", "已加载插件 " + loadedPlugins + " 个");
         }
+
+        // 开发用插件自测入口：仅 debug 构建可用。
+        // 背景：容器装不了 Android 模拟器（Google 从未发布 emulator-linux_aarch64），
+        // 故用 intent extra 走与真实用户相同的代码路径并输出日志。
+        // 发布版（BuildConfig.DEBUG=false）整段被 JIT 消除，不产生任何行为。
+        if (BuildConfig.DEBUG
+                && com.aliya.hy_vq.plugin.PluginSelfTest.maybeRun(this, pluginManager)) {
+            return;
+        }
         // 加载已持久化的外置模块
         loadInstalledModules();
         // 首次构建侧边栏模块区
@@ -1814,6 +1823,121 @@ public class MainActivity extends AppCompatActivity {
             binding.drawerLayout.closeDrawers();
             binding.drawerLayout.postDelayed(this::switchToSettings, 160);
         });
+
+        // 插件入口：动态加载，与上面写死的入口并存。
+        // 用户装了插件就多出条目，卸载后重启即消失 —— 「功能随用户添加」。
+        rebuildPluginEntries();
+    }
+
+    /**
+     * 按已加载插件动态构建侧边栏条目。
+     *
+     * <p><b>不影响文件管理等内置入口</b>：只在 {@code nav_plugin_slot} 容器末尾
+     * 追加，从不删除或改动现有视图。找不到容器时静默返回（旧布局兼容）。</p>
+     *
+     * <p>顺序由 {@link PluginManager#loadedOrdered()} 决定（order 升序，同序按 id）。</p>
+     */
+    private void rebuildPluginEntries() {
+        View slot = binding.navView.findViewById(R.id.nav_plugin_slot);
+        if (slot == null || !(slot instanceof android.view.ViewGroup)) {
+            android.util.Log.w("HY_VQ", "rebuildPluginEntries: 找不到 nav_plugin_slot，跳过");
+            return;
+        }
+        android.view.ViewGroup box = (android.view.ViewGroup) slot;
+
+        // 清掉上一轮动态添加的条目（用 tag 标记，避免误删 XML 里的固定视图）
+        for (int i = box.getChildCount() - 1; i >= 0; i--) {
+            View child = box.getChildAt(i);
+            if (child != null && "hyvq_plugin".equals(child.getTag())) {
+                box.removeViewAt(i);
+            }
+        }
+        if (pluginManager == null) return;
+
+        java.util.List<HyVqPlugin> list;
+        try {
+            list = pluginManager.loadedOrdered();
+        } catch (Throwable t) {
+            android.util.Log.e("HY_VQ", "读取插件列表失败", t);
+            return;
+        }
+        if (list == null || list.isEmpty()) return;
+
+        int added = 0;
+        for (HyVqPlugin p : list) {
+            // 单插件异常不能影响其它插件与主程序
+            try {
+                if (p == null || !p.showInDrawer()) continue;
+                View row = buildPluginRow(p);
+                if (row == null) continue;
+                row.setTag("hyvq_plugin");
+                box.addView(row, new android.widget.LinearLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+                added++;
+            } catch (Throwable t) {
+                android.util.Log.e("HY_VQ", "构建插件条目失败: " + p, t);
+            }
+        }
+        android.util.Log.i("HY_VQ", "rebuildPluginEntries: 追加 " + added + " 个插件入口");
+    }
+
+    /**
+     * 单个插件侧边栏条目：字形图标 + 插件名 + 一行摘要。
+     * <p>结构与 XML 里的 nav_* 一致（图标 40dp + 两行文字），
+     * 以保证视觉不突兀；但用代码构建 —— 插件数量运行期才知道。</p>
+     */
+    private View buildPluginRow(final HyVqPlugin p) {
+        final int pad = (int) (12 * getResources().getDisplayMetrics().density);
+
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(pad, pad, pad, pad);
+        row.setMinimumHeight((int) (56 * getResources().getDisplayMetrics().density));
+        row.setClickable(true);
+        row.setFocusable(true);
+
+        // 字形图标（插件不能用宿主 drawable，见 PluginIcons 注释）
+        View icon = com.aliya.hy_vq.plugin.PluginIcons.iconView(this, p.iconName(), 40);
+        android.widget.LinearLayout.LayoutParams ip =
+                new android.widget.LinearLayout.LayoutParams(icon.getLayoutParams());
+        ip.rightMargin = (int) (14 * getResources().getDisplayMetrics().density);
+        row.addView(icon, ip);
+
+        android.widget.LinearLayout mid = new android.widget.LinearLayout(this);
+        mid.setOrientation(android.widget.LinearLayout.VERTICAL);
+        mid.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        android.widget.TextView title = new android.widget.TextView(this);
+        title.setText(p.getName() == null ? "插件" : p.getName());
+        title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
+        title.setTextColor(ModuleUiKit.color(this, com.google.android.material.R.attr.colorOnSurface));
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        mid.addView(title);
+
+        String sub = p.summary();
+        if (sub != null && !sub.isEmpty()) {
+            android.widget.TextView desc = new android.widget.TextView(this);
+            desc.setText(sub);
+            desc.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
+            desc.setTextColor(ModuleUiKit.color(this,
+                    com.google.android.material.R.attr.colorOnSurfaceVariant));
+            desc.setMaxLines(1);
+            desc.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            mid.addView(desc);
+        }
+        row.addView(mid);
+
+        row.setBackground(ModuleUiKit.rippleBg(this, ModuleUiKit.rounded(
+                this, 14, 0x00000000, 0)));
+
+        row.setOnClickListener(v -> {
+            binding.drawerLayout.closeDrawers();
+            binding.drawerLayout.postDelayed(() -> openPlugin(p), 160);
+        });
+        return row;
     }
 
     // ==================== Avatar ====================
@@ -2172,6 +2296,9 @@ public class MainActivity extends AppCompatActivity {
         settingsView.findViewById(R.id.item_permission).setOnClickListener(v -> switchToPermissions());
         // 动漫模块设置（源/弹幕/离线缓存）——与动漫页内设置共用同一份偏好
         settingsView.findViewById(R.id.item_anime).setOnClickListener(v -> showAnimeSettings());
+        // 插件入口（安装/卸载插件，功能随用户添加）
+        View itemPlugin = settingsView.findViewById(R.id.item_plugin);
+        if (itemPlugin != null) itemPlugin.setOnClickListener(v -> openPluginStore());
         // 软件更新入口（增量更新包导入中心）
         View itemUpdate = settingsView.findViewById(R.id.item_update);
         if (itemUpdate != null) itemUpdate.setOnClickListener(v -> switchToUpdate());
@@ -2915,14 +3042,71 @@ public class MainActivity extends AppCompatActivity {
      * <p>Gitee 源异常时 404 → 自然落到下一级，无需额外开关判断。</p>
      */
     private java.util.List<ReleaseInfo> fetchReleases() {
-        // ① Gitee（国内主源）
-        java.util.List<ReleaseInfo> gt = fetchReleasesFrom(GITEE_RELEASES, "");
-        if (!gt.isEmpty()) return gt;
-        // ② GitHub 经国内加速镜像
-        java.util.List<ReleaseInfo> mir = fetchReleasesFromMirrors();
-        if (!mir.isEmpty()) return mir;
-        // ③ GitHub 官方直连
-        return fetchReleasesFrom(REMOTE_RELEASES, "application/vnd.github+json");
+        // ⚠️ 不能「任一源成功就返回」：Gitee 现有 74 个 release，
+        // 但只有最新版传了 APK（其余是回填的仅日志 —— 旧版客户端没有 Gitee 源，
+        // 没必要占空间）。而客户端要求 release 必须带 APK 或增量包才展示，
+        // 于是 Gitee 那 73 个被过滤掉 → 只剩 1 个版本。
+        // 故改为「多源合并」：Gitee 提供国内可达的日志与最新 APK，
+        // GitHub 补齐历史版本的 APK，按版本号去重。
+        java.util.LinkedHashMap<String, ReleaseInfo> merged = new java.util.LinkedHashMap<>();
+
+        // ① Gitee（国内主源）：先放，其 APK 直链国内可下
+        mergeInto(merged, fetchReleasesFrom(GITEE_RELEASES, ""));
+
+        // ②③ 仅当版本数明显偏少时才补 GitHub —— 避免每次更新都多花网络往返。
+        //     正常情况 Gitee 已有全部版本，这里不会触发。
+        if (merged.size() < MIN_EXPECTED_RELEASES) {
+            mergeInto(merged, fetchReleasesFromMirrors());
+        }
+        if (merged.size() < MIN_EXPECTED_RELEASES) {
+            mergeInto(merged, fetchReleasesFrom(REMOTE_RELEASES, "application/vnd.github+json"));
+        }
+
+        java.util.List<ReleaseInfo> out = new java.util.ArrayList<>(merged.values());
+        java.util.Collections.sort(out, (a, b) -> compareVersion(b.ver, a.ver));
+        return out;
+    }
+
+    /**
+     * 版本数低于此值时，认为主源数据不完整，继续问下一个源。
+     * <p>历史版本约 74 个，取一个远低于它的阈值即可 —— 目的只是识别
+     * 「主源被过滤后只剩零星几条」这种情况，不需要精确值。</p>
+     */
+    private static final int MIN_EXPECTED_RELEASES = 10;
+
+    /**
+     * 把 src 合并进 dst（按版本号去重）。
+     *
+     * <p>冲突时<b>保留已有项的日志</b>（主源优先），但<b>补全缺失的下载链接</b> ——
+     * 因为 Gitee 的历史 release 没有 APK，而 GitHub 有。</p>
+     */
+    private void mergeInto(java.util.Map<String, ReleaseInfo> dst,
+                           java.util.List<ReleaseInfo> src) {
+        if (src == null) return;
+        for (ReleaseInfo r : src) {
+            if (r == null || r.ver.isEmpty()) continue;
+            ReleaseInfo exist = dst.get(r.ver);
+            if (exist == null) {
+                dst.put(r.ver, r);
+                continue;
+            }
+            // 已有该项：补齐它缺的字段，不覆盖已有的
+            if (exist.apkUrl.isEmpty() && !r.apkUrl.isEmpty()) {
+                exist.apkUrl = r.apkUrl;
+                exist.apkName = r.apkName;
+                exist.apkSize = r.apkSize;
+            }
+            if (!exist.hasPatch() && r.hasPatch()) {
+                exist.patchUrl = r.patchUrl;
+                exist.patchName = r.patchName;
+                exist.patchSize = r.patchSize;
+            }
+            // 日志/时间为空时也补（防御）
+            if (exist.body.isEmpty() && !r.body.isEmpty()) exist.body = r.body;
+            if (exist.publishedAt.isEmpty() && !r.publishedAt.isEmpty()) {
+                exist.publishedAt = r.publishedAt;
+            }
+        }
     }
 
     /**

@@ -293,12 +293,21 @@ public final class PluginManager {
         }
         // 子加载器：父加载器 = 宿主，保证宿主类全局只有一份（见 DexLoader 注释）
         DexLoader loader = new DexLoader(app, dex.getAbsolutePath(), optDir);
-        Class<?> cls = loader.loadClass(pm.entryClass);
+        Class<?> cls = loader.loadClass(pm.entry);
         Object inst = cls.getDeclaredConstructor().newInstance();
         if (!(inst instanceof HyVqPlugin)) {
-            throw new IllegalStateException("入口类未实现 HyVqPlugin: " + pm.entryClass);
+            throw new IllegalStateException("入口类未实现 HyVqPlugin: " + pm.entry);
         }
         HyVqPlugin p = (HyVqPlugin) inst;
+
+        // 宿主版本门槛：插件 manifest 声明 minHostVersion，过低则拒绝加载。
+        // 这样插件用了新宿主才有的 API 时，旧宿主会明确跳过而不是崩溃。
+        int hostVer = hostVersionCode();
+        if (!pm.acceptsHost(hostVer)) {
+            throw new IllegalStateException("插件要求宿主 versionCode >= "
+                    + pm.minHostVersion + "，当前 " + hostVer);
+        }
+
         p.onAttach(app, pm);
         return p;
     }
@@ -330,6 +339,42 @@ public final class PluginManager {
     }
 
     // ══════════════════════ 工具 ══════════════════════
+
+    /** 宿主 versionCode，用于 minHostVersion 门槛校验 */
+    private int hostVersionCode() {
+        try {
+            return app.getPackageManager().getPackageInfo(app.getPackageName(), 0).versionCode;
+        } catch (Exception e) {
+            return 0;   // 取不到就当作「不限制」，宁可放行也不误杀
+        }
+    }
+
+    /**
+     * 已加载插件按侧边栏顺序排序（order 升序，同序按 id）。
+     * <p>侧边栏动态加载直接用这个列表，保证顺序稳定可复现。</p>
+     */
+    public List<HyVqPlugin> loadedOrdered() {
+        List<HyVqPlugin> list = new ArrayList<>(loaded.values());
+        java.util.Collections.sort(list, (a, b) -> {
+            int oa = orderOf(a), ob = orderOf(b);
+            if (oa != ob) return oa - ob;
+            return idOf(a).compareTo(idOf(b));
+        });
+        return list;
+    }
+
+    /** 插件声明的 order（SPI 默认 500） */
+    private static int orderOf(HyVqPlugin p) {
+        try { return p.order(); } catch (Throwable t) { return 500; }
+    }
+
+    /** 反查插件 id（用于同序时按 id 稳定排序） */
+    private String idOf(HyVqPlugin p) {
+        for (Map.Entry<String, HyVqPlugin> e : loaded.entrySet()) {
+            if (e.getValue() == p) return e.getKey();
+        }
+        return "";
+    }
 
     public static String md5(File f) {
         try {

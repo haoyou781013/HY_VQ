@@ -41,8 +41,8 @@ android {
         // targetSdk 保持 33（compileSdk 已升 34 以支持 Compose），暂不适配 Android 17 (API 37)
         minSdk = 28
         targetSdk = 33
-        versionCode = 108
-        versionName = "2.36.0"
+        versionCode = 109
+        versionName = "2.37.0"
         
         vectorDrawables { 
             useSupportLibrary = true
@@ -70,7 +70,8 @@ android {
 
     buildFeatures {
         viewBinding = true
-        
+        // 需要 BuildConfig.DEBUG 做「仅 debug 生效」的守卫（插件自测入口）
+        buildConfig = true
     }
     
     lint {

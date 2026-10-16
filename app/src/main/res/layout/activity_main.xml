@@ -89,6 +89,7 @@
 
             <!-- 主菜单区：首页（固定） + 动态模块入口 -->
             <LinearLayout
+                android:id="@+id/nav_plugin_slot"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"

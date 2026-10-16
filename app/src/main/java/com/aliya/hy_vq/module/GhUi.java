@@ -567,33 +567,71 @@ public final class GhUi {
         return t;
     }
 
-    /** 主行动按钮 */
+    /**
+     * 主行动按钮（filled 变体，最高强调）。
+     *
+     * <p>数值依据 M3 官方 token：
+     * 视觉高 40dp（{@code md.comp.button.container.height}）、
+     * 水平 padding 24dp（{@code md.comp.button.leading-space}）、
+     * 全圆角（官方标 "Full"，无 dp 值，按高/2 = 20dp）、
+     * 字号 14sp/行高 20sp/字重 500（{@code md.comp.button.label-text}）。</p>
+     *
+     * <p>⚠️ 48dp 是<b>触摸目标下限</b>而非视觉高度。这里 minHeight 取 40dp
+     * 并通过 {@code setInsets} 语义（外层容器给足空间）保证可点区。
+     * 若调用方把按钮放进高度受限的容器，需自行补足到 48dp。</p>
+     */
     public static TextView button(Context c, String label, View.OnClickListener onClick) {
         TextView t = text(c, TYPE_BODY, label);
-        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);   // M3 要 500，Android 无该常量，用 BOLD
         t.setTextColor(ModuleUiKit.color(c, R.attr.colorOnPrimary));
         t.setGravity(Gravity.CENTER);
+        // M3 视觉高 40dp，但要求触摸区 48dp（靠 4dp inset 补足）。
+        // TextView 无 inset API，故直接取 48dp —— 视觉略高于规范但满足无障碍硬要求。
         t.setMinHeight(dp(c, TOUCH_MIN));
-        t.setPadding(dp(c, SPACE_LG), 0, dp(c, SPACE_LG), 0);
-        t.setBackground(ModuleUiKit.rippleBg(c, ModuleUiKit.rounded(c, 12,
+        t.setPadding(dp(c, SPACE_XL), 0, dp(c, SPACE_XL), 0);   // 24dp
+        t.setBackground(ModuleUiKit.rippleBg(c, ModuleUiKit.rounded(c, RADIUS_PILL,
                 ModuleUiKit.color(c, R.attr.colorPrimary), 0)));
         if (onClick != null) t.setOnClickListener(onClick);
         return t;
     }
 
-    /** 次要按钮（描边） */
+    /** 次要按钮（outlined 变体，中强调） */
     public static TextView buttonOutline(Context c, String label, View.OnClickListener onClick) {
         TextView t = text(c, TYPE_BODY, label);
-        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);   // M3 要 500，Android 无该常量，用 BOLD
         t.setTextColor(accent(c));
         t.setGravity(Gravity.CENTER);
-        t.setMinHeight(dp(c, TOUCH_MIN));
-        t.setPadding(dp(c, SPACE_LG), 0, dp(c, SPACE_LG), 0);
-        t.setBackground(ModuleUiKit.rippleBg(c, ModuleUiKit.rounded(c, 12, 0x00000000,
+        t.setMinHeight(dp(c, TOUCH_MIN));   // 48dp，保证触摸区达标
+        t.setPadding(dp(c, SPACE_XL), 0, dp(c, SPACE_XL), 0);   // 24dp
+        t.setBackground(ModuleUiKit.rippleBg(c, ModuleUiKit.rounded(c, RADIUS_PILL, 0x00000000,
                 GhUi.border(c))));
         if (onClick != null) t.setOnClickListener(onClick);
         return t;
     }
+
+    /**
+     * 最低强调按钮（text 变体）：无边框无底色，只有文字。
+     * <p>M3 官方用途：次要/内联操作。水平 padding 12dp（非 24dp）。</p>
+     */
+    public static TextView buttonText(Context c, String label, View.OnClickListener onClick) {
+        TextView t = text(c, TYPE_BODY, label);
+        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);   // M3 要 500，Android 无该常量，用 BOLD
+        t.setTextColor(accent(c));
+        t.setGravity(Gravity.CENTER);
+        t.setMinHeight(dp(c, TOUCH_MIN));   // 48dp，触摸区达标
+        t.setPadding(dp(c, SPACE_MD), 0, dp(c, SPACE_MD), 0);   // 12dp，M3 text 按钮规格
+        if (onClick != null) t.setOnClickListener(onClick);
+        return t;
+    }
+
+    /**
+     * M3 按钮<b>视觉</b>高度。
+     * <p>⚠️ 不是触摸区高度 —— M3 靠 4dp inset 把 40dp 视觉补成 48dp 触摸区。
+     * Android {@code TextView} 无 inset API，故 {@link #button} 等实际取
+     * {@link #TOUCH_MIN}（48dp）以满足无障碍硬要求。
+     * 此常量仅作参考值，供需要精确 M3 视觉尺寸的场景（如自绘背景）使用。</p>
+     */
+    public static final int BTN_HEIGHT = 40;
 
     // ── 工具 ──────────────────────────────────────────────
 
@@ -653,5 +691,131 @@ public final class GhUi {
     /** 取日期部分（YYYY-MM-DD） */
     public static String dateOnly(String iso8601) {
         return iso8601 != null && iso8601.length() >= 10 ? iso8601.substring(0, 10) : "";
+    }
+
+    // ══════════════════════ 卡片类容器 ══════════════════════
+    //
+    // 以下元件按 M3 官方规格实现：
+    //   · 卡片变体 = filled（surfaceContainerLow，无阴影，圆角 12dp）
+    //     出处 m3.material.io/components/cards/specs
+    //   · 列表项高度档位 56/72/88dp（按行数）
+    //     出处 m3.material.io/components/lists/overview
+    //   · Chip 高 32dp / 圆角 8dp；只读徽章可缩小（非交互，不受 48dp 约束）
+    //     出处 m3.material.io/components/chips/specs
+
+    /** 卡片圆角（M3 medium shape） */
+    public static final int RADIUS_CARD = 12;
+    /** 全圆角（按钮 / 徽章） */
+    public static final int RADIUS_PILL = 999;
+
+    /**
+     * filled 卡片容器：圆角 + 背景 + 内边距，无阴影。
+     *
+     * <p>M3 官方值：圆角 <b>12dp</b>、内边距 <b>16dp</b>、卡片间距 <b>8dp</b>。
+     * filled 变体 elevation = 0dp（Level 0）。
+     * 出处 m3.material.io/components/cards/specs。</p>
+     *
+     * <p>注：M3 官方<b>未规定</b>卡片容器高度与卡片内元素垂直间距。</p>
+     *
+     * @param padDp 内边距，建议 {@link #SPACE_LG}（16dp，官方值）
+     */
+    public static LinearLayout card(Context c, int padDp) {
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pd = dp(c, padDp);
+        box.setPadding(pd, pd, pd, pd);
+        box.setBackground(ModuleUiKit.rounded(c, RADIUS_CARD, surfaceLow(c), 0));
+        return box;
+    }
+
+    /**
+     * 水平排列的按钮行：子按钮各占等宽，间距 8dp。
+     *
+     * <p>8dp 依据 M3 button-groups 规格：standard group 的
+     * {@code between-space} 在 M/L/XL 档为 <b>8dp</b>，
+     * 目的是「保证 48dp 可点目标」。</p>
+     *
+     * <p>⚠️ M3 官方<b>未规定</b>「卡片内按钮并排还是堆叠」——
+     * 此处选择并排是设计判断。若并排导致宽度不足，应改为堆叠，
+     * 但必须保证每个按钮触摸区 ≥48dp。</p>
+     */
+    public static LinearLayout buttonRow(Context c, View... buttons) {
+        LinearLayout row = new LinearLayout(c);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        for (int i = 0; i < buttons.length; i++) {
+            View b = buttons[i];
+            if (b == null) continue;
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            if (i > 0) lp.leftMargin = dp(c, SPACE_SM);   // 8dp，M3 button-group between-space
+            row.addView(b, lp);
+        }
+        return row;
+    }
+
+    /**
+     * 只读状态徽章。
+     *
+     * <p>按 M3 Chip 官方规格：高 <b>32dp</b>、圆角 <b>8dp</b>、
+     * 左右内边距 <b>16dp</b>（无图标时）、字号 14sp。
+     * 出处 m3.material.io/components/chips/specs。</p>
+     *
+     * <p>但本徽章<b>不可点击</b>，故不受 48dp 触摸目标约束 ——
+     * M3 的 48dp 要求只针对交互元素。</p>
+     *
+     * @param tone 语义色，传 {@link #success} / {@link #warning} / {@link #muted}
+     */
+    public static TextView badge(Context c, String label, int tone) {
+        TextView t = new TextView(c);
+        t.setText(label);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, TYPE_CAPTION);   // 12sp
+        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);   // M3 要 500，Android 无该常量，用 BOLD
+        t.setTextColor(tone);
+        t.setPadding(dp(c, SPACE_LG), 0, dp(c, SPACE_LG), 0);      // 16dp
+        // 徽章底色 = 语义色低透明度（M3 tonal 容器做法）
+        t.setBackground(ModuleUiKit.rounded(c, CHIP_RADIUS, alpha(tone, 0.12f), 0));
+        t.setMinHeight(dp(c, CHIP_HEIGHT));                        // 32dp
+        t.setGravity(Gravity.CENTER);
+        return t;
+    }
+
+    /** M3 Chip 高度 */
+    public static final int CHIP_HEIGHT = 32;
+    /** M3 Chip 圆角 */
+    public static final int CHIP_RADIUS = 8;
+
+    /**
+     * 图标 + 文本区块的水平容器。
+     *
+     * <p>间距取 M3 官方的 <b>{@code between-space} = 12dp</b>
+     * （列表项内元素之间的标准间距）。</p>
+     *
+     * <p>⚠️ M3 官方<b>未规定</b>「图标到文字的水平间距」这一独立维度 ——
+     * 规格页只给 leading 元素左内边距 16dp、trailing 元素左/右 16dp/24dp。
+     * 本项目采用 between-space，属合理选择而非官方明文值。</p>
+     */
+    public static LinearLayout iconTextRow(Context c, View icon, View content) {
+        LinearLayout row = new LinearLayout(c);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.TOP);
+        if (icon != null) {
+            LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            ip.rightMargin = dp(c, SPACE_MD);   // 12dp，M3 between-space
+            row.addView(icon, ip);
+        }
+        if (content != null) {
+            row.addView(content, new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        }
+        return row;
+    }
+
+    /** 颜色加透明度（0–1） */
+    public static int alpha(int color, float f) {
+        int a = Math.round(255 * Math.max(0f, Math.min(1f, f)));
+        return (color & 0x00FFFFFF) | (a << 24);
     }
 }
