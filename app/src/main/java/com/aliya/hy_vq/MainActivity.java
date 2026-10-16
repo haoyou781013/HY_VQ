@@ -132,10 +132,7 @@ public class MainActivity extends AppCompatActivity {
     private static volatile boolean updateFlowBusy = false;
     /** 历史版本列表是否展开（默认收起，避免列表过长） */
     private boolean historyExpanded = false;
-    /** 国内源只读凭据内存缓存（避免每次请求都走 Keystore 解密） */
-    private String cachedCnCred;
-    /** 本轮请求是否已因 401 刷新过凭据（防止无限重试） */
-    private boolean credRetried = false;
+    // 2026-10-16：已移除 123 云盘源，故删除 cachedCnCred / credRetried 两个字段
     /** 开源仓库地址（与 README / LICENSE 一致）
      *  2026-09-27：仓库迁至新账号 —— 旧账号因双重验证密钥丢失无法登录，详见 MIGRATION.md */
     private static final String OPEN_SOURCE_URL = "https://github.com/haoyou781013/HY_VQ";
@@ -2268,21 +2265,23 @@ public class MainActivity extends AppCompatActivity {
     /** 启动时自动检查更新的偏好键（默认开启） */
     private static final String PREF_AUTO_CHECK_UPDATE = "auto_check_update";
     /** 国内兜底更新源（优先级 ④）：123 云盘 WebDAV（内置**只读**凭据，泄漏也无法写入） */
-    private static final String CN_BASE = "https://webdav.123pan.cn/webdav/HY_VQ-updates/";
-    private static final String CN_VERSIONS = CN_BASE + "versions.json";
-    private static final String CN_HOST = "webdav.123pan.cn";
-    /** GitHub 直链的国内加速镜像（优先级 ②；依次尝试，不需要任何凭据） */
+    /* 2026-10-16 移除 123 云盘源：会员到期，WebDAV 实测 HTTP 401。
+       已删除：CN_BASE / CN_VERSIONS / CN_HOST / CN_CRED_SEED
+               fetchReleasesFrom123()
+               以及所有 apkCnUrl / patchCnUrl 的拼接
+       更新源现为三源：Gitee → GitHub 镜像 → GitHub 直连。 */
+
+    /** GitHub 加速镜像（用于代理 api.github.com 与下载直链）。
+     *  ⚠️ 这是「API 镜像」，不是网页代理 —— 上一轮实测 12 个公共代理
+     *  全部不支持 HTML/登录，但其中若干能正常代理 API 与 raw 下载。 */
     private static final String[] GH_MIRRORS = {
+            // 2026-10-16 实测（代理 api.github.com，连续 5 次）：
+            //   gh-proxy.com   5/5 → 200 ✅
+            //   ghproxy.net    0/5 → 403 "Invalid input" ❌ 已移除
+            // 加新镜像前请先按同样方法实测，别凭印象加。
             "https://gh-proxy.com/",
-            "https://ghproxy.net/",
     };
-    /** 只读账密（与发布端使用的读写账密是同一账号的不同密码） */
-    // ⭐ 这里刻意使用**只读**凭据：客户端只需要下载更新包，不需要写入。
-    // 即使该密码泄露，攻击者也无法篡改国内源的 APK（写操作返回 403）。
-    // 发布脚本用的是另一套读写凭据，两者互不通用。
-    // 注：网盘密码变更后此处需同步更新；客户端另有 CredentialStore 持久化，
-    // 若持久化的是旧值，openRemote 的 401 分支会自动清除并回退到本常量。
-    private static final String CN_CRED_SEED = CredentialStore.READONLY_SEED;
+
 
     /** 版本列表来源：GitHub Releases API —— 一次请求拿到全部版本，
      *  每个版本自带<b>精确</b>下载直链（browser_download_url）。
@@ -2313,7 +2312,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private java.net.HttpURLConnection openRemote(String url, String method, String accept) throws Exception {
-        credRetried = false;   // 每次新请求重置 401 重试标记
         String cur = url;
         for (int hop = 0; hop < 5; hop++) {
             java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(cur).openConnection();
@@ -2323,31 +2321,9 @@ public class MainActivity extends AppCompatActivity {
             conn.setInstanceFollowRedirects(false);
             conn.setRequestProperty("Accept", accept != null ? accept
                     : "application/json, application/octet-stream, */*");
-            // 国内备用源需要 Basic 鉴权（只读凭据）；GitHub 侧保持零凭据
-            if (cur.contains(CN_HOST) && this.cachedCnCred == null) {
-                String c = CredentialStore.load(this);
-                if (c == null) {
-                    CredentialStore.save(this, CN_CRED_SEED);
-                    c = CredentialStore.load(this);
-                }
-                this.cachedCnCred = c == null ? "" : c;
-            }
-            if (cur.contains(CN_HOST) && this.cachedCnCred != null && !this.cachedCnCred.isEmpty()) {
-                conn.setRequestProperty("Authorization", "Basic "
-                        + android.util.Base64.encodeToString(
-                        this.cachedCnCred.getBytes("UTF-8"), android.util.Base64.NO_WRAP));
-            }
+            // 2026-10-16：三个源（Gitee / GitHub 镜像 / GitHub）均无需鉴权，
+            // 原先为 123 云盘做的 Basic 鉴权与 401 重试逻辑已随该源一并移除。
             int code = conn.getResponseCode();
-            // ⭐ 401：网盘凭据可能已轮换（密码在服务端改过）。
-            // 持久化的旧值会一直覆盖内置 seed，导致永远 401 ——
-            // 故此处清掉持久化值，改用内置 CN_CRED_SEED 重试一次。
-            if (code == 401 && cur.contains(CN_HOST) && !credRetried) {
-                credRetried = true;
-                CredentialStore.clear(this);
-                this.cachedCnCred = CN_CRED_SEED;
-                conn.disconnect();
-                continue;   // 回到 hop 循环重建请求（这次带新凭据）
-            }
             if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
                 String loc = conn.getHeaderField("Location");
                 conn.disconnect();
@@ -2923,15 +2899,19 @@ public class MainActivity extends AppCompatActivity {
 
     /** 扫描全部可用版本（GitHub Releases API），返回列表按版本号倒序 */
     /**
-     * 扫描可用版本（源优先级：国内优先，用户 2026-10-12 指定）。
+     * 扫描可用版本（用户 2026-10-16 重置为三源）。
      * <pre>
      *   ① Gitee Releases    国内主源（haoyou781/hy_vq）
-     *   ② GitHub Releases   经 gh-proxy / ghproxy.net 镜像，零凭据
+     *   ② GitHub 镜像       经 gh-proxy.com
      *   ③ GitHub 直连       官方源
-     *   ④ 123 云盘          离线兜底（内置只读凭据）
      * </pre>
-     * Gitee 仓库未开通时，GITEE_RELEASES 会返回 404 → 自然落到下一级，
-     * 不需要在此处做额外的开关判断。
+     *
+     * <p><b>2026-10-16 变更：移除 123 云盘兜底（④）。</b>
+     * 该网盘会员到期，WebDAV 实测 HTTP 401，凭据已失效。
+     * 保留一个「必定失败」的兜底只会在每次检查更新时白等一次超时，
+     * 故连同常量、凭据逻辑、直链拼接一并删除。</p>
+     *
+     * <p>Gitee 源异常时 404 → 自然落到下一级，无需额外开关判断。</p>
      */
     private java.util.List<ReleaseInfo> fetchReleases() {
         // ① Gitee（国内主源）
@@ -2941,10 +2921,7 @@ public class MainActivity extends AppCompatActivity {
         java.util.List<ReleaseInfo> mir = fetchReleasesFromMirrors();
         if (!mir.isEmpty()) return mir;
         // ③ GitHub 官方直连
-        java.util.List<ReleaseInfo> gh = fetchReleasesFrom(REMOTE_RELEASES, "application/vnd.github+json");
-        if (!gh.isEmpty()) return gh;
-        // ④ 123 云盘（离线兜底）
-        return fetchReleasesFrom123();
+        return fetchReleasesFrom(REMOTE_RELEASES, "application/vnd.github+json");
     }
 
     /**
@@ -3030,11 +3007,9 @@ public class MainActivity extends AppCompatActivity {
                     // ⭐ 关键：国内源文件名规则固定，**无条件推断**国内直链，
                     // 这样即使 GitHub 列表读取成功，下载时 GitHub 不可达也能自动回退国内源。
                     // （若国内源并无该文件，回退尝试会失败并被忽略，不影响主流程）
-                    ri.apkCnUrl = CN_BASE + "HY_VQ-v" + ri.ver + ".apk";
+                    // 2026-10-16：123 云盘源已移除，不再拼国内直链
                 }
-                if (ri.hasPatch()) {
-                    ri.patchCnUrl = CN_BASE + ri.patchName;
-                }
+                // 2026-10-16：123 云盘源已移除（原此处拼 patchCnUrl）
                 // 有 APK 就算完整版；只有增量包也算可用版本（该版本主打小更新）
                 if (!ri.apkUrl.isEmpty() || ri.hasPatch()) {
                     out.add(ri);
@@ -3045,48 +3020,6 @@ public class MainActivity extends AppCompatActivity {
         java.util.Collections.sort(out, (a, b) -> compareVersion(b.ver, a.ver));
         return out;
     }
-
-    /** 国内备用源：123 云盘 WebDAV 上的 versions.json（发布时同步写入） */
-    private java.util.List<ReleaseInfo> fetchReleasesFrom123() {
-        java.util.List<ReleaseInfo> out = new java.util.ArrayList<>();
-        try {
-            java.net.HttpURLConnection conn = openRemote(CN_VERSIONS, "GET");
-            if (conn.getResponseCode() != 200) {
-                conn.disconnect();
-                return out;
-            }
-            org.json.JSONObject root = new org.json.JSONObject(readAll(conn.getInputStream()));
-            conn.disconnect();
-            org.json.JSONArray arr = root.optJSONArray("versions");
-            if (arr == null) return out;
-            for (int i = 0; i < arr.length(); i++) {
-                org.json.JSONObject o = arr.getJSONObject(i);
-                ReleaseInfo ri = new ReleaseInfo();
-                ri.ver = o.optString("ver", "");
-                ri.tag = "v" + ri.ver;
-                if (ri.ver.isEmpty()) continue;
-                ri.body = o.optString("body", "");
-                ri.publishedAt = o.optString("publishedAt", "");
-                ri.apkName = o.optString("apk", "");
-                // 增量包（可选字段，versions.json 里为 hyv_update_v{code}_{ver}.zip）
-                String patch = o.optString("patch", "");
-                if (!patch.isEmpty()) {
-                    ri.patchName = patch;
-                    ri.patchUrl = CN_BASE + patch;
-                    ri.patchSize = o.optLong("patchSize", 0L);
-                }
-                ri.apkSize = o.optLong("size", 0L);
-                if (!ri.apkName.isEmpty()) ri.apkCnUrl = CN_BASE + ri.apkName;
-                // 123 云盘兜底路径下同样支持增量包（文件名与 Release 资产同名）
-                if (!ri.patchName.isEmpty()) ri.patchCnUrl = CN_BASE + ri.patchName;
-                out.add(ri);
-            }
-        } catch (Exception ignored) {
-        }
-        java.util.Collections.sort(out, (a, b) -> compareVersion(b.ver, a.ver));
-        return out;
-    }
-
 
     /**
      * 启动流程的更新检查（受开关控制，静默进行，仅发现新版本才提示）。
