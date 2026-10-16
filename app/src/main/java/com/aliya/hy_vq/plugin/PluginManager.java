@@ -24,7 +24,7 @@ import java.util.zip.ZipFile;
  * <p><b>设计要点</b>
  * <ul>
  *   <li>插件以 zip 形式分发（内含 {@code classes.dex} + {@code plugin.json}），
- *       与主程序更新包同链路：复用 md5 校验、断点续传、123云盘/GitHub 多源。</li>
+ *       与主程序更新包同链路：复用 md5 校验、断点续传、Gitee/GitHub 多源。</li>
  *   <li><b>加载时机</b>：不在安装时立即加载（dex 校验耗时），而是下次冷启动时
  *       由 MainActivity 触发 {@link #loadAll} —— 与 Android 的插件框架惯例一致。</li>
  *   <li><b>隔离</b>：插件 dex 的 ClassLoader 父加载器是 App 的 ClassLoader，

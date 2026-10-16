@@ -21,7 +21,7 @@ import java.util.List;
  * 这里刻意保持静态，避免引入「商店接口挂了 → 一个插件都装不了」的故障点。
  *
  * <p><b>下载源优先级</b>（与 {@code MainActivity.fetchReleases()} 一致）：
- * GitHub Release → 123云盘。任一成功即可。
+ * GitHub Release → Gitee Release。任一成功即可。
  */
 public final class PluginStore {
 

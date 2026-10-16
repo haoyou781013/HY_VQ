@@ -2226,7 +2226,7 @@ public class MainActivity extends AppCompatActivity {
      *
      * <p>2026-10-13 用令牌查 /api/v5/user 确认；2026-10-16 另一路径再次确认。
      * 此前写的是不存在的 {@code haoyou781013}（gitee.com/haoyou781013 → 404），
-     * 该源因此从未生效，客户端一直回落到镜像/123云盘。</p>
+     * 该源因此从未生效，客户端一直回落到镜像源。</p>
      *
      * <p>⚠️ 与 GitHub 的 {@code haoyou781013} <b>不同</b> —— Gitee 上是
      * {@code haoyou781}。写错会导致更新源第一优先级永远 404
@@ -2265,7 +2265,8 @@ public class MainActivity extends AppCompatActivity {
     /** 启动时自动检查更新的偏好键（默认开启） */
     private static final String PREF_AUTO_CHECK_UPDATE = "auto_check_update";
     /** 国内兜底更新源（优先级 ④）：123 云盘 WebDAV（内置**只读**凭据，泄漏也无法写入） */
-    /* 2026-10-16 移除 123 云盘源：会员到期，WebDAV 实测 HTTP 401。
+    /* 2026-10-16 移除 123 云盘**更新源**：会员到期，WebDAV 实测 HTTP 401。
+       ⚠️ ShareAppsView（软件分享浏览）仍用 123云盘，属独立功能，本次未动。
        已删除：CN_BASE / CN_VERSIONS / CN_HOST / CN_CRED_SEED
                fetchReleasesFrom123()
                以及所有 apkCnUrl / patchCnUrl 的拼接
@@ -2295,7 +2296,7 @@ public class MainActivity extends AppCompatActivity {
     /**
      * 把 GitHub 直链包上加速镜像前缀。
      * <p>GitHub 的 release 资产实际托管在 objects.githubusercontent.com，国内常被阻断 ——
-     * 直链失败会自动回退到 123云盘，而网盘需要凭据（曾因内置密码过时导致 401）。
+     * 直链失败会自动回退到备用源。
      * 镜像列为公开通道，用它可绕开凭据问题。</p>
      */
     private static String mirrorUrl(String mirrorPrefix, String url) {
@@ -3653,7 +3654,7 @@ public class MainActivity extends AppCompatActivity {
                     attempts.add(new String[]{"GitHub 直链", url});
                 }
             }
-            if (cnUrl != null && !cnUrl.isEmpty()) attempts.add(new String[]{"123云盘", cnUrl});
+            if (cnUrl != null && !cnUrl.isEmpty()) attempts.add(new String[]{"备用源(已停用)", cnUrl});
             for (String[] att : attempts) {
                 try {
                     java.net.HttpURLConnection conn = openRemote(att[1], "GET");
@@ -3919,13 +3920,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 并行测速所有下载源（GitHub直链 + 镜像×2 + 123云盘）。
+     * 并行测速所有下载源（Gitee + GitHub 直链 + 镜像）。
      * 每个源发一个 Range GET（取前 64KB），测 TTFB + 速度。
      * 返回按速度降序（失败排最后）。
      */
     private java.util.List<SourceTestResult> testAllSources(String apkUrl, String cnUrl) {
         java.util.List<String[]> targets = new java.util.ArrayList<>();
-        // 源优先级与版本列表一致：Gitee → 镜像 → GitHub → 123云盘。
+        // 源优先级与版本列表一致：Gitee → 镜像 → GitHub。
         // 最终下载顺序由测速结果决定（快的先用），这里的顺序只影响同速时的先后。
         if (apkUrl != null && !apkUrl.isEmpty()) {
             String host = android.net.Uri.parse(apkUrl).getHost();
@@ -3943,7 +3944,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         if (cnUrl != null && !cnUrl.isEmpty()) {
-            targets.add(new String[]{"123云盘", cnUrl});
+            targets.add(new String[]{"备用源(已停用)", cnUrl});
         }
 
         java.util.concurrent.ExecutorService pool =
@@ -4170,7 +4171,7 @@ public class MainActivity extends AppCompatActivity {
             });
         }, "speed-test").start();
 
-        // ── 下载线程：立即开始，串行回退（GitHub → 镜像 → 123云盘）──
+        // ── 下载线程：立即开始，串行回退（Gitee → 镜像 → GitHub）──
         new Thread(() -> {
             String err = null;
             final File tmp = new File(target.getParentFile(), target.getName() + ".part");
@@ -4197,7 +4198,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 if (cnUrl != null && !cnUrl.isEmpty()) {
-                    attempts.add(new String[]{"123云盘", cnUrl});
+                    attempts.add(new String[]{"备用源(已停用)", cnUrl});
                 }
 
                 for (String[] att : attempts) {

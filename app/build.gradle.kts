@@ -41,8 +41,8 @@ android {
         // targetSdk 保持 33（compileSdk 已升 34 以支持 Compose），暂不适配 Android 17 (API 37)
         minSdk = 28
         targetSdk = 33
-        versionCode = 107
-        versionName = "2.35.1"
+        versionCode = 108
+        versionName = "2.36.0"
         
         vectorDrawables { 
             useSupportLibrary = true
