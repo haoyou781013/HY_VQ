@@ -86,6 +86,9 @@ import com.aliya.hy_vq.module.ModuleRegistry;
 import com.aliya.hy_vq.module.ModuleServices;
 import com.aliya.hy_vq.module.impl.FileManagerModule;
 import com.aliya.hy_vq.module.impl.GithubModule;
+import com.aliya.hy_vq.plugin.HyVqPlugin;
+import com.aliya.hy_vq.plugin.PluginManager;
+import com.aliya.hy_vq.plugin.PluginStore;
 import com.aliya.hy_vq.module.HyVqModule;
 import com.aliya.hy_vq.module.ModuleUiKit;
 import com.aliya.hy_vq.module.PermissionCenterView;
@@ -148,6 +151,7 @@ public class MainActivity extends AppCompatActivity {
     /** 原神帮助页（含抽卡分析入口） */
     private static final int PAGE_GENSHIN_HELP = 13;
     private static final int PAGE_TEYVAT = 14;      // 提瓦特文字转换（原神帮助的子页）
+    private static final int PAGE_PLUGIN_STORE = 15;   // 插件商店（2026-10-12）
     private static final int PAGE_ANIME = 12;      // 动漫（多源聚合搜索）
     private static final int PAGE_MODULE_BASE = 100;
 
@@ -163,6 +167,11 @@ public class MainActivity extends AppCompatActivity {
     private int nextModulePageIndex = PAGE_MODULE_BASE;
     /** 当前正在展示的模块 id（非模块页时为 null），用于统一返回逻辑 */
     private String currentModuleId = null;
+    /** 插件管理器（2026-10-12 起 GitHub/动漫/表情包改为插件） */
+    private com.aliya.hy_vq.plugin.PluginManager pluginManager;
+    /** 插件商店页 */
+    private View pluginStoreView;
+
     /** 文件管理：内置一级功能，2026-09-06 起从模块体系剥离为非模块 */
     private FileManagerModule fileManager;
     /** 抽卡分析页（懒建，仅首次进入时创建） */
@@ -312,9 +321,19 @@ public class MainActivity extends AppCompatActivity {
         fileManager.onAttach(this, moduleServices);
         // GitHub：API 客户端形态（2026-10-12 实测 api.github.com 国内 5/5 通畅，
         // 走 api 而非网页 github.com，故不需要任何代理；登录用 token 而非 Cookie）
+        // ⚠️ GitHub 已剥离为插件（2026-10-12）：不再内置注册，
+        // 改由 PluginManager 在冷启动时从 filesDir/plugins/github 加载。
+        // 保留旧注册仅作降级兜底：若插件未安装则内置版仍可用。
         GithubModule github = new GithubModule();
         github.onAttach(this, moduleServices);
         moduleRegistry.install(github);
+
+        // 插件：加载已安装的（dex 加载时机限制，只能在启动时做）
+        pluginManager = new PluginManager(this);
+        int loadedPlugins = pluginManager.loadAll();
+        if (loadedPlugins > 0) {
+            Log.i("HY_VQ", "已加载插件 " + loadedPlugins + " 个");
+        }
         // 加载已持久化的外置模块
         loadInstalledModules();
         // 首次构建侧边栏模块区
@@ -1065,6 +1084,7 @@ public class MainActivity extends AppCompatActivity {
      * 并复用 switchToModule 的内容切换与返回逻辑。</p>
      */
     private void openGithub() {
+        android.util.Log.i("HY_VQ", "openGithub: enter");
         HyVqModule m = moduleRegistry.get("github");
         if (m == null) {
             GithubModule gm = new GithubModule();
@@ -1073,12 +1093,42 @@ public class MainActivity extends AppCompatActivity {
             m = gm;
         }
         View v = m.createMainView(LayoutInflater.from(this), contentFrame);
+        android.util.Log.i("HY_VQ", "openGithub: view=" + v
+                + " h=" + (v == null ? -1 : v.getHeight())
+                + " lp=" + (v == null ? "null" : String.valueOf(v.getLayoutParams())));
         if (v == null) return;
         currentModuleId = m.id;
         switchContent(v, nextModulePageIndex++);
         resetToolbar();
         binding.toolbarTitle.setText("GitHub");
         updateDrawerSelection();
+    }
+
+    /**
+     * 打开插件商店。
+     * <p>插件与主程序分开发布，用户按需下载安装（与软件更新同链路，但不静默）。</p>
+     */
+    private void openPluginStore() {
+        if (pluginManager == null) pluginManager = new PluginManager(this);
+        pluginStoreView = PluginStore.createView(this, pluginManager,
+                () -> switchContent(homeView, PAGE_HOME));
+        switchContent(pluginStoreView, PAGE_PLUGIN_STORE);
+        setSubpageToolbar("插件");
+    }
+
+    /** 打开一个已加载插件的主视图 */
+    private void openPlugin(HyVqPlugin pl) {
+        View v = pl.createView(LayoutInflater.from(this), contentFrame);
+        if (v == null) return;
+        currentModuleId = "plugin:" + pluginIdOf(pl);
+        switchContent(v, nextModulePageIndex++);
+        setSubpageToolbar(pl.getName());
+    }
+
+    /** 从插件实例反查 id（SPI 未强制暴露 id，用类名尾段兜底） */
+    private String pluginIdOf(HyVqPlugin pl) {
+        String n = pl.getClass().getSimpleName().replace("Plugin", "");
+        return n.isEmpty() ? pl.getName() : n.toLowerCase(java.util.Locale.CHINA);
     }
 
     /** 打开文件管理：内置一级功能（非模块） */
@@ -1731,6 +1781,7 @@ public class MainActivity extends AppCompatActivity {
         // GitHub（API 客户端模块）：侧边栏模块区 2026-09-06 起整体隐藏，
         // 故与文件管理一样在 navView 里单列一个一级入口。
         View ghBtn = binding.navView.findViewById(R.id.nav_github);
+        android.util.Log.i("HY_VQ", "setupDrawerNavigation: nav_github found=" + (ghBtn != null));
         if (ghBtn != null) {
             ghBtn.setOnClickListener(v -> {
                 binding.drawerLayout.closeDrawers();
@@ -2061,6 +2112,15 @@ public class MainActivity extends AppCompatActivity {
             String currentDefault = prefs.getString("default_page", "home");
             tvDefault.setText("首页");
         }
+        // 插件数量（随时变化，进入时刷新）
+        TextView tvPlugin = settingsView.findViewById(R.id.tv_plugin_state);
+        if (tvPlugin != null && pluginManager != null) {
+            int loaded = pluginManager.loadedCount();
+            int installed = pluginManager.installedIds().size();
+            tvPlugin.setText(loaded > 0
+                    ? loaded + " 个已加载"
+                    : (installed > 0 ? installed + " 个待重启" : "0 个"));
+        }
         // 动漫模块摘要（源数/弹幕/缓存，随时可能变化，进入时刷新）
         TextView tvAnime = settingsView.findViewById(R.id.tv_anime_summary);
         if (tvAnime != null) {
@@ -2164,10 +2224,25 @@ public class MainActivity extends AppCompatActivity {
     private static final String GH_OWNER = "haoyou781013";
     /** 更新源与源码同仓：APK 走该仓的 Release 资产 */
     private static final String GH_REPO = "HY_VQ";
-    /** Gitee 账号（国内主源）
-     *  2026-10-16：此前写的是不存在的 haoyou781013（gitee.com/haoyou781013 → 404），
-     *  该源因此从未生效。现改为真实账号 haoyou781，仓库 gitee.com/haoyou781/hy_vq。 */
+    /**
+     * Gitee 账号（国内主源，已启用）。
+     *
+     * <p>2026-10-13 用令牌查 /api/v5/user 确认；2026-10-16 另一路径再次确认。
+     * 此前写的是不存在的 {@code haoyou781013}（gitee.com/haoyou781013 → 404），
+     * 该源因此从未生效，客户端一直回落到镜像/123云盘。</p>
+     *
+     * <p>⚠️ 与 GitHub 的 {@code haoyou781013} <b>不同</b> —— Gitee 上是
+     * {@code haoyou781}。写错会导致更新源第一优先级永远 404
+     * （虽然会降级，但等于白设）。</p>
+     */
     private static final String GITEE_USER = "haoyou781";
+
+    /**
+     * Gitee 仓库名：<b>小写 hy_vq</b>（GitHub 侧是大写 HY_VQ）。
+     * <p>Gitee 的 API 对仓库名大小写不敏感（两者实测均 200），
+     * 但仍显式用真实名，避免以后有人以为是笔误而「修正」。</p>
+     */
+    private static final String GITEE_REPO = "hy_vq";
     /**
      * 版本列表来源优先级（用户指定 2026-10-12：国内优先）：
      * <pre>
@@ -2176,11 +2251,20 @@ public class MainActivity extends AppCompatActivity {
      *   ③ GitHub Releases       官方源
      *   ④ 123 云盘 WebDAV       离线兜底（内置只读凭据）
      * </pre>
-     * Gitee 与 GitHub 的 Releases API 结构一致（tag_name / body / assets.browser_download_url），
-     * 故可复用同一套解析逻辑。
+     * Gitee 与 GitHub 的 Releases API 结构**大体一致**（tag_name / body /
+     * assets.browser_download_url），故复用同一套解析逻辑；实测差异（2026-10-13）：
+     * <pre>
+     *   ① 无 published_at   → 回退 created_at
+     *   ② 无 draft          → optBoolean 默认 false，安全
+     *   ③ 无 html_url       → 客户端未使用
+     *   ④ assets 无 size    → apkSize=0，显示处已用 &gt;0 守卫，不显示空白
+     *   ⑤ assets 混入源码包 → 按 tag 名特征剔除
+     * </pre>
      */
     private static final String GITEE_RELEASES =
-            "https://gitee.com/api/v5/repos/" + GITEE_USER + "/" + GH_REPO + "/releases?per_page=100";
+            "https://gitee.com/api/v5/repos/" + GITEE_USER + "/" + GITEE_REPO
+                    + "/releases?per_page=100";
+
     /** 启动时自动检查更新的偏好键（默认开启） */
     private static final String PREF_AUTO_CHECK_UPDATE = "auto_check_update";
     /** 国内兜底更新源（优先级 ④）：123 云盘 WebDAV（内置**只读**凭据，泄漏也无法写入） */
@@ -2899,7 +2983,13 @@ public class MainActivity extends AppCompatActivity {
                 ri.ver = ri.tag.startsWith("v") ? ri.tag.substring(1) : ri.tag;
                 if (ri.ver.isEmpty()) continue;
                 ri.body = r.optString("body", "");
+                // ⚠️ Gitee 的 release 响应**没有** published_at（实测 2026-10-13），
+                // 只有 created_at（格式 "2026-10-16T10:00:24+08:00"，带时区）
+                // → 回退到 created_at，避免 Gitee 源的时间显示为空。
                 ri.publishedAt = r.optString("published_at", "");
+                if (ri.publishedAt.isEmpty()) {
+                    ri.publishedAt = r.optString("created_at", "");
+                }
                 org.json.JSONArray assets = r.optJSONArray("assets");
                 if (assets != null) {
                     for (int k = 0; k < assets.length(); k++) {
@@ -2907,6 +2997,14 @@ public class MainActivity extends AppCompatActivity {
                         String nm = a.optString("name", "");
                         String assetUrl = a.optString("browser_download_url", "");
                         if (assetUrl.isEmpty()) continue;
+                        // ⚠️ Gitee 的 assets 里**混有自动生成的源码包**
+                        // （{tag}.zip / {tag}.tar.gz，实测 2026-10-13），
+                        // 必须先剔除，否则可能被当成增量包。
+                        // 源码包名 == tag 名，特征：不以 hyv_update / HY_VQ-v 开头。
+                        boolean looksLikeSource = nm.equals(ri.tag + ".zip")
+                                || nm.startsWith(ri.tag + ".")
+                                || nm.endsWith(".tar.gz");
+                        if (looksLikeSource) continue;
                         // 增量包：文件名形如 hyv_update_v{code}_{ver}.zip
                         if (nm.endsWith(".zip") && nm.contains("hyv_update")) {
                             boolean pb = ri.patchUrl.isEmpty()

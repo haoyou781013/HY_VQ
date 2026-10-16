@@ -17,6 +17,7 @@ import com.aliya.hy_vq.github.GhApi;
 import com.aliya.hy_vq.github.GhDeviceFlow;
 import com.aliya.hy_vq.module.HyVqModule;
 import com.aliya.hy_vq.module.ModuleServices;
+import com.aliya.hy_vq.module.GhUi;
 import com.aliya.hy_vq.module.ModuleUiKit;
 import com.aliya.hy_vq.util.MarkdownWebView;
 import com.google.android.material.R;
@@ -47,6 +48,8 @@ import java.util.List;
 public class GithubModule extends HyVqModule {
 
     private Context ctx;
+    /** Activity 上下文：取主题属性（attr 颜色）必须用它，Application 上下文取不到 */
+    private Context act;
     private GhDeviceFlow auth;
     private GhApi api;
 
@@ -54,6 +57,10 @@ public class GithubModule extends HyVqModule {
     private TextView statusLine;
     private LinearLayout listBox;
     private ProgressBar busy;
+    /** 当前仓库上下文（目录浏览时携带分支） */
+    private String curOwner, curRepo, curRef;
+    /** 仓库页当前分段：0=代码 1=Issues 2=PR */
+    private int repoTab = 0;
     /** 主线程 Handler（getMainLooper() 返回 Looper，不能直接 post） */
     private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
 
@@ -85,9 +92,18 @@ public class GithubModule extends HyVqModule {
 
     @Override
     public View createMainView(android.view.LayoutInflater inflater, ViewGroup parent) {
-        final Context c = ctx;
+        // ⚠️ 必须用 inflater.getContext()（Activity 上下文），不能用 onAttach 传的
+        // Application 上下文 —— 取主题属性（ModuleUiKit.color 靠 attr）必须 Activity theme。
+        final Context c = inflater.getContext();
+        this.act = c;
         root = new LinearLayout(c);
         root.setOrientation(LinearLayout.VERTICAL);
+        // ⚠️ 必须显式给 MATCH_PARENT：content_frame 高度是 0dp + layout_weight，
+        // 不设 LayoutParams 时 LinearLayout 默认 WRAP_CONTENT 会算出 0 高 → 整页空白。
+        // （FileManagerModule 也是这么做的，2026-10-12 踩过这个坑）
+        root.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.setBackgroundColor(ModuleUiKit.color(c, R.attr.colorSurface));
 
         // 说明：为什么是 API 客户端而不是网页
         root.addView(ModuleUiKit.sectionHeader(c, "☁ GitHub · API 客户端"));
@@ -114,11 +130,19 @@ public class GithubModule extends HyVqModule {
         listBox = new LinearLayout(c);
         listBox.setOrientation(LinearLayout.VERTICAL);
         listBox.setPadding(pd, dp(c, 6), pd, dp(c, 16));
-        root.addView(listBox, new LinearLayout.LayoutParams(
+
+        // 外层套滚动容器：仓库文件树可能很长，需要能滚动
+        android.widget.ScrollView scroll = new android.widget.ScrollView(c);
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+        scroll.addView(listBox, new android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         // 首次进入：游客态也能用，只是功能受限
         root.post(() -> {
+            android.util.Log.i("HY_VQ", "GithubModule.post: showGuestMenu");
             if (auth.isLoggedIn()) refreshAccount();
             else showGuestMenu();
         });
@@ -164,53 +188,63 @@ public class GithubModule extends HyVqModule {
     private void showMyRepos(final JSONArray repos) {
         clear();
         statusLine.setText("我的仓库");
-        listBox.addView(ModuleUiKit.cardRow(ctx, 0, "← 返回", "",
+        listBox.addView(ModuleUiKit.cardRow(act, 0, "← 返回", "",
                 v -> refreshAccount()));
         if (repos == null) {
-            listBox.addView(tvLine("读取失败，请检查网络或 token 权限"));
+            showError("读取仓库列表失败。", () -> refreshAccount());
             return;
         }
         if (repos.length() == 0) {
-            listBox.addView(tvLine("没有仓库"));
+            // Blankslate 空态（替代裸 TextView）
+            showBlank("📭", "还没有仓库", "登录后这里会列出你的仓库；也可以直接搜索别人的公开仓库。",
+                    "🔍 搜索仓库", v -> showSearch());
             return;
         }
         for (int i = 0; i < repos.length(); i++) {
             final JSONObject r = repos.optJSONObject(i);
             if (r == null) continue;
-            String full = r.optString("full_name", "");
-            String desc = r.optString("description", "");
-            String meta = r.optString("language", "") + " · ★"
-                    + r.optInt("stargazers_count", 0);
-            if (!desc.isEmpty()) meta = desc.length() > 24 ? desc.substring(0, 24) + "…" : desc;
-            listBox.addView(card("📁", full, meta, v -> showRepo(full)));
+            addRepoRow(r);
         }
+    }
+
+    /** 仓库列表项（Primer 三行式 + 语言色点 + 相对时间） */
+    private void addRepoRow(JSONObject r) {
+        final String full = r.optString("full_name", "");
+        if (full.isEmpty()) return;
+        listBox.addView(GhUi.repoItem(act,
+                full,
+                r.optString("description", ""),
+                r.optString("language", ""),
+                GhUi.relativeTime(r.optString("updated_at", "")),
+                r.optInt("stargazers_count", 0),
+                v -> showRepo(full)));
     }
 
     private void showSearch() {
         clear();
         statusLine.setText("搜索仓库");
-        listBox.addView(ModuleUiKit.cardRow(ctx, 0, "← 返回", "",
+        listBox.addView(ModuleUiKit.cardRow(act, 0, "← 返回", "",
                 v -> {
                     if (auth.isLoggedIn()) refreshAccount();
                     else showGuestMenu();
                 }));
 
-        final EditText input = new EditText(ctx);
+        final EditText input = new EditText(act);
         input.setHint("关键词，如 HY_VQ / genshin / android");
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_TEXT);
         input.setTextSize(TypedValue.COMPLEX_UNIT_SP, ModuleUiKit.TYPE_BODY_LARGE);
-        int pd = dp(ctx, 12);
-        input.setPadding(pd, dp(ctx, 10), pd, dp(ctx, 10));
+        int pd = dp(act, 12);
+        input.setPadding(pd, dp(act, 10), pd, dp(act, 10));
         LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        ilp.setMargins(0, dp(ctx, 6), 0, dp(ctx, 8));
+        ilp.setMargins(0, dp(act, 6), 0, dp(act, 8));
         listBox.addView(input, ilp);
 
         listBox.addView(card("🔎", "搜索", "走 api.github.com/search", v -> {
             String q = input.getText().toString().trim();
             if (q.isEmpty()) {
-                ModuleUiKit.toast(ctx, "请输入关键词");
+                ModuleUiKit.toast(act, "请输入关键词");
                 return;
             }
             busy.setVisibility(View.VISIBLE);
@@ -227,25 +261,22 @@ public class GithubModule extends HyVqModule {
     private void showSearchResults(final JSONArray repos, final String query) {
         clear();
         statusLine.setText("搜索：" + query);
-        listBox.addView(ModuleUiKit.cardRow(ctx, 0, "← 返回搜索", "",
+        listBox.addView(ModuleUiKit.cardRow(act, 0, "← 返回搜索", "",
                 v -> showSearch()));
         if (repos == null) {
-            listBox.addView(tvLine("搜索失败（可能是限流，登录后可提升配额）"));
+            showError("搜索失败。未登录时限流仅 60 次/小时，登录后可提升到 5000 次/小时。",
+                    () -> showSearch());
             return;
         }
         if (repos.length() == 0) {
-            listBox.addView(tvLine("没有结果"));
+            showBlank("🔍", "没有找到匹配的仓库", "换个关键词试试，或去掉 language: 等限定条件。",
+                    "← 重新搜索", v -> showSearch());
             return;
         }
         for (int i = 0; i < repos.length(); i++) {
-            final JSONObject r = repos.optJSONObject(i);
+            JSONObject r = repos.optJSONObject(i);
             if (r == null) continue;
-            String full = r.optString("full_name", "");
-            String desc = r.optString("description", "");
-            String meta = "★" + r.optInt("stargazers_count", 0)
-                    + "　" + (desc.isEmpty() ? r.optString("language", "") : desc);
-            if (meta.length() > 30) meta = meta.substring(0, 30) + "…";
-            listBox.addView(card("📁", full, meta, v -> showRepo(full)));
+            addRepoRow(r);
         }
     }
 
@@ -275,13 +306,13 @@ public class GithubModule extends HyVqModule {
                             + "　默认分支 " + meta.optString("default_branch", "main")));
                 }
                 if (readme != null && !readme.isEmpty()) {
-                    listBox.addView(ModuleUiKit.sectionHeader(ctx, "README"));
-                    WebReadmeView rv = new WebReadmeView(ctx, readme);
+                    listBox.addView(ModuleUiKit.sectionHeader(act, "README"));
+                    WebReadmeView rv = new WebReadmeView(act, readme);
                     listBox.addView(rv, new LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT, dp(ctx, 400)));
+                            ViewGroup.LayoutParams.MATCH_PARENT, dp(act, 400)));
                 }
-                listBox.addView(ModuleUiKit.sectionHeader(ctx, "文件"));
-                listBox.addView(ModuleUiKit.cardRow(ctx, 0, "← 返回", "", v -> {
+                listBox.addView(ModuleUiKit.sectionHeader(act, "文件"));
+                listBox.addView(ModuleUiKit.cardRow(act, 0, "← 返回", "", v -> {
                     if (auth.isLoggedIn()) refreshAccount();
                     else showGuestMenu();
                 }));
@@ -325,7 +356,7 @@ public class GithubModule extends HyVqModule {
                 busy.setVisibility(View.GONE);
                 clear();
                 statusLine.setText(path);
-                listBox.addView(ModuleUiKit.cardRow(ctx, 0, "← 上级", "", v -> showRepo(owner + "/" + repo)));
+                listBox.addView(ModuleUiKit.cardRow(act, 0, "← 上级", "", v -> showRepo(owner + "/" + repo)));
                 if (files == null) {
                     listBox.addView(tvLine("读取失败"));
                     return;
@@ -355,21 +386,21 @@ public class GithubModule extends HyVqModule {
                 busy.setVisibility(View.GONE);
                 clear();
                 statusLine.setText(path);
-                listBox.addView(ModuleUiKit.cardRow(ctx, 0, "← 返回", "",
+                listBox.addView(ModuleUiKit.cardRow(act, 0, "← 返回", "",
                         v -> showDir(owner, repo, parentOf(path))));
                 if (text == null) {
                     listBox.addView(tvLine("读取失败或文件过大（>1MB 需走 raw 接口）"));
                     return;
                 }
-                TextView body = tv(ctx, 12, text);
+                TextView body = tv(act, 12, text);
                 body.setTypeface(android.graphics.Typeface.MONOSPACE);
                 body.setTextIsSelectable(true);
-                body.setPadding(dp(ctx, 10), dp(ctx, 10), dp(ctx, 10), dp(ctx, 10));
-                body.setBackground(ModuleUiKit.rounded(ctx, 12,
-                        ModuleUiKit.color(ctx, R.attr.colorSurfaceContainerLow), 0));
+                body.setPadding(dp(act, 10), dp(act, 10), dp(act, 10), dp(act, 10));
+                body.setBackground(ModuleUiKit.rounded(act, 12,
+                        ModuleUiKit.color(act, R.attr.colorSurfaceContainerLow), 0));
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                lp.topMargin = dp(ctx, 8);
+                lp.topMargin = dp(act, 8);
                 listBox.addView(body, lp);
             });
         }).start();
@@ -386,47 +417,47 @@ public class GithubModule extends HyVqModule {
         clear();
         statusLine.setText("登录 GitHub");
 
-        listBox.addView(ModuleUiKit.cardRow(ctx, 0, "← 返回", "", v -> showGuestMenu()));
+        listBox.addView(ModuleUiKit.cardRow(act, 0, "← 返回", "", v -> showGuestMenu()));
 
         if (GhDeviceFlow.deviceFlowConfigured()) {
             listBox.addView(card("🔑", "设备码登录（推荐）",
                     "在浏览器输入一次性码，无需输密码", v -> startDeviceFlow()));
         } else {
             TextView warn = tvLine("设备码登录尚未配置 OAuth App（需填 Client ID）");
-            warn.setTextColor(ModuleUiKit.color(ctx, R.attr.colorError));
+            warn.setTextColor(ModuleUiKit.color(act, R.attr.colorError));
             listBox.addView(warn);
         }
 
         listBox.addView(card("📋", "粘贴 Token",
                 "Personal Access Token，存在本机不外传", v -> showPatInput()));
 
-        final EditText input = new EditText(ctx);
+        final EditText input = new EditText(act);
         input.setHint("粘贴 PAT（ghp_…）");
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         input.setTextSize(TypedValue.COMPLEX_UNIT_SP, ModuleUiKit.TYPE_BODY_LARGE);
-        int pd = dp(ctx, 12);
-        input.setPadding(pd, dp(ctx, 10), pd, dp(cp(ctx), 10));
+        int pd = dp(act, 12);
+        input.setPadding(pd, dp(act, 10), pd, dp(cp(act), 10));
         input.setVisibility(View.GONE);
         listBox.addView(input);
 
         listBox.addView(card("✅", "确认登录", "", v -> {
             String t = input.getText().toString().trim();
             if (t.isEmpty()) {
-                ModuleUiKit.toast(ctx, "请先粘贴 Token");
+                ModuleUiKit.toast(act, "请先粘贴 Token");
                 return;
             }
             busy.setVisibility(View.VISIBLE);
             new Thread(() -> {
-                final String login = new GhDeviceFlow(ctx).verifyAndGetLogin(t);
+                final String login = new GhDeviceFlow(act).verifyAndGetLogin(t);
                 ui.post(() -> {
                     busy.setVisibility(View.GONE);
                     if (login.isEmpty()) {
-                        ModuleUiKit.toast(ctx, "Token 无效，请检查");
+                        ModuleUiKit.toast(act, "Token 无效，请检查");
                     } else {
                         auth.savePat(t, login);
-                        api = new GhApi(ctx, t);
-                        ModuleUiKit.toast(ctx, "已登录 " + login);
+                        api = new GhApi(act, t);
+                        ModuleUiKit.toast(act, "已登录 " + login);
                         refreshAccount();
                     }
                 });
@@ -450,7 +481,7 @@ public class GithubModule extends HyVqModule {
             ui.post(() -> {
                 busy.setVisibility(View.GONE);
                 if (!st.ok) {
-                    ModuleUiKit.toast(ctx, st.message);
+                    ModuleUiKit.toast(act, st.message);
                     return;
                 }
                 showDeviceCodePrompt(st);
@@ -514,14 +545,14 @@ public class GithubModule extends HyVqModule {
                     if (p.done) {
                         String login = auth.verifyAndGetLogin(p.token);
                         auth.saveToken(p.token, login);
-                        api = new GhApi(ctx, p.token);
-                        ModuleUiKit.toast(ctx, "已登录 " + (login.isEmpty() ? "" : login));
+                        api = new GhApi(act, p.token);
+                        ModuleUiKit.toast(act, "已登录 " + (login.isEmpty() ? "" : login));
                         dlg.dismiss();
                         refreshAccount();
                         return;
                     }
                     if (p.expired || p.denied) {
-                        ModuleUiKit.toast(ctx, p.message);
+                        ModuleUiKit.toast(act, p.message);
                         dlg.dismiss();
                         return;
                     }
@@ -541,12 +572,12 @@ public class GithubModule extends HyVqModule {
     }
 
     private void confirmLogout() {
-        new androidx.appcompat.app.AlertDialog.Builder(ctx)
+        new androidx.appcompat.app.AlertDialog.Builder(act)
                 .setTitle("退出登录")
                 .setMessage("将清除本机保存的 token，之后回到游客状态（60 次/小时限流）。")
                 .setPositiveButton("退出", (d, w) -> {
                     auth.logout();
-                    api = new GhApi(ctx, "");
+                    api = new GhApi(act, "");
                     showGuestMenu();
                 })
                 .setNegativeButton("取消", null)
@@ -555,41 +586,76 @@ public class GithubModule extends HyVqModule {
 
     // ── 小组件 ────────────────────────────────────────
 
+    // ══════════════ 三态渲染（Primer 规范）══════════════
+
+    /** 加载态：骨架屏（Primer SkeletonText）—— 比转圈减少感知延迟，且不跳动高度 */
+    private void showSkeleton(int rows) {
+        clear();
+        listBox.addView(GhUi.skeletonList(act, rows));
+    }
+
+    /** 空状态：Blankslate（图标 + 标题 + 说明 + 行动按钮） */
+    private void showBlank(String icon, String heading, String desc,
+                           String action, View.OnClickListener onAction) {
+        clear();
+        listBox.addView(GhUi.blankslate(act, icon, heading, desc, action, onAction));
+    }
+
+    /** 错误态：InlineMessage 内联 + 重试（不要 Toast 一闪而过） */
+    private void showError(String message, final Runnable retry) {
+        clear();
+        listBox.addView(GhUi.inlineMessage(act, null, message, true, "重试",
+                retry == null ? null : v -> retry.run()));
+        if (retry != null) {
+            TextView detail = tvLine("若反复失败，可能是：未登录（限流 60 次/小时）、"
+                    + "网络不可达、或该内容需要更高权限。");
+            listBox.addView(detail);
+        }
+    }
+
+    /** 行内提示（非错误） */
+    private void showInfo(String message) {
+        clear();
+        listBox.addView(GhUi.inlineMessage(act, null, message, false, null, null));
+    }
+
     private void clear() {
         if (listBox != null) listBox.removeAllViews();
     }
 
     private LinearLayout card(String icon, String title, String desc, View.OnClickListener onClick) {
-        LinearLayout row = new LinearLayout(ctx);
+        LinearLayout row = new LinearLayout(act);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int pd = dp(ctx, 12);
-        row.setPadding(pd, dp(ctx, 10), pd, dp(ctx, 10));
-        row.setBackground(ModuleUiKit.rippleBg(ctx, ModuleUiKit.rounded(ctx, 14,
-                ModuleUiKit.color(ctx, R.attr.colorSurfaceContainerLow), 0)));
+        int pd = dp(act, 12);
+        row.setPadding(pd, dp(act, GhUi.SPACE_MD), pd, dp(act, GhUi.SPACE_MD));
+        // 触摸目标 ≥48dp（Primer 官方 Mobile Checklist 硬指标）
+        row.setMinimumHeight(dp(act, GhUi.TOUCH_MIN));
+        row.setBackground(ModuleUiKit.rippleBg(act, ModuleUiKit.rounded(act, 12,
+                GhUi.surfaceLow(act), 0)));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.bottomMargin = dp(ctx, 6);
+        lp.bottomMargin = dp(act, GhUi.SPACE_SM);
         row.setLayoutParams(lp);
 
-        TextView ic = tv(ctx, 18, icon);
-        row.addView(ic, new LinearLayout.LayoutParams(dp(ctx, 34), dp(ctx, 30)));
+        TextView ic = tv(act, 18, icon);
+        row.addView(ic, new LinearLayout.LayoutParams(dp(act, 34), dp(act, 34)));
 
-        LinearLayout col = new LinearLayout(ctx);
+        LinearLayout col = new LinearLayout(act);
         col.setOrientation(LinearLayout.VERTICAL);
-        TextView t = tv(ctx, ModuleUiKit.TYPE_BODY_LARGE, title);
-        t.setTextColor(ModuleUiKit.color(ctx, R.attr.colorOnSurface));
+        TextView t = tv(act, ModuleUiKit.TYPE_BODY_LARGE, title);
+        t.setTextColor(ModuleUiKit.color(act, R.attr.colorOnSurface));
         col.addView(t);
         if (desc != null && !desc.isEmpty()) {
-            TextView d = tv(ctx, ModuleUiKit.TYPE_CAPTION, desc);
-            d.setTextColor(ModuleUiKit.color(ctx, R.attr.colorOnSurfaceVariant));
+            TextView d = tv(act, ModuleUiKit.TYPE_CAPTION, desc);
+            d.setTextColor(ModuleUiKit.color(act, R.attr.colorOnSurfaceVariant));
             col.addView(d);
         }
         row.addView(col, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView arrow = tv(ctx, 14, "›");
-        arrow.setTextColor(ModuleUiKit.color(ctx, R.attr.colorOnSurfaceVariant));
+        TextView arrow = tv(act, 14, "›");
+        arrow.setTextColor(ModuleUiKit.color(act, R.attr.colorOnSurfaceVariant));
         row.addView(arrow);
 
         row.setOnClickListener(onClick);
@@ -605,9 +671,9 @@ public class GithubModule extends HyVqModule {
     }
 
     private TextView tvLine(String s) {
-        TextView v = tv(ctx, 12, s);
-        v.setTextColor(ModuleUiKit.color(ctx, R.attr.colorOnSurfaceVariant));
-        v.setPadding(dp(ctx, 4), dp(ctx, 6), dp(ctx, 4), dp(ctx, 6));
+        TextView v = tv(act, 12, s);
+        v.setTextColor(ModuleUiKit.color(act, R.attr.colorOnSurfaceVariant));
+        v.setPadding(dp(act, 4), dp(act, 6), dp(act, 4), dp(act, 6));
         return v;
     }
 

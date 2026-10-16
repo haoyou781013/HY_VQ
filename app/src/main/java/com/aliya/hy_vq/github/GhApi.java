@@ -215,6 +215,79 @@ public class GhApi {
         }
     }
 
+    /**
+     * 分支列表（含 commit SHA）。
+     * <p>gh4a 与 GitHub Web 一致：分支切换器位于文件列表<b>上方</b>
+     * （hello-world 教程原文："Above the file list, click the dropdown menu
+     * that says main"）。</p>
+     */
+    public JSONArray branchesFull(String owner, String repo, int perPage) {
+        Resp r = reqJson("/repos/" + owner + "/" + repo + "/branches?per_page=" + perPage);
+        return r.code == 200 ? parseArray(r.body) : null;
+    }
+
+    /** Issue 列表（不含 PR：GitHub API 的 issues 端点会混入 PR，用 type 过滤） */
+    public JSONArray issues(String owner, String repo, String state, int perPage) {
+        Resp r = reqJson("/repos/" + owner + "/" + repo + "/issues?state="
+                + (state == null ? "open" : state) + "&per_page=" + perPage);
+        if (r.code != 200) return null;
+        // 过滤掉 PR（GitHub 把 PR 也放在 issues 端点里）
+        JSONArray all = parseArray(r.body);
+        java.util.List<JSONObject> only = new java.util.ArrayList<>();
+        for (int i = 0; i < all.length(); i++) {
+            JSONObject o = all.optJSONObject(i);
+            if (o == null) continue;
+            if (o.has("pull_request")) continue;   // 是 PR，跳过
+            only.add(o);
+        }
+        return toArray(only);
+    }
+
+    /** PR 列表 */
+    public JSONArray pulls(String owner, String repo, String state, int perPage) {
+        Resp r = reqJson("/repos/" + owner + "/" + repo + "/pulls?state="
+                + (state == null ? "open" : state) + "&per_page=" + perPage);
+        return r.code == 200 ? parseArray(r.body) : null;
+    }
+
+    /** 单个 Issue/PR 详情 */
+    public JSONObject issue(String owner, String repo, int number) {
+        Resp r = reqJson("/repos/" + owner + "/" + repo + "/issues/" + number);
+        return r.code == 200 ? r.json : null;
+    }
+
+    /** PR 详情（含 merged 标记） */
+    public JSONObject pull(String owner, String repo, int number) {
+        Resp r = reqJson("/repos/" + owner + "/" + repo + "/pulls/" + number);
+        return r.code == 200 ? r.json : null;
+    }
+
+    /** Issue/PR 评论 */
+    public JSONArray comments(String owner, String repo, int number) {
+        Resp r = reqJson("/repos/" + owner + "/" + repo + "/issues/" + number
+                + "/comments?per_page=50");
+        return r.code == 200 ? parseArray(r.body) : null;
+    }
+
+    /** 单文件提交历史（gh4a 有这个功能） */
+    public JSONArray commitsOfPath(String owner, String repo, String path) {
+        Resp r = reqJson("/repos/" + owner + "/" + repo + "/commits?path="
+                + urlEnc(path) + "&per_page=30");
+        return r.code == 200 ? parseArray(r.body) : null;
+    }
+
+    /** 仓库最近提交 */
+    public JSONArray commits(String owner, String repo, int perPage) {
+        Resp r = reqJson("/repos/" + owner + "/" + repo + "/commits?per_page=" + perPage);
+        return r.code == 200 ? parseArray(r.body) : null;
+    }
+
+    private static JSONArray toArray(java.util.List<JSONObject> list) {
+        JSONArray arr = new JSONArray();
+        for (JSONObject o : list) arr.put(o);
+        return arr;
+    }
+
     /** Release 列表 */
     public JSONArray releases(String owner, String repo, int perPage) {
         Resp r = reqJson("/repos/" + owner + "/" + repo + "/releases?per_page=" + perPage);
