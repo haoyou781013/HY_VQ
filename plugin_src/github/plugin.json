@@ -1,0 +1,10 @@
+{
+  "id": "github",
+  "name": "GitHub",
+  "version": "1.0.0",
+  "entry": "com.aliya.hy_vq.plugins.github.GithubPlugin",
+  "summary": "浏览仓库、Issue 与代码",
+  "icon": "github",
+  "order": 100,
+  "minHostVersion": 109
+}

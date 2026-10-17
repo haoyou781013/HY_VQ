@@ -1,0 +1,10 @@
+{
+  "id": "genshin",
+  "name": "原神帮助",
+  "version": "1.0.0",
+  "entry": "com.aliya.hy_vq.plugins.genshin.GenshinPlugin",
+  "summary": "攻略与工具入口",
+  "icon": "game",
+  "order": 500,
+  "minHostVersion": 109
+}

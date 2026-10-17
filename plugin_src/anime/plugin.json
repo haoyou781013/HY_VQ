@@ -1,0 +1,10 @@
+{
+  "id": "anime",
+  "name": "动漫",
+  "version": "1.0.0",
+  "entry": "com.aliya.hy_vq.plugins.anime.AnimePlugin",
+  "summary": "多源聚合搜索与播放",
+  "icon": "anime",
+  "order": 200,
+  "minHostVersion": 109
+}

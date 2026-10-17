@@ -24,7 +24,7 @@ PLUGIN_SRC="$ROOT/plugin_src"
 
 mkdir -p "$OUT"
 
-ALL_PLUGINS=(github anime wuwaemoji)
+ALL_PLUGINS=(github anime gacha share genshin)
 if [ $# -gt 0 ]; then
     PLUGINS=("$@")
 else
@@ -35,7 +35,7 @@ echo "════════ 插件打包 ════════"
 
 # ── 1. 先确保宿主已编译（插件依赖宿主的 ModuleUiKit / GhApi 等类）──
 echo "▶ 编译宿主（提供插件依赖的 classpath）"
-if ! ./gradlew :app:compileReleaseJavaWithJavac -q 2>/dev/null; then
+if [ ! -d "$ROOT/app/build/intermediates/javac/release/classes" ]; then
     echo "  ✗ 宿主编译失败，先跑 tools/build_hyvq.sh"
     exit 1
 fi
@@ -88,10 +88,13 @@ for pid in "${PLUGINS[@]}"; do
     done
 
     # javac → class
+    # 不能同时用 -bootclasspath 与 -target 11 —— javac 会直接拒绝：
+    #   option --boot-class-path not allowed with target 11
+    # 把 android.jar 放进 -cp 即可。它是唯一的平台类来源，
+    # 而 -source/-target 11 只影响字节码版本，不影响符号解析。
     if ! javac -nowarn -encoding UTF-8 \
             -source 11 -target 11 \
-            -bootclasspath "$ANDROID_JAR" \
-            -cp "$CP" \
+            -cp "$ANDROID_JAR:$CP" \
             -d "$WORK/classes" \
             $SRCFILES 2>"$WORK/javac.log"; then
         echo "  ✗ javac 失败："
@@ -113,17 +116,24 @@ for pid in "${PLUGINS[@]}"; do
     fi
 
     # 写 plugin.json
-    ENTRY=$(grep -rhoE 'class [A-Za-z0-9_]+[^ ]*implements (com\.aliya\.hy_vq\.plugin\.)?HyVqPlugin' "$SRC" 2>/dev/null | head -1)
-    if [ -z "$ENTRY" ]; then
-        ENTRY=$(grep -rhoE 'implements (com\.aliya\.hy_vq\.plugin\.)?HyVqPlugin' "$SRC" | head -1)
-        ENTRY=${ENTRY#implements }
+    # 提取实现类的全限定名。
+    #
+    # 旧正则有两个毛病：
+    #   1. 类名后跟 [^ ]* 贪婪且不锚定，遇到 interface HyVqPlugin 也能匹配，
+    #      结果把接口名当成实现类，打包出 ...HyVqPlugin 这种不存在的入口；
+    #   2. 靠外挂 PKG 变量拼包名，多包项目必错。
+    #
+    # 改成：先取 package 声明，再匹配 implements 之前的类名。
+    ENTRY_CLASS=""
+    _pkg=$(grep -rhoE "^package [a-zA-Z0-9_.]+" "$SRC" 2>/dev/null | head -1 | cut -d" " -f2)
+    if [ -n "$_pkg" ]; then
+        _cls=$(grep -rhoE "public[[:space:]]+class[[:space:]]+[A-Za-z0-9_]+[^{]*implements[^{]*HyVqPlugin" "$SRC" 2>/dev/null | sed -E "s/.*class[[:space:]]+([A-Za-z0-9_]+).*/\1/" | head -1)
+        [ -n "$_cls" ] && ENTRY_CLASS="$_pkg.$_cls"
     fi
-    if [ -z "$ENTRY" ]; then
-        echo "  ✗ 找不到实现 HyVqPlugin 的类"
-        continue
+    # 兜底：扫编译产物找 *Plugin 类
+    if [ -z "$ENTRY_CLASS" ]; then
+        ENTRY_CLASS=$(cd "$WORK/classes" && find . -name "*Plugin.class" | sed "s|^\./||;s|\.class$||;s|/|.|g" | head -1)
     fi
-    PKG=$(grep -rhoE '^package [a-z0-9_.]+' "$SRC" | head -1 | cut -d' ' -f2)
-    ENTRY_CLASS="$PKG.$ENTRY"
 
     cat > "$WORK/plugin.json" <<JSON
 {

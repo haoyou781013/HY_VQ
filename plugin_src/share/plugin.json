@@ -1,0 +1,10 @@
+{
+  "id": "share",
+  "name": "实用分享",
+  "version": "1.0.0",
+  "entry": "com.aliya.hy_vq.plugins.share.SharePlugin",
+  "summary": "软件分享目录浏览",
+  "icon": "share",
+  "order": 400,
+  "minHostVersion": 109
+}

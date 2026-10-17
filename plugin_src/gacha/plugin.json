@@ -1,0 +1,10 @@
+{
+  "id": "gacha",
+  "name": "抽卡分析",
+  "version": "1.0.0",
+  "entry": "com.aliya.hy_vq.plugins.gacha.GachaPlugin",
+  "summary": "原神抽卡记录分析",
+  "icon": "game",
+  "order": 300,
+  "minHostVersion": 109
+}

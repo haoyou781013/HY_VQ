@@ -27,15 +27,20 @@ import android.view.ViewGroup;
  * 插件的 ClassLoader 父加载器是宿主 App 的，所以<b>能</b>引用宿主 APK 里的
  * 公开类。但这带来耦合：宿主重构后插件会 NoSuchMethodError。
  *
- * <p><b>约定：插件只依赖</b>
- * <ol>
- *   <li>本 SPI（{@link HyVqPlugin}、{@link PluginMeta}、{@link PluginUi}）</li>
- *   <li>Android SDK</li>
- * </ol>
- * 其余宿主类（{@code ModuleUiKit}、{@code GhApi} 等）<b>不要用</b> ——
- * 它们不是稳定契约，宿主随时可能改签名。需要的工具请提 PR 加进
- * {@link PluginUi}。
+ * <p><b>依赖策略（2026-10-17 起放宽）</b>
  *
+ * <p>原策略是「插件只许依赖本 SPI + Android SDK」，宿主类一律禁用。
+ * 实测这个限制过严：动漫 7186 行、抽卡 2288 行全都深度依赖
+ * {@code ModuleUiKit} 和 {@code R.attr.*}，按原策略改写等于重写业务层，
+ * 收益远小于风险。
+ *
+ * <p>现在<b>允许插件直接依赖宿主公开类</b>，包括 {@code ModuleUiKit}、
+ * {@code GhApi}、{@code access.*}（文件管理）等。代价是宿主重构后插件会
+ * {@code NoSuchMethodError}，需要同步重发插件。
+ *
+ * <p>仍然保留的红线见下方「插件禁止事项」。要主题色请用
+ * {@link PluginUi} —— 它按语义封装了 {@code R.attr} 查询，
+ * 插件不必也不能自己碰 R。
  * <h3>插件禁止事项</h3>
  * <ul>
  *   <li><b>不能用 R.*</b>：插件的资源 id 与宿主不在同一 namespace，
