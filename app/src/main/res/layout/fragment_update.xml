@@ -230,7 +230,7 @@
             android:orientation="vertical"
             android:visibility="gone" />
 
-        <!-- ══════════ ④ 缓存卡（有已下载包时显示） ══════════ -->
+        <!-- ══════════ ⑥ 已下载的安装包 ══════════ -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/card_upd_cache"
             android:layout_width="match_parent"
@@ -276,7 +276,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ══════════ ⑤ 操作按钮 ══════════ -->
+        <!-- ══════════ ⑦ 操作 ══════════ -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_upd_action"
             android:layout_width="match_parent"
@@ -300,7 +300,16 @@
             app:iconGravity="textStart"
             app:iconPadding="8dp" />
 
-        <!-- ══════════ ⑥ 启动自动检查开关 ══════════ -->
+        <!-- ══════════ ⑧ 更新来源（两个开关同属一组） ══════════ -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="更新来源"
+            android:textAppearance="?attr/textAppearanceTitleSmall"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+
+        <!-- ⑧-a 启动自动检查 -->
         <LinearLayout
             android:id="@+id/item_upd_auto"
             android:layout_width="match_parent"
@@ -339,11 +348,11 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
 
-        <!-- ══════════ 测试版通道 ══════════ -->
+        <!-- ⑧-b 接收测试版 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
+            android:layout_marginTop="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -376,8 +385,7 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
 
-
-        <!-- ══════════ ⑧ 导出安装包（由关于页迁入） ══════════ -->
+        <!-- ══════════ ⑨ 导出安装包 ══════════ -->
         <LinearLayout
             android:id="@+id/item_upd_export"
             android:layout_width="match_parent"
@@ -421,7 +429,7 @@
                 app:tint="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
 
-        <!-- ══════════ ⑦ 更新提醒（原设置页「通知管理」并入） ══════════ -->
+        <!-- ══════════ ⑩ 更新提醒 ══════════ -->
         <LinearLayout
             android:id="@+id/box_upd_notify"
             android:layout_width="match_parent"
@@ -429,7 +437,7 @@
             android:layout_marginTop="12dp"
             android:orientation="vertical" />
 
-        <!-- ══════════ ⑦ 说明 ══════════ -->
+        <!-- ══════════ ⑪ 说明 ══════════ -->
         <TextView
             android:id="@+id/tv_upd_help"
             android:layout_width="match_parent"

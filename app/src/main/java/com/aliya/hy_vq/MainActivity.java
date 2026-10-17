@@ -2434,10 +2434,28 @@ public class MainActivity extends AppCompatActivity {
      * 直链失败会自动回退到备用源。
      * 镜像列为公开通道，用它可绕开凭据问题。</p>
      */
+    /**
+     * 把 GitHub 直链改写成镜像地址。
+     *
+     * <h3>2026-10-18 修正</h3>
+     * 原实现只认 {@code https://github.com/} 和
+     * {@code https://objects.githubusercontent.com/} 两个前缀，
+     * 但版本列表实际走的是 <b>{@code https://api.github.com/...}</b>，
+     * 于是每次都返回 {@code null} —— 镜像源从未真正生效过，
+     * 调用方还把 null 当成 URL 传进 {@code openRemote}，
+     * 抛 {@code MalformedURLException}（诊断里可见）。
+     *
+     * <p>gh-proxy 这类加速服务本来就同时支持 api.github.com 与
+     * github.com / raw 下载链，所以放开三类前缀即可。
+     *
+     * @return 镜像地址；非 GitHub 源返回 null（调用方需判空跳过）
+     */
     private static String mirrorUrl(String mirrorPrefix, String url) {
-        if (url == null || url.isEmpty()) return url;
+        if (url == null || url.isEmpty()) return null;
         if (!url.startsWith("https://github.com/")
-                && !url.startsWith("https://objects.githubusercontent.com/")) {
+                && !url.startsWith("https://api.github.com/")
+                && !url.startsWith("https://objects.githubusercontent.com/")
+                && !url.startsWith("https://raw.githubusercontent.com/")) {
             return null;   // 只镜像 GitHub 源
         }
         return mirrorPrefix + url;
@@ -2637,8 +2655,117 @@ public class MainActivity extends AppCompatActivity {
             setupUpdateView();
         }
         renderUpdateView();
+        syncBetaSwitch();
         switchContent(updateView, PAGE_UPDATE);
         setSubpageToolbar("软件更新");
+    }
+
+    /**
+     * 把「接收测试版」开关的显示状态与 prefs 对齐。
+     *
+     * <p>为什么需要单独一个方法：开关的监听器在 {@code setupUpdateView()}
+     * 里安装，而那个方法**只在 updateView 首次创建时调用一次**。
+     * 之后页面被反复复用，若期间 prefs 被别处改动（或用户上次没等落盘
+     * 就切走），控件显示就可能与真实值脱节 —— 用户看到「开着」，
+     * 实际读到 false，beta 就不会出现在列表里。
+     *
+     * <p>每次进入更新页都对齐一次，代价是一次 prefs 读取。
+     */
+    /**
+     * 确保更新页两个开关（启动自动检查 / 接收测试版）都已绑好监听器。
+     *
+     * <p>幂等：重复调用只是重装一次监听器（先摘后装，不会叠加）。
+     * 由 {@link #renderUpdateView()} 调用，而它每次进页面和每次重绘都会跑，
+     * 因此不存在「漏装」窗口。
+     */
+    private void ensureUpdateSwitchesBound() {
+        if (updateView == null || prefs == null) return;
+
+        com.google.android.material.switchmaterial.SwitchMaterial swAuto =
+                updateView.findViewById(R.id.switch_upd_auto);
+        TextView tvAutoDesc = updateView.findViewById(R.id.tv_upd_auto_desc);
+        if (swAuto != null) {
+            boolean on = prefs.getBoolean(PREF_AUTO_CHECK_UPDATE, true);
+            swAuto.setOnCheckedChangeListener(null);
+            swAuto.setChecked(on);
+            if (tvAutoDesc != null) {
+                tvAutoDesc.setText(on
+                        ? "打开应用时在后台静默检查，发现新版本会提示"
+                        : "已关闭，需手动点击「检查更新」");
+            }
+            swAuto.setOnCheckedChangeListener((btn, checked) -> {
+                prefs.edit().putBoolean(PREF_AUTO_CHECK_UPDATE, checked).commit();
+                if (tvAutoDesc != null) {
+                    tvAutoDesc.setText(checked
+                            ? "打开应用时在后台静默检查，发现新版本会提示"
+                            : "已关闭，需手动点击「检查更新」");
+                }
+            });
+        }
+
+        // 测试版开关：先对齐显示值，再装监听器（顺序不能反）
+        View v = updateView.findViewById(R.id.switch_upd_beta);
+        if (v instanceof android.widget.CompoundButton) {
+            android.widget.CompoundButton cb = (android.widget.CompoundButton) v;
+            boolean beta = prefs.getBoolean(PREF_BETA_CHANNEL, false);
+            cb.setOnCheckedChangeListener(null);
+            cb.setChecked(beta);
+            bindBetaSwitch();
+        }
+    }
+
+    private void syncBetaSwitch() {
+        if (updateView == null || prefs == null) return;
+        View v = updateView.findViewById(R.id.switch_upd_beta);
+        if (!(v instanceof android.widget.CompoundButton)) return;
+        android.widget.CompoundButton cb = (android.widget.CompoundButton) v;
+
+        boolean real = prefs.getBoolean(PREF_BETA_CHANNEL, false);
+        boolean shown = cb.isChecked();
+        android.util.Log.i("HyVqUpdate",
+                "进入更新页 syncBetaSwitch: 控件=" + shown + " prefs=" + real);
+
+        if (shown == real) return;
+
+        // ⚠️ 必须先摘掉监听器再 setChecked。
+        // 否则 setChecked 会触发监听器 → 把**旧值**写回 prefs，
+        // 正好覆盖掉用户刚才的改动。
+        // 2026-10-18 实测踩过：用户勾了开关（控件 true），
+        // 但 prefs 里 beta_channel 键根本不存在，beta 一直被过滤掉。
+        cb.setOnCheckedChangeListener(null);
+        cb.setChecked(real);
+        // 监听器由 bindBetaSwitch() 统一安装
+        bindBetaSwitch();
+        android.util.Log.w("HyVqUpdate",
+                "开关状态已纠正：控件 " + shown + " → " + real);
+    }
+
+    /**
+     * 给「接收测试版」开关安装监听器（幂等）。
+     *
+     * <p>初始化与 {@link #syncBetaSwitch()} 纠正后都走这里，
+     * 避免监听器被重复叠加或被漏装。
+     */
+    private void bindBetaSwitch() {
+        if (updateView == null || prefs == null) return;
+        View v = updateView.findViewById(R.id.switch_upd_beta);
+        if (!(v instanceof android.widget.CompoundButton)) return;
+        android.widget.CompoundButton cb = (android.widget.CompoundButton) v;
+        TextView desc = updateView.findViewById(R.id.tv_upd_beta_desc);
+
+        cb.setOnCheckedChangeListener((b, checked) -> {
+            // 同步写盘：开关是一次性操作，耗时可忽略，
+            // 但能保证紧接着的 fetchReleases 一定读到新值。
+            boolean ok = prefs.edit().putBoolean(PREF_BETA_CHANNEL, checked).commit();
+            android.util.Log.i("HyVqUpdate",
+                    "测试版通道 → " + checked + " (落盘" + (ok ? "成功" : "失败") + ")");
+            if (desc != null) {
+                desc.setText(checked
+                        ? "已开启，会列出 beta / 预览版（功能可能不稳定）"
+                        : "开启后会检查 beta / 预览版，功能可能不稳定");
+            }
+            checkRemoteUpdate();
+        });
     }
 
     private void setupUpdateView() {
@@ -2680,28 +2807,23 @@ public class MainActivity extends AppCompatActivity {
         //
         // 默认关闭 —— 普通用户不该被半成品打扰。开启后 fetchReleases
         // 会保留 prerelease 版本（过滤逻辑见那边）。
-        com.google.android.material.switchmaterial.SwitchMaterial swBeta =
-                updateView.findViewById(R.id.switch_upd_beta);
-        TextView tvBetaDesc = updateView.findViewById(R.id.tv_upd_beta_desc);
-        if (swBeta != null) {
-            boolean betaOn = prefs.getBoolean(PREF_BETA_CHANNEL, false);
-            swBeta.setOnCheckedChangeListener(null);
-            swBeta.setChecked(betaOn);
-            if (tvBetaDesc != null) {
-                tvBetaDesc.setText(betaOn
-                        ? "已开启，会列出 beta / 预览版（功能可能不稳定）"
-                        : "开启后会检查 beta / 预览版，功能可能不稳定");
-            }
-            swBeta.setOnCheckedChangeListener((b, betaChecked) -> {
-                prefs.edit().putBoolean(PREF_BETA_CHANNEL, betaChecked).apply();
+        {
+            com.google.android.material.switchmaterial.SwitchMaterial swBeta =
+                    updateView.findViewById(R.id.switch_upd_beta);
+            TextView tvBetaDesc = updateView.findViewById(R.id.tv_upd_beta_desc);
+            if (swBeta != null) {
+                // 先按 prefs 摆好位置，**然后**才装监听器 ——
+                // 顺序反了会让 setChecked 触发一次写入，把值改回去。
+                boolean betaOn = prefs.getBoolean(PREF_BETA_CHANNEL, false);
+                swBeta.setOnCheckedChangeListener(null);
+                swBeta.setChecked(betaOn);
                 if (tvBetaDesc != null) {
-                    tvBetaDesc.setText(betaChecked
+                    tvBetaDesc.setText(betaOn
                             ? "已开启，会列出 beta / 预览版（功能可能不稳定）"
                             : "开启后会检查 beta / 预览版，功能可能不稳定");
                 }
-                // 开关一改就重拉：候选集合取决于它，不重拉用户会以为没生效。
-                checkRemoteUpdate();
-            });
+                bindBetaSwitch();
+            }
         }
 
 
@@ -2743,6 +2865,16 @@ public class MainActivity extends AppCompatActivity {
     /** 统一渲染更新页：当前版本 / 状态卡 / 可用版本列表 / 缓存卡 / 操作按钮 */
     private void renderUpdateView() {
         if (updateView == null) return;
+        // ⚠️ 两个开关的监听器必须**每次都确保存在**。
+        //
+        // 它们原先只在 setupUpdateView() 里安装，而那个方法只在 updateView
+        // 首次创建时执行一次。若更新页在此之前就已经建好（比如上次会话遗留），
+        // 监听器就永远不会被装上 —— 控件点了会变、但没有任何代码接收事件，
+        // prefs 里连键都不会出现。
+        //
+        // 2026-10-18 实测踩过：诊断显示「控件=true / prefs=false /
+        // app_settings 里根本没有 beta_channel」，正是这个原因。
+        ensureUpdateSwitchesBound();
         final int cur = currentPkgCode();
         final String curVer = baseVersionName();
 
@@ -3282,8 +3414,10 @@ public class MainActivity extends AppCompatActivity {
      */
     private java.util.List<ReleaseInfo> fetchReleasesFromMirrors() {
         for (String mir : GH_MIRRORS) {
+            String mUrl = mirrorUrl(mir, REMOTE_RELEASES);
+            if (mUrl == null) continue;   // 非 GitHub 源，跳过
             java.util.List<ReleaseInfo> r =
-                    fetchReleasesFrom(mirrorUrl(mir, REMOTE_RELEASES), "application/vnd.github+json");
+                    fetchReleasesFrom(mUrl, "application/vnd.github+json");
             if (!r.isEmpty()) return r;
         }
         return new java.util.ArrayList<>();
