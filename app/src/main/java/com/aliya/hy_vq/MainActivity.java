@@ -2779,15 +2779,6 @@ public class MainActivity extends AppCompatActivity {
                             ? "打开应用时在后台静默检查，发现新版本会提示"
                             : "已关闭，需手动点击「检查更新」");
                 }
-        // 更新通道：随时可重选，不必卸载重装
-        View itemChanOpt = updateView.findViewById(R.id.item_upd_channel);
-        if (itemChanOpt != null) {
-            itemChanOpt.setOnClickListener(v -> askUpdateChannel(() -> {
-                renderReleaseList(true);
-                renderUpdateView();
-            }));
-        }
-
         // 导出安装包（由关于页迁入）
         View itemUpdExport = updateView.findViewById(R.id.item_upd_export);
         if (itemUpdExport != null) itemUpdExport.setOnClickListener(v -> exportSelfApk());
@@ -2846,6 +2837,20 @@ public class MainActivity extends AppCompatActivity {
         boolean installedBeta = isPrereleaseVersion(curVer);
         if (tvChan != null) {
             tvChan.setText("版本号 " + cur + (installedBeta ? " · 测试版" : " · 正式版"));
+        }
+
+        // 更新通道：随时可重选，不必卸载重装。
+        //
+        // ⚠️ 绑定必须放在这里而不是 setupUpdateView()。
+        // 后者只在 updateView == null 时执行一次，覆盖安装或进程复用时
+        // 不会重跑，监听器就永远装不上（2.38.3 的 beta 开关踩过同样的坑）。
+        View itemChanOpt = updateView.findViewById(R.id.item_upd_channel);
+        if (itemChanOpt != null) {
+            itemChanOpt.setOnClickListener(v -> askUpdateChannel(() -> {
+                // renderUpdateView() 末尾已经会调 renderReleaseList()，
+                // 这里只刷新它，不必再单独调一次（否则重复重建整列视图）。
+                renderUpdateView();
+            }));
         }
 
         // 更新通道条目：显示当前选择
