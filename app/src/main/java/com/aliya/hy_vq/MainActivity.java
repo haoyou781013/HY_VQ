@@ -142,7 +142,6 @@ public class MainActivity extends AppCompatActivity {
     /** 实用软件分享（v2.9.1 内嵌页） */
     private static final int PAGE_SHARE = 9;
     /** 鸣潮表情包（v2.9.1 内嵌页） */
-    private static final int PAGE_EMOJI = 10;
     /** 抽卡分析（原神祈愿记录） */
     private static final int PAGE_GACHA = 11;
     /** 原神帮助页（含抽卡分析入口） */
@@ -255,9 +254,15 @@ public class MainActivity extends AppCompatActivity {
 
         setupToolbar();
         setupDrawer();
+        // 模块系统（含插件加载）必须在侧边栏初始化之前。
+        //
+        // setupDrawerNavigation 里要判断 GitHub 插件装没装，据此决定
+        // 隐藏还是显示内置入口。插件加载放在它后面的话，判断时
+        // pluginManager 还是 null，「装了插件仍显示内置项」就成了
+        // 必然结果 —— 侧边栏出现两个 GitHub。
+        initModuleSystem();
         setupDrawerNavigation();
         setupBackNavigation();
-        initModuleSystem();
         // 增量更新引擎：启动兜底清理 + 加载更新包入口（幂等）
         UpdateManager.boot(this);
 
@@ -324,6 +329,26 @@ public class MainActivity extends AppCompatActivity {
         GithubModule github = new GithubModule();
         github.onAttach(this, moduleServices);
         moduleRegistry.install(github);
+
+        // 宿主页面工厂：让插件能拿到宿主已经实现好的页面。
+        //
+        // 为什么不让插件自己重写：这四个页面的实现大量使用 R.drawable / R.id，
+        // 而插件资源 id 与宿主不在同一 namespace，搬进 dex 直接崩。
+        // 所以插件只做包装（侧边栏入口 + 独立版本 + 可单独卸载），
+        // 业务实现继续留在宿主 APK 内。这是「分离」和「不重写」的折中。
+        //
+        // 必须在 loadAll() 之前注册 —— 插件 onAttach 时可能就要用。
+        com.aliya.hy_vq.plugin.PluginUi.setHostPageFactory(new com.aliya.hy_vq.plugin.PluginUi.HostPageFactory() {
+            @Override
+            public View createPage(String key, LayoutInflater inflater, ViewGroup parent) {
+                return buildHostPage(key);
+            }
+
+            @Override
+            public boolean isAvailable(String key) {
+                return true;
+            }
+        });
 
         // 插件：加载已安装的（dex 加载时机限制，只能在启动时做）
         pluginManager = new PluginManager(this);
@@ -545,20 +570,6 @@ public class MainActivity extends AppCompatActivity {
                     : com.google.android.material.R.attr.colorOnSurfaceVariant);
             if (aIcon != null) aIcon.setColorFilter(aTint);
             if (aText != null) aText.setTextColor(aTint);
-        }
-        // 鸣潮表情包选中态
-        View navEmoji = binding.navView.findViewById(R.id.nav_emoji);
-        if (navEmoji != null) {
-            boolean eSel = currentPageIndex == PAGE_EMOJI;
-            navEmoji.setBackgroundResource(eSel
-                    ? R.drawable.bg_nav_item_selected : R.drawable.bg_nav_item_default);
-            ImageView eIcon = navEmoji.findViewById(R.id.nav_emoji_icon);
-            TextView eText = navEmoji.findViewById(R.id.nav_emoji_text);
-            int eTint = resolveAttr(eSel
-                    ? com.google.android.material.R.attr.colorOnPrimaryContainer
-                    : com.google.android.material.R.attr.colorOnSurfaceVariant);
-            if (eIcon != null) eIcon.setColorFilter(eTint);
-            if (eText != null) eText.setTextColor(eTint);
         }
         // 实用软件分享选中态
         View navShare = binding.navView.findViewById(R.id.nav_share);
@@ -1379,7 +1390,43 @@ public class MainActivity extends AppCompatActivity {
     // ── v2.9.1 内嵌式页面（与文件管理同款：进 contentFrame，不跳独立 Activity）──
 
     private ShareAppsView shareAppsView;
-    private WuwaEmojiView wuwaEmojiView;
+
+    /**
+     * 宿主页面工厂的落地实现：按 key 构造页面根视图。
+     *
+     * <p>插件通过 {@code PluginUi.createHostPage(key, ...)} 调到这里。
+     * 返回的视图归宿主所有，每次调用新建一份 —— 插件若需要复用应自行缓存。
+     *
+     * <p>不做「切换全局页面」的动作（那是 {@code switchToXxx} 的职责）：
+     * 插件是在自己的容器里显示这个视图，不能抢主界面。
+     *
+     * @param key 页面标识
+     * @return 页面根视图，未知 key 返回 null
+     */
+    private View buildHostPage(String key) {
+        if (key == null) return null;
+        switch (key) {
+            case "share": {
+                ShareAppsView v = new ShareAppsView(this, LayoutInflater.from(this), contentFrame);
+                return v.getRoot();
+            }
+            case "anime": {
+                return new com.aliya.hy_vq.anime.AnimeView(this);
+            }
+            case "gacha": {
+                return new com.aliya.hy_vq.gacha.GachaView(this);
+            }
+            case "genshin": {
+                // 原神帮助页是内联构建的，没有独立 View 类，这里延迟到
+                // 独立类抽出来之后再说 —— 现在返回 null，插件会显示降级提示。
+                return null;
+            }
+            default:
+                Log.w("HY_VQ", "buildHostPage: 未知页面 key=" + key);
+                return null;
+        }
+    }
+
 
     /** 实用软件分享：内嵌视图（复用文件管理那套 switchContent 机制） */
     private void openShareApps() {
@@ -1392,24 +1439,13 @@ public class MainActivity extends AppCompatActivity {
         updateDrawerSelection();
     }
 
-    /** 鸣潮表情包：内嵌视图（原独立 Activity 已改为内嵌） */
-    private void openEmoji() {
-        if (wuwaEmojiView == null) {
-            wuwaEmojiView = new WuwaEmojiView(this, LayoutInflater.from(this), contentFrame);
-        }
-        switchContent(wuwaEmojiView.getRoot(), PAGE_EMOJI);
-        resetToolbar();
-        binding.toolbarTitle.setText("鸣潮表情包");
-        updateDrawerSelection();
-    }
-
     /** 返回键：内嵌页内部分层（分享页分类内 → 分类列表），再按则回首页 */
     @Override
     public void onBackPressed() {
         if (currentPageIndex == PAGE_SHARE && shareAppsView != null && shareAppsView.onBack()) {
             return;
         }
-        if (currentPageIndex == PAGE_SHARE || currentPageIndex == PAGE_EMOJI) {
+        if (currentPageIndex == PAGE_SHARE) {
             switchToHome();
             return;
         }
@@ -1666,7 +1702,6 @@ public class MainActivity extends AppCompatActivity {
             return true;
         }
         if (currentPageIndex == PAGE_FILEMGR
-                || currentPageIndex == PAGE_EMOJI
                 || currentPageIndex == PAGE_SHARE
                 || currentPageIndex == PAGE_ANIME
                 || currentPageIndex == PAGE_GENSHIN_HELP
@@ -1768,14 +1803,6 @@ public class MainActivity extends AppCompatActivity {
             binding.drawerLayout.closeDrawers();
             binding.drawerLayout.postDelayed(this::switchToHome, 160);
         });
-        // 鸣潮表情包（数据来源：呜哇小站 emoji.wuwa.games）
-        View emojiBtn = binding.navView.findViewById(R.id.nav_emoji);
-        if (emojiBtn != null) {
-            emojiBtn.setOnClickListener(v -> {
-                binding.drawerLayout.closeDrawers();
-                binding.drawerLayout.postDelayed(this::openEmoji, 160);
-            });
-        }
         // 实用软件分享（v2.9.0：只读浏览 123 云盘分享目录）
         View shareBtn = binding.navView.findViewById(R.id.nav_share);
         if (shareBtn != null) {
@@ -1784,15 +1811,26 @@ public class MainActivity extends AppCompatActivity {
                 binding.drawerLayout.postDelayed(this::openShareApps, 160);
             });
         }
-        // GitHub（API 客户端模块）：侧边栏模块区 2026-09-06 起整体隐藏，
-        // 故与文件管理一样在 navView 里单列一个一级入口。
+        // GitHub 入口。
+        //
+        // 2026-10-17：GitHub 已做成插件（plugin_src/github），插件装了就
+        // 用插件自己的侧边栏项，这个内置入口隐藏，避免同名两项并存。
+        // 没装插件则保留内置项，功能不丢 —— 这是「剥离但不破坏」的折中：
+        // 用户不装插件也照样能用 GitHub，装了插件就只看到一个入口。
         View ghBtn = binding.navView.findViewById(R.id.nav_github);
-        android.util.Log.i("HY_VQ", "setupDrawerNavigation: nav_github found=" + (ghBtn != null));
         if (ghBtn != null) {
-            ghBtn.setOnClickListener(v -> {
-                binding.drawerLayout.closeDrawers();
-                binding.drawerLayout.postDelayed(this::openGithub, 160);
-            });
+            boolean hasGithubPlugin = pluginManager != null
+                    && pluginManager.get("github") != null;
+            if (hasGithubPlugin) {
+                ghBtn.setVisibility(View.GONE);
+                Log.i("HY_VQ", "setupDrawerNavigation: GitHub 插件已安装，隐藏内置入口");
+            } else {
+                ghBtn.setVisibility(View.VISIBLE);
+                ghBtn.setOnClickListener(v -> {
+                    binding.drawerLayout.closeDrawers();
+                    binding.drawerLayout.postDelayed(this::openGithub, 160);
+                });
+            }
         }
         // 文件管理（内置一级功能，非模块）
         View fmBtn = binding.navView.findViewById(R.id.nav_filemgr);
@@ -2143,10 +2181,39 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ==================== Page Switching ====================
+    /**
+     * 页面切换（Material Motion 容器变换）。
+     *
+     * <h3>为什么重写</h3>
+     * 旧实现有三个问题：
+     * <ol>
+     *   <li><b>旧页不做退场动画</b> —— 直接 {@code removeAllViews()} 消失，
+     *       视觉上是从「旧页」硬切到「新页滑入」，中间有一帧空洞。</li>
+     *   <li><b>固定 260ms 线性平移</b> —— 不看距离，短距离滑得太慢、
+     *       长距离又太赶，缺少 Material 强调的那层「方向感」。</li>
+     *   <li><b>同页跳转完全无反馈</b> —— 用户点了当前的入口，屏幕一动不动，
+     *       会怀疑没点中。</li>
+     * </ol>
+     *
+     * <h3>现在的做法</h3>
+     * 遵循 Material Motion 的「容器变换」：把整个内容区当作一个容器，
+     * 新页从导航方向推入，旧页反向小幅退场。三个原则：
+     * <ul>
+     *   <li><b>方向一致</b>：前进从右进，后退从左进，和用户的导航预期一致。</li>
+     *   <li><b>速度可感</b>：时长随位移量缩放，并在 180–320ms 之间夹紧 ——
+     *       再短察觉不到，再长会被感知为卡顿。</li>
+     *   <li><b>同页给反馈</b>：同页跳转改成轻微「呼吸」缩放，告诉用户
+     *       「你点的就是当前页」。</li>
+     * </ul>
+     *
+     * @param newView      新页面根视图
+     * @param newPageIndex 新页索引，用于判断导航方向和是否同页
+     */
     private void switchContent(View newView, int newPageIndex) {
         View oldView = contentFrame.getChildCount() > 0 ? contentFrame.getChildAt(0) : null;
         if (oldView == newView) return;
 
+        // 取消上一次未完成的动画，避免快速连点时属性互相打架
         if (oldView != null) oldView.animate().cancel();
         newView.animate().cancel();
 
@@ -2157,31 +2224,88 @@ public class MainActivity extends AppCompatActivity {
         int width = contentFrame.getWidth();
         if (width <= 0) width = getResources().getDisplayMetrics().widthPixels;
 
-        // 同页跳转不播放平移动画
         boolean samePage = newPageIndex == currentPageIndex;
-        float fromX = samePage ? 0 : (newPageIndex < currentPageIndex ? -width * 0.25f : width * 0.25f);
+        boolean forward = newPageIndex > currentPageIndex;
+
+        // 位移量取容器宽度的 18%：足够感知方向，又不会把页面推得太远
+        // 导致动画期间大面积空白。
+        final float travel = width * 0.18f;
+        final float fromX = samePage ? 0f : (forward ? travel : -travel);
 
         contentFrame.removeAllViews();
         contentFrame.addView(newView);
 
-        if (!samePage) {
+        // 旧页单独留一帧做退场，然后再移除。
+        //
+        // 直接 removeAllViews 会让旧页瞬间消失；这里把它加到 overlay 位置
+        // 淡出后再摘掉，衔接才连得上。
+        if (oldView != null && oldView.getParent() == null && !samePage) {
+            oldView.setAlpha(1f);
+            oldView.setTranslationX(0f);
+            oldView.setScaleX(1f);
+            oldView.setScaleY(1f);
+            contentFrame.addView(oldView, 0, new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            oldView.animate()
+                    .alpha(0f)
+                    .translationX(-fromX * 0.35f)
+                    .scaleX(0.97f)
+                    .scaleY(0.97f)
+                    .setDuration(T_MOTION_EXIT)
+                    .setInterpolator(SI_EXP_EASE)
+                    .withEndAction(() -> {
+                        if (oldView.getParent() == contentFrame) {
+                            contentFrame.removeView(oldView);
+                        }
+                    })
+                    .start();
+        }
+
+        if (samePage) {
+            // 同页跳转：轻微呼吸，让用户确认「已经在这个页面了」
+            newView.setScaleX(0.985f);
+            newView.setScaleY(0.985f);
+            newView.setAlpha(0.85f);
+            newView.animate()
+                    .scaleX(1f).scaleY(1f).alpha(1f)
+                    .setDuration(T_MOTION_BREATH)
+                    .setInterpolator(SI_EXP_EASE)
+                    .start();
+        } else {
+            // 新页：位移 + 淡入 + 起始缩放，三者叠加才有「层次推进」的观感
             newView.setTranslationX(fromX);
-            newView.setAlpha(0.4f);
+            newView.setAlpha(0f);
+            newView.setScaleX(0.98f);
+            newView.setScaleY(0.98f);
             newView.animate()
                     .translationX(0f)
                     .alpha(1f)
-                    .setDuration(260)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    // 时长随位移量缩放：滑得远就久一点，滑得近就快一点
+                    .setDuration(durationFor(Math.abs(fromX), width))
                     .setInterpolator(SI_EXP_EASE)
                     .start();
         }
 
         currentPageIndex = newPageIndex;
-        // 切回固定页时清除模块页状态，保证返回逻辑正确
         if (newPageIndex < PAGE_MODULE_BASE) {
             currentModuleId = null;
         }
-        // 同步侧边栏选中态
         updateDrawerSelection();
+    }
+
+    /**
+     * 按位移量算动画时长，夹在 180–320ms。
+     *
+     * <p>固定时长是旧实现的问题之一：短距离看起来拖沓，长距离又显得仓促。
+     * 用比例映射后，视觉速度大致恒定。
+     */
+    private static long durationFor(float distance, int containerWidth) {
+        if (containerWidth <= 0) return T_MOTION_ENTER;
+        float ratio = Math.min(1f, distance / (containerWidth * 0.25f));
+        long d = T_MOTION_ENTER_MIN + (long) (ratio * (T_MOTION_ENTER_MAX - T_MOTION_ENTER_MIN));
+        return Math.max(T_MOTION_ENTER_MIN, Math.min(T_MOTION_ENTER_MAX, d));
     }
 
     private void switchToHome() {
@@ -2391,6 +2515,14 @@ public class MainActivity extends AppCompatActivity {
 
     /** 启动时自动检查更新的偏好键（默认开启） */
     private static final String PREF_AUTO_CHECK_UPDATE = "auto_check_update";
+
+    /**
+     * 是否接收测试版（beta / RC / prerelease）。
+     *
+     * <p>关闭时只列正式版 —— 这是默认值：普通用户不该被半成品打扰。
+     * 开启后会把 GitHub/Gitee 标记为 prerelease 的版本一并列出。
+     */
+    private static final String PREF_BETA_CHANNEL = "beta_channel";
     /** 国内兜底更新源（优先级 ④）：123 云盘 WebDAV（内置**只读**凭据，泄漏也无法写入） */
     /* 2026-10-16 移除 123 云盘**更新源**：会员到期，WebDAV 实测 HTTP 401。
        ⚠️ ShareAppsView（软件分享浏览）仍用 123云盘，属独立功能，本次未动。
@@ -2471,6 +2603,8 @@ public class MainActivity extends AppCompatActivity {
     private static class ReleaseInfo {
         String tag = "";
         String ver = "";
+        /** 是否为测试版（GitHub/Gitee 的 prerelease 标记，或 tag 含 -beta/-rc）。 */
+        boolean prerelease = false;
         String body = "";
         String publishedAt = "";
         String apkName = "";
@@ -2559,6 +2693,36 @@ public class MainActivity extends AppCompatActivity {
                             ? "打开应用时在后台静默检查，发现新版本会提示"
                             : "已关闭，需手动点击「检查更新」");
                 }
+        // 测试版通道开关。
+        //
+        // 默认关闭：普通用户不该被半成品打扰。
+        // 开启后 fetchReleases 会保留 prerelease 版本（见那边的过滤逻辑）。
+        com.google.android.material.switchmaterial.SwitchMaterial swBeta =
+                updateView.findViewById(R.id.switch_upd_beta);
+        TextView tvBetaDesc = updateView.findViewById(R.id.tv_upd_beta_desc);
+        if (swBeta != null) {
+            boolean betaOn = prefs.getBoolean(PREF_BETA_CHANNEL, false);
+            swBeta.setOnCheckedChangeListener(null);
+            swBeta.setChecked(betaOn);
+            if (tvBetaDesc != null) {
+                tvBetaDesc.setText(betaOn
+                        ? "已开启，会列出 beta / 预览版（功能可能不稳定）"
+                        : "开启后会检查 beta / 预览版，功能可能不稳定");
+            }
+            swBeta.setOnCheckedChangeListener((b, betaChecked) -> {
+                prefs.edit().putBoolean(PREF_BETA_CHANNEL, betaChecked).apply();
+                if (tvBetaDesc != null) {
+                    tvBetaDesc.setText(betaChecked
+                            ? "已开启，会列出 beta / 预览版（功能可能不稳定）"
+                            : "开启后会检查 beta / 预览版，功能可能不稳定");
+                }
+                // 开关一改，列表就得重拉 —— 否则用户会以为开关没生效，
+                // 因为候选版本集合取决于这个开关。
+                checkRemoteUpdate();
+            });
+        }
+
+
         // 导出安装包（由关于页迁入）
         View itemUpdExport = updateView.findViewById(R.id.item_upd_export);
         if (itemUpdExport != null) itemUpdExport.setOnClickListener(v -> exportSelfApk());
@@ -2775,7 +2939,12 @@ public class MainActivity extends AppCompatActivity {
     private View buildReleaseRow(final ReleaseInfo ri, boolean isCurrent) {
         View row = LayoutInflater.from(this)
                 .inflate(R.layout.item_release_version, updateView.findViewById(R.id.box_latest_version), false);
-        ((TextView) row.findViewById(R.id.tv_rel_version)).setText("v" + ri.ver);
+        // 测试版在版本号后缀标出来。
+        //
+        // 只靠版本号里的 -beta.1 不够醒目：用户扫一眼列表时容易漏掉，
+        // 装上去才发现是半成品。显式加「· BETA」让风险可见。
+        ((TextView) row.findViewById(R.id.tv_rel_version)).setText(
+                "v" + ri.ver + (ri.prerelease ? "  ·  BETA" : ""));
 
         TextView badge = row.findViewById(R.id.tv_rel_badge);
         int cmp = compareVersion(ri.ver, baseVersionName());
@@ -3139,9 +3308,23 @@ public class MainActivity extends AppCompatActivity {
             conn.disconnect();
             for (int i = 0; i < arr.length(); i++) {
                 org.json.JSONObject r = arr.getJSONObject(i);
-                if (r.optBoolean("draft", false) || r.optBoolean("prerelease", false)) continue;
+                // draft 永远排除（作者的草稿）。
+                // prerelease 看用户是否开了测试版通道：
+                //   关闭 → 跳过（默认，普通用户只看到正式版）
+                //   开启 → 保留，并在 UI 上标注 BETA
+                if (r.optBoolean("draft", false)) continue;
+                boolean isPre = r.optBoolean("prerelease", false);
+                if (isPre && !prefs.getBoolean(PREF_BETA_CHANNEL, false)) continue;
                 ReleaseInfo ri = new ReleaseInfo();
                 ri.tag = r.optString("tag_name", "");
+                // 除了 API 的 prerelease 字段，再按 tag 名兜一层：
+                // 作者可能忘了勾 prerelease，但版本号里写了 beta。
+                // 两边取或，宁可多标一个 BETA 也不要漏。
+                String lowerTag = ri.tag.toLowerCase(java.util.Locale.ROOT);
+                ri.prerelease = isPre
+                        || lowerTag.contains("-beta")
+                        || lowerTag.contains("-rc")
+                        || lowerTag.contains("-alpha");
                 ri.ver = ri.tag.startsWith("v") ? ri.tag.substring(1) : ri.tag;
                 if (ri.ver.isEmpty()) continue;
                 ri.body = r.optString("body", "");
@@ -4705,6 +4888,18 @@ public class MainActivity extends AppCompatActivity {
         return cachedScreenW;
     }
     // SiliconUI-inspired: exponential decay easing (fast start, gentle settle)
+    // Material Motion 时长常量。
+    //
+    // Material 规范里「小容器」过渡 150-200ms、「大容器」200-300ms。
+    // 页面级切换属于大容器，所以 enter 用 220ms 起、320ms 封顶。
+    // exit 比 enter 短 40ms：退场快一点，观感上不会觉得旧页「赖着不走」。
+    private static final long T_MOTION_ENTER = 240;
+    private static final long T_MOTION_ENTER_MIN = 180;
+    private static final long T_MOTION_ENTER_MAX = 320;
+    private static final long T_MOTION_EXIT = 180;
+    private static final long T_MOTION_BREATH = 160;
+
+    /** Material 3 的「强调」缓动曲线：起步快、收尾缓，符合物理直觉。 */
     private static final PathInterpolator SI_EXP_EASE = new PathInterpolator(0.12f, 0f, 0f, 1f);
     // SiliconUI-inspired: spring overshoot for list/panel transitions
     private static final OvershootInterpolator SI_SPRING = new OvershootInterpolator(1.2f);
