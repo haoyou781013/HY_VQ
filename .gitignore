@@ -1,6 +1,11 @@
 # 构建产物
 *.apk
-*.aar
+# *.aar 不再排除（2026-10-18）：
+# 之前排除导致从仓库克隆后 app/libs 为空，构建时只能用 Maven 精简版
+# Shizuku AAR，缺 ShizukuProvider → manifest 声明的 provider 找不到类 →
+# 启动闪退。AAR 现随仓库分发，保证任何机器克隆即可构建出等价 APK。
+# 只排除 debug 产物：
+*.aar.debug
 *.aab
 *.ap_
 *.dex

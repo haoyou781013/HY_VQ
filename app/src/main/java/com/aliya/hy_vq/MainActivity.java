@@ -3206,7 +3206,10 @@ public class MainActivity extends AppCompatActivity {
         //
         // 所以补一条：开关打开但当前没有 beta 时，也必须问下一个源。
         // 这是「用户明确要求测试版」的场景，多一次网络往返是值得的。
-        boolean wantBeta = prefs.getBoolean(PREF_BETA_CHANNEL, false);
+        // prefs 理论上在 onCreate 早期已初始化，但 fetchReleases 跑在
+        // 裸 Thread 里、没有任何 try-catch —— 这里若 NPE 会直接杀进程。
+        boolean wantBeta = prefs != null
+                && prefs.getBoolean(PREF_BETA_CHANNEL, false);
 
         if (merged.size() < MIN_EXPECTED_RELEASES || (wantBeta && !hasPrerelease(merged))) {
             mergeInto(merged, fetchReleasesFromMirrors());
@@ -3222,8 +3225,11 @@ public class MainActivity extends AppCompatActivity {
 
     /** 已合并的结果里是否含测试版。用于决定要不要继续问下一个源。 */
     private static boolean hasPrerelease(java.util.Map<String, ReleaseInfo> m) {
+        if (m == null || m.isEmpty()) return false;
         for (ReleaseInfo r : m.values()) {
-            if (r.prerelease) return true;
+            // 逐项判空：mergeInto 虽有防护，但这里是不同调用路径，
+            // 不能假设上游一定干净 —— 一旦 NPE，后台线程直接杀进程（闪退）。
+            if (r != null && r.prerelease) return true;
         }
         return false;
     }
@@ -3403,7 +3409,17 @@ public class MainActivity extends AppCompatActivity {
     /** 后台静默扫描版本列表：不显示「扫描中」，发现新版本才弹窗 */
     private void silentCheckUpdate() {
         new Thread(() -> {
-            final java.util.List<ReleaseInfo> list = fetchReleases();
+            // 后台取版本列表必须整体兜底。
+            //
+            // 这里跑在裸 Thread 里，未捕获异常会直接杀掉进程（表现为「闪一下就退」），
+            // 而用户完全看不到原因。检查更新只是辅助功能，失败也不该拖垮主程序。
+            final java.util.List<ReleaseInfo> list;
+            try {
+                list = fetchReleases();
+            } catch (Throwable t) {
+                android.util.Log.w("HyVqUpdate", "启动检查失败（已忽略）", t);
+                return;
+            }
             if (list.isEmpty()) return;
             runOnUiThread(() -> {
                 if (updState == 1) return;   // 用户手动扫描中，不覆盖
@@ -3506,7 +3522,18 @@ public class MainActivity extends AppCompatActivity {
         updError = "";
         renderUpdateView();
         new Thread(() -> {
-            final java.util.List<ReleaseInfo> list = fetchReleases();
+            final java.util.List<ReleaseInfo> list;
+            try {
+                list = fetchReleases();
+            } catch (Throwable t) {
+                android.util.Log.w("HyVqUpdate", "检查更新失败", t);
+                runOnUiThread(() -> {
+                    updState = 4;
+                    updError = "检查更新失败：" + t.getClass().getSimpleName();
+                    renderUpdateView();
+                });
+                return;
+            }
             runOnUiThread(() -> {
                 if (list.isEmpty()) {
                     updState = 4;

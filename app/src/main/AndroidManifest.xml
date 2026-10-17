@@ -34,7 +34,8 @@
         <package android:name="moe.shizuku.privileged.api" />
     </queries>
 
-    <application 
+    <application
+        android:name=".HyVqApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher" 
         android:roundIcon="@mipmap/ic_launcher" 
