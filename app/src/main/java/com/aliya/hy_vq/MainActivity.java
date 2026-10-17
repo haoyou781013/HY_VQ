@@ -2502,16 +2502,123 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** 语义化版本比较：a > b 返回正数 */
+    /**
+     * 按 SemVer 2.0.0 比较两个版本号。
+     *
+     * <h3>为什么重写</h3>
+     * 旧实现把版本号按 "." 切开后，每段剥掉所有非数字字符再转 int：
+     *
+     * <pre>
+     *   "2.38.0-beta.1".split(".")  →  ["2", "38", "0-beta", "1"]
+     *   parseIntSafe("0-beta")      →  0        // 非数字被剥光
+     *   结果：2.38.0-beta.1 有 4 段，比 2.38.0 多出一段 "1"
+     * </pre>
+     *
+     * 于是 {@code compareVersion("2.38.0-beta.1", "2.38.0") == 1} ——
+     * <b>测试版被判定成比正式版新</b>，语义完全反了。
+     *
+     * 这直接导致测试版通道不可用：客户端认为 beta 更"新"，
+     * 却因为版本号字符串与当前版本不相等而进不了「最新版」位置，
+     * 用户打开开关后列表仍然混乱。
+     *
+     * <h3>SemVer 规则</h3>
+     * <ol>
+     *   <li>主版本.次版本.修订号 逐段数字比较</li>
+     *   <li>带 pre-release 后缀的版本 <b>小于</b> 同号正式版：
+     *       {@code 1.0.0-alpha < 1.0.0-beta < 1.0.0-rc.1 < 1.0.0}</li>
+     *   <li>pre-release 标识符按段比较：数字段按数值，字母段按字典序；
+     *       数字段 < 字母段；段数少的更小</li>
+     *   <li>build 元数据（{@code +} 之后）不参与比较</li>
+     * </ol>
+     *
+     * @return 负数表示 a 更旧，正数表示 a 更新，0 表示等价
+     */
     private static int compareVersion(String a, String b) {
         if (a == null) a = "";
         if (b == null) b = "";
-        String[] x = a.split("[.]");
-        String[] y = b.split("[.]");
+        a = a.trim();
+        b = b.trim();
+        if (a.equals(b)) return 0;
+        if (a.isEmpty()) return b.isEmpty() ? 0 : -1;
+        if (b.isEmpty()) return 1;
+
+        // ① 砍掉 build 元数据（1.2.3+sha 里的 +sha 不参与比较）
+        int plusA = a.indexOf('+');
+        if (plusA >= 0) a = a.substring(0, plusA);
+        int plusB = b.indexOf('+');
+        if (plusB >= 0) b = b.substring(0, plusB);
+
+        // ② 拆出 core（1.2.3）与 pre（beta.1）
+        String coreA = a, preA = "";
+        int dashA = a.indexOf('-');
+        if (dashA >= 0) {
+            coreA = a.substring(0, dashA);
+            preA = a.substring(dashA + 1);
+        }
+        String coreB = b, preB = "";
+        int dashB = b.indexOf('-');
+        if (dashB >= 0) {
+            coreB = b.substring(0, dashB);
+            preB = b.substring(dashB + 1);
+        }
+
+        // ③ 核心数字段逐位比较
+        String[] x = coreA.split("\\.");
+        String[] y = coreB.split("\\.");
         int n = Math.max(x.length, y.length);
         for (int i = 0; i < n; i++) {
             int xi = i < x.length ? parseIntSafe(x[i]) : 0;
             int yi = i < y.length ? parseIntSafe(y[i]) : 0;
-            if (xi != yi) return xi - yi;
+            if (xi != yi) return xi < yi ? -1 : 1;
+        }
+
+        // ④ 核心段相同：无 pre 的版本更大（2.38.0 > 2.38.0-beta.1）
+        boolean emptyA = preA.isEmpty();
+        boolean emptyB = preB.isEmpty();
+        if (emptyA && emptyB) return 0;
+        if (emptyA) return 1;
+        if (emptyB) return -1;
+
+        // ⑤ 两边都有 pre，逐段比较
+        return comparePrerelease(preA, preB);
+    }
+
+    /**
+     * 比较 SemVer 的 pre-release 部分（不含前导 "-"）。
+     *
+     * <p>规则：按 "." 分段；数字段按数值比，字母段按字典序比；
+     * 数字段永远 < 字母段（SemVer 规定 "numeric identifiers always have
+     * lower precedence than alphanumeric identifiers"）；
+     * 所有前置段相同时，段数少的更小（1.0.0-alpha < 1.0.0-alpha.1）。
+     */
+    private static int comparePrerelease(String a, String b) {
+        String[] x = a.split("\\.");
+        String[] y = b.split("\\.");
+        int n = Math.max(x.length, y.length);
+        for (int i = 0; i < n; i++) {
+            // 一段用完了：段数少的更小
+            if (i >= x.length) return -1;
+            if (i >= y.length) return 1;
+
+            String xi = x[i];
+            String yi = y[i];
+            boolean xNum = xi.matches("[0-9]+");
+            boolean yNum = yi.matches("[0-9]+");
+
+            if (xNum && yNum) {
+                // 都用数值比，避免 "10" 被当成小于 "9" 的字典序问题
+                int xn = parseIntSafe(xi);
+                int yn = parseIntSafe(yi);
+                if (xn != yn) return xn < yn ? -1 : 1;
+            } else if (xNum) {
+                // 数字段 < 字母段
+                return -1;
+            } else if (yNum) {
+                return 1;
+            } else {
+                int c = xi.compareTo(yi);
+                if (c != 0) return c < 0 ? -1 : 1;
+            }
         }
         return 0;
     }
@@ -3085,29 +3192,40 @@ public class MainActivity extends AppCompatActivity {
      * <p>Gitee 源异常时 404 → 自然落到下一级，无需额外开关判断。</p>
      */
     private java.util.List<ReleaseInfo> fetchReleases() {
-        // ⚠️ 不能「任一源成功就返回」：Gitee 现有 74 个 release，
-        // 但只有最新版传了 APK（其余是回填的仅日志 —— 旧版客户端没有 Gitee 源，
-        // 没必要占空间）。而客户端要求 release 必须带 APK 或增量包才展示，
-        // 于是 Gitee 那 73 个被过滤掉 → 只剩 1 个版本。
-        // 故改为「多源合并」：Gitee 提供国内可达的日志与最新 APK，
-        // GitHub 补齐历史版本的 APK，按版本号去重。
         java.util.LinkedHashMap<String, ReleaseInfo> merged = new java.util.LinkedHashMap<>();
 
-        // ① Gitee（国内主源）：先放，其 APK 直链国内可下
+        // ① Gitee（国内主源）：直链国内可下
         mergeInto(merged, fetchReleasesFrom(GITEE_RELEASES, ""));
 
-        // ②③ 仅当版本数明显偏少时才补 GitHub —— 避免每次更新都多花网络往返。
-        //     正常情况 Gitee 已有全部版本，这里不会触发。
-        if (merged.size() < MIN_EXPECTED_RELEASES) {
+        // ②③ 补源条件。
+        //
+        // 原条件只有「条数 < MIN_EXPECTED_RELEASES」。这有个漏洞：
+        // 开启测试版通道后，Gitee 若没有 beta（或把 beta 挤在列表末尾
+        // 分页之外），条数依然够，就<b>永远不会</b>去问 GitHub，
+        // 结果用户打开开关也接不到测试版。
+        //
+        // 所以补一条：开关打开但当前没有 beta 时，也必须问下一个源。
+        // 这是「用户明确要求测试版」的场景，多一次网络往返是值得的。
+        boolean wantBeta = prefs.getBoolean(PREF_BETA_CHANNEL, false);
+
+        if (merged.size() < MIN_EXPECTED_RELEASES || (wantBeta && !hasPrerelease(merged))) {
             mergeInto(merged, fetchReleasesFromMirrors());
         }
-        if (merged.size() < MIN_EXPECTED_RELEASES) {
+        if (merged.size() < MIN_EXPECTED_RELEASES || (wantBeta && !hasPrerelease(merged))) {
             mergeInto(merged, fetchReleasesFrom(REMOTE_RELEASES, "application/vnd.github+json"));
         }
 
         java.util.List<ReleaseInfo> out = new java.util.ArrayList<>(merged.values());
         java.util.Collections.sort(out, (a, b) -> compareVersion(b.ver, a.ver));
         return out;
+    }
+
+    /** 已合并的结果里是否含测试版。用于决定要不要继续问下一个源。 */
+    private static boolean hasPrerelease(java.util.Map<String, ReleaseInfo> m) {
+        for (ReleaseInfo r : m.values()) {
+            if (r.prerelease) return true;
+        }
+        return false;
     }
 
     /**
