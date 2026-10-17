@@ -153,30 +153,14 @@
 
             <com.google.android.material.tabs.TabLayout
                 android:id="@+id/tabs_version_channel"
-                android:layout_width="0dp"
+                style="@style/Widget.Material3.TabLayout"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
                 app:tabMode="fixed"
                 app:tabGravity="fill"
-                app:tabIndicatorFullWidth="true" />
-
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/switch_upd_beta"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp" />
+                app:tabIndicatorFullWidth="true"
+                app:tabTextAppearance="@style/TextAppearance.Material3.TitleSmall" />
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/tv_upd_beta_desc"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:layout_marginStart="4dp"
-            android:text="开启后显示测试版，功能可能不稳定"
-            android:textAppearance="?attr/textAppearanceBodySmall"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:visibility="gone" />
 
         <!-- ── 正式版栏 ── -->
         <LinearLayout
@@ -259,6 +243,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
+                android:orientation="vertical" />
+
+            <LinearLayout
+                android:id="@+id/box_beta_current"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
                 android:orientation="vertical" />
 
             <LinearLayout

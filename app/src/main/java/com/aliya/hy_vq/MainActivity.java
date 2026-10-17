@@ -134,6 +134,8 @@ public class MainActivity extends AppCompatActivity {
     private boolean historyExpanded = false;
     /** 当前显示的版本通道页：0=正式版 1=测试版。 */
     private int versionChannel = 0;
+    /** 程序内 select() 期间置位，避免 onTabSelected 递归重绘。 */
+    private boolean suppressTabCallback = false;
     /** 测试版历史的展开状态（与正式版历史各自独立）。 */
     private boolean betaHistoryExpanded = false;
     // 2026-10-16：已移除 123 云盘源，故删除 cachedCnCred / credRetried 两个字段
@@ -2403,6 +2405,8 @@ public class MainActivity extends AppCompatActivity {
      * 默认关闭 —— 普通用户不该被半成品打扰。
      */
     private static final String PREF_BETA_CHANNEL = "beta_channel";
+    /** 是否已经问过更新通道（只问一次，之后从设置里改）。 */
+    private static final String PREF_BETA_CHANNEL_ASKED = "beta_channel_asked";
     /** 国内兜底更新源（优先级 ④）：123 云盘 WebDAV（内置**只读**凭据，泄漏也无法写入） */
     /* 2026-10-16 移除 123 云盘**更新源**：会员到期，WebDAV 实测 HTTP 401。
        ⚠️ ShareAppsView（软件分享浏览）仍用 123云盘，属独立功能，本次未动。
@@ -2653,7 +2657,49 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 进入软件更新页。
+     *
+     * <p>首次进入时先问一句「要不要接收测试版」——
+     * 不放在设置里当开关，是因为只有真正来更新的人才会做这个决定，
+     * 摆在当页最直接。
+     */
     private void switchToUpdate() {
+        if (!prefs.getBoolean(PREF_BETA_CHANNEL_ASKED, false)) {
+            askUpdateChannel(() -> reallySwitchToUpdate());
+            return;
+        }
+        reallySwitchToUpdate();
+    }
+
+    /** 询问是否接收测试版；选完才开始加载更新页。 */
+    private void askUpdateChannel(Runnable after) {
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("选择更新通道")
+                .setSingleChoiceItems(
+                        new String[]{"只接收正式版", "同时接收测试版"},
+                        prefs.getBoolean(PREF_BETA_CHANNEL, false) ? 1 : 0,
+                        (d, which) -> d.dismiss())
+                .setPositiveButton("确定", (d, w) -> {
+                    // 取对话框里当前选中项：singleChoiceItems 的监听只负责高亮，
+                    // 真正落盘放在确定，避免"点一下就算改了"的误触
+                    android.app.AlertDialog ad = (android.app.AlertDialog) d;
+                    int checked = ad.getListView().getCheckedItemPosition();
+                    boolean beta = checked == 1;
+                    prefs.edit()
+                            .putBoolean(PREF_BETA_CHANNEL, beta)
+                            .putBoolean(PREF_BETA_CHANNEL_ASKED, true)
+                            .commit();
+                    versionChannel = beta ? 1 : 0;
+                    android.util.Log.i("HyVqUpdate", "更新通道 → " + (beta ? "含测试版" : "仅正式版"));
+                    after.run();
+                })
+                .setNegativeButton("稍后", (d, w) -> d.dismiss())
+                .show();
+    }
+
+    /** 实际的页面切换（与通道询问解耦，便于测试与复用）。 */
+    private void reallySwitchToUpdate() {
         if (updateView == null) {
             updateView = LayoutInflater.from(this).inflate(R.layout.fragment_update, contentFrame, false);
             setupUpdateView();
@@ -2880,32 +2926,8 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout boxStable = updateView.findViewById(R.id.box_stable_channel);
         LinearLayout boxBeta = updateView.findViewById(R.id.box_beta_channel);
-        android.widget.CompoundButton swBeta =
-                updateView.findViewById(R.id.switch_upd_beta);
-        TextView tvBetaDesc = updateView.findViewById(R.id.tv_upd_beta_desc);
 
         final String curVer = baseVersionName();
-
-        // ── 开关状态 ──
-        boolean betaOn = prefs != null && prefs.getBoolean(PREF_BETA_CHANNEL, false);
-        if (swBeta != null) {
-            swBeta.setOnCheckedChangeListener(null);
-            swBeta.setChecked(betaOn);
-            swBeta.setOnCheckedChangeListener((b, on) -> {
-                // 同步写盘：开关是一次性操作，耗时可忽略，
-                // 但能保证紧接着的重绘一定读到新值。
-                prefs.edit().putBoolean(PREF_BETA_CHANNEL, on).commit();
-                android.util.Log.i("HyVqUpdate", "测试版开关 → " + on);
-                // 关掉开关时若正停在测试版页，切回正式版
-                if (!on) versionChannel = 0;
-                renderReleaseList(true);
-            });
-        }
-        if (tvBetaDesc != null) {
-            tvBetaDesc.setText(betaOn
-                    ? "已开启，可切换到「测试版」查看预览版本（可能不稳定）"
-                    : "开启后出现「测试版」页，可提前试用与回退验证");
-        }
 
         // ── Tab ──
         com.google.android.material.tabs.TabLayout tabs =
@@ -2918,6 +2940,7 @@ public class MainActivity extends AppCompatActivity {
                         new com.google.android.material.tabs.TabLayout.OnTabSelectedListener() {
                     @Override
                     public void onTabSelected(com.google.android.material.tabs.TabLayout.Tab t) {
+                        if (suppressTabCallback) return;   // 程序内 select()，不是用户点击
                         versionChannel = t.getPosition();
                         renderReleaseList(true);
                     }
@@ -2925,16 +2948,16 @@ public class MainActivity extends AppCompatActivity {
                     @Override public void onTabReselected(com.google.android.material.tabs.TabLayout.Tab t) {}
                 });
             }
-            // 开关关闭时测试版 Tab 不可用
-            com.google.android.material.tabs.TabLayout.Tab betaTab = tabs.getTabAt(1);
-            if (betaTab != null) betaTab.view.setEnabled(betaOn);
-            if (versionChannel == 1 && !betaOn) versionChannel = 0;
             if (tabs.getSelectedTabPosition() != versionChannel) {
+                // ⚠️ select() 会**同步**回调 onTabSelected → 再次进入
+                // renderReleaseList，不设防就是无限递归。用标志位挡掉这次回调。
+                suppressTabCallback = true;
                 com.google.android.material.tabs.TabLayout.Tab t = tabs.getTabAt(versionChannel);
                 if (t != null) t.select();
+                suppressTabCallback = false;
             }
         }
-        if (versionChannel != 0 && !betaOn) versionChannel = 0;
+        if (versionChannel != 0 && versionChannel != 1) versionChannel = 0;
 
         // ── 分流 ──
         // updReleases 已按版本号降序排好，顺序分流即保持各栏内部有序。
@@ -2944,7 +2967,7 @@ public class MainActivity extends AppCompatActivity {
             (ri.prerelease ? beta : stable).add(ri);
         }
 
-        boolean showBeta = versionChannel == 1 && betaOn;
+        boolean showBeta = versionChannel == 1;
         if (boxStable != null) {
             boxStable.setVisibility(showBeta ? View.GONE : View.VISIBLE);
         }
@@ -2954,7 +2977,8 @@ public class MainActivity extends AppCompatActivity {
 
         if (showBeta) {
             fillChannel(false, beta, curVer,
-                    updateView.findViewById(R.id.box_beta_latest), null,
+                    updateView.findViewById(R.id.box_beta_latest),
+                    updateView.findViewById(R.id.box_beta_current),
                     updateView.findViewById(R.id.box_beta_history_list),
                     updateView.findViewById(R.id.row_beta_history_header),
                     updateView.findViewById(R.id.btn_beta_history_toggle),
