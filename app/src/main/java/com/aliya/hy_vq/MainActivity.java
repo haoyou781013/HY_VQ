@@ -132,6 +132,18 @@ public class MainActivity extends AppCompatActivity {
     private static volatile boolean updateFlowBusy = false;
     /** 历史版本列表是否展开（默认收起，避免列表过长） */
     private boolean historyExpanded = false;
+    /**
+     * 版本号是否属于测试版（按 SemVer 的 pre-release 段判断）。
+     *
+     * <p>只看连字符后面的部分，不依赖服务端的 prerelease 字段 ——
+     * 那个字段只在扫描之后才有，而判断「本机装的是什么版」必须在扫描前就能做。
+     */
+    private static boolean isPrereleaseVersion(String ver) {
+        if (ver == null || ver.isEmpty()) return false;
+        int dash = ver.indexOf('-');
+        return dash >= 0 && dash < ver.length() - 1;
+    }
+
     /** 当前显示的版本通道页：0=正式版 1=测试版。 */
     private int versionChannel = 0;
     /** 程序内 select() 期间置位，避免 onTabSelected 递归重绘。 */
@@ -2767,6 +2779,15 @@ public class MainActivity extends AppCompatActivity {
                             ? "打开应用时在后台静默检查，发现新版本会提示"
                             : "已关闭，需手动点击「检查更新」");
                 }
+        // 更新通道：随时可重选，不必卸载重装
+        View itemChanOpt = updateView.findViewById(R.id.item_upd_channel);
+        if (itemChanOpt != null) {
+            itemChanOpt.setOnClickListener(v -> askUpdateChannel(() -> {
+                renderReleaseList(true);
+                renderUpdateView();
+            }));
+        }
+
         // 导出安装包（由关于页迁入）
         View itemUpdExport = updateView.findViewById(R.id.item_upd_export);
         if (itemUpdExport != null) itemUpdExport.setOnClickListener(v -> exportSelfApk());
@@ -2820,7 +2841,23 @@ public class MainActivity extends AppCompatActivity {
         TextView tvCur = updateView.findViewById(R.id.tv_upd_current);
         if (tvCur != null) tvCur.setText("v" + curVer);
         TextView tvChan = updateView.findViewById(R.id.tv_upd_channel);
-        if (tvChan != null) tvChan.setText("版本号 " + cur + " · 稳定版");
+        // 版本号下方那行要如实反映当前装的是正式版还是测试版，
+        // 不能一律写「稳定版」。
+        boolean installedBeta = isPrereleaseVersion(curVer);
+        if (tvChan != null) {
+            tvChan.setText("版本号 " + cur + (installedBeta ? " · 测试版" : " · 正式版"));
+        }
+
+        // 更新通道条目：显示当前选择
+        boolean betaOn = prefs.getBoolean(PREF_BETA_CHANNEL, false);
+        TextView tvChanOpt = updateView.findViewById(R.id.tv_upd_chanopt_value);
+        if (tvChanOpt != null) tvChanOpt.setText(betaOn ? "含测试版" : "仅正式版");
+        TextView tvChanDesc = updateView.findViewById(R.id.tv_upd_chanopt_desc);
+        if (tvChanDesc != null) {
+            tvChanDesc.setText(betaOn
+                    ? "同时接收正式版与测试版，点此修改"
+                    : "只接收正式版，点此修改");
+        }
 
         // 缓存检测：本机是否已存有更新的安装包（原生安装器不会清理缓存包）
         File[] newer = findCachedNewerApks(cur);
@@ -3060,12 +3097,19 @@ public class MainActivity extends AppCompatActivity {
                 if (compareVersion(ri.ver, curVer) == 0) { current = ri; break; }
             }
             if (current != null) {
+                // 命中列表条目时也按版本号纠正一次 prerelease ——
+                // 装的若是 2.39.0-beta.4，在正式版栏里同样不能丢 BETA 标记。
+                current.prerelease = isPrereleaseVersion(current.ver);
                 boxCurrent.addView(buildReleaseRow(current, true));
             } else {
-                // 本机版本不在该通道列表里（例如装的是尚未发布的本地构建）
+                // 本机版本不在该通道列表里（例如刚装的测试版，
+                // 正式版栏里自然查不到它）。
                 ReleaseInfo local = new ReleaseInfo();
                 local.ver = curVer;
-                local.prerelease = !isStable;
+                // ⚠️ 必须按**版本号**判断，不能写 !isStable。
+                // 原来写 !isStable，导致正式版栏把 2.39.0-beta.4
+                // 显示成没有 BETA 字样的正式版。
+                local.prerelease = isPrereleaseVersion(curVer);
                 boxCurrent.addView(buildReleaseRow(local, true));
             }
         }
