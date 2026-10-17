@@ -2674,25 +2674,38 @@ public class MainActivity extends AppCompatActivity {
 
     /** 询问是否接收测试版；选完才开始加载更新页。 */
     private void askUpdateChannel(Runnable after) {
+        // 选中项自己记，不依赖对话框的 getCheckedItemPosition()。
+        //
+        // 2026-10-18 踩的两个坑：
+        //  ① 原写法在回调里 d.dismiss()，用户点「只接收正式版」对话框
+        //     立刻关掉，根本选不上；
+        //  ② setPositiveButton 里把 DialogInterface 强转成 AlertDialog
+        //     再去 getListView() —— MaterialAlertDialogBuilder 返回的不是
+        //     android.app.AlertDialog，ClassCastException 直接闪退。
+        //
+        // 现在单选只更新这个变量并高亮，不关闭；「确定」才落盘。
+        final int[] picked = {prefs.getBoolean(PREF_BETA_CHANNEL, false) ? 1 : 0};
+
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle("选择更新通道")
                 .setSingleChoiceItems(
                         new String[]{"只接收正式版", "同时接收测试版"},
-                        prefs.getBoolean(PREF_BETA_CHANNEL, false) ? 1 : 0,
-                        (d, which) -> d.dismiss())
+                        picked[0],
+                        (d, which) -> picked[0] = which)   // 只记录，不 dismiss
                 .setPositiveButton("确定", (d, w) -> {
-                    // 取对话框里当前选中项：singleChoiceItems 的监听只负责高亮，
-                    // 真正落盘放在确定，避免"点一下就算改了"的误触
-                    android.app.AlertDialog ad = (android.app.AlertDialog) d;
-                    int checked = ad.getListView().getCheckedItemPosition();
-                    boolean beta = checked == 1;
+                    boolean beta = picked[0] == 1;
                     prefs.edit()
                             .putBoolean(PREF_BETA_CHANNEL, beta)
                             .putBoolean(PREF_BETA_CHANNEL_ASKED, true)
                             .commit();
                     versionChannel = beta ? 1 : 0;
-                    android.util.Log.i("HyVqUpdate", "更新通道 → " + (beta ? "含测试版" : "仅正式版"));
-                    after.run();
+                    android.util.Log.i("HyVqUpdate",
+                            "更新通道 → " + (beta ? "含测试版" : "仅正式版"));
+                    // 延后一帧：此刻对话框正在关闭，同一帧内做 switchContent
+                    // 会和 dismiss 的窗口动画抢时序，偶尔出现内容空白。
+                    // updateView 此时可能还没 inflate，降级到 contentFrame 上 post。
+                    View host = updateView != null ? updateView : contentFrame;
+                    if (host != null) host.post(after); else after.run();
                 })
                 .setNegativeButton("稍后", (d, w) -> d.dismiss())
                 .show();
