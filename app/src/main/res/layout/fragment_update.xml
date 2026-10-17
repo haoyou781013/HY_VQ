@@ -230,6 +230,85 @@
             android:orientation="vertical"
             android:visibility="gone" />
 
+        <!-- ══════════ ⑤-B 测试版（与正式版并列的独立列表） ══════════ -->
+        <!--
+          正式版与测试版分开展示：两套「最新 / 当前 / 历史」，互不干扰。
+          用户不需要先打开某个开关才能看到 beta —— 两个区始终都在，
+          有测试版就显示内容，没有就显示一行说明。
+        -->
+        <LinearLayout
+            android:id="@+id/box_beta_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="22dp"
+                android:layout_marginBottom="2dp"
+                android:layout_marginStart="4dp"
+                android:text="测试版"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
+                android:textColor="?attr/colorTertiary" />
+
+            <LinearLayout
+                android:id="@+id/box_beta_latest"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <!-- 测试版历史（可折叠，默认收起） -->
+            <LinearLayout
+                android:id="@+id/row_beta_history_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingVertical="6dp">
+
+                <TextView
+                    android:id="@+id/tv_beta_history_title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:text="测试版历史"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_beta_history_toggle"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="2dp"
+                    android:minWidth="0dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="10dp"
+                    android:text="展开"
+                    android:textSize="12sp"
+                    app:cornerRadius="16dp"
+                    app:icon="@drawable/ic_expand_more"
+                    app:iconGravity="textEnd"
+                    app:iconPadding="2dp"
+                    app:iconSize="18dp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/box_beta_history_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone" />
+        </LinearLayout>
+
+
         <!-- ══════════ ⑥ 已下载的安装包 ══════════ -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/card_upd_cache"
@@ -348,44 +427,7 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
 
-        <!-- ⑧-b 接收测试版 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="接收测试版"
-                    android:textAppearance="?attr/textAppearanceBodyLarge"
-                    android:textColor="?attr/colorOnSurface" />
-
-                <TextView
-                    android:id="@+id/tv_upd_beta_desc"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="开启后会检查 beta / 预览版，功能可能不稳定"
-                    android:textAppearance="?attr/textAppearanceBodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant" />
-            </LinearLayout>
-
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/switch_upd_beta"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
-        </LinearLayout>
-
-        <!-- ══════════ ⑨ 导出安装包 ══════════ -->
+<!-- ══════════ ⑨ 导出安装包 ══════════ -->
         <LinearLayout
             android:id="@+id/item_upd_export"
             android:layout_width="match_parent"

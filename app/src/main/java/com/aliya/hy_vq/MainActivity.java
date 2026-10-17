@@ -132,6 +132,8 @@ public class MainActivity extends AppCompatActivity {
     private static volatile boolean updateFlowBusy = false;
     /** 历史版本列表是否展开（默认收起，避免列表过长） */
     private boolean historyExpanded = false;
+    /** 测试版历史的展开状态（与正式版历史各自独立）。 */
+    private boolean betaHistoryExpanded = false;
     // 2026-10-16：已移除 123 云盘源，故删除 cachedCnCred / credRetried 两个字段
     /** 开源仓库地址（与 README / LICENSE 一致）
      *  2026-09-27：仓库迁至新账号 —— 旧账号因双重验证密钥丢失无法登录，详见 MIGRATION.md */
@@ -2392,13 +2394,9 @@ public class MainActivity extends AppCompatActivity {
     /** 启动时自动检查更新的偏好键（默认开启） */
     private static final String PREF_AUTO_CHECK_UPDATE = "auto_check_update";
 
-    /**
-     * 是否接收测试版（beta / RC / prerelease）。
-     *
-     * <p>默认关闭 —— 普通用户不该被半成品打扰。
-     * 开启后版本列表会保留 GitHub/Gitee 标记为 prerelease 的版本。
-     */
-    private static final String PREF_BETA_CHANNEL = "beta_channel";
+    // 2026-10-18 移除 PREF_BETA_CHANNEL（"接收测试版"开关）。
+    // 正式版与测试版改为在更新页分列两栏，始终同时展示，
+    // 不再需要用户手动开启某个通道。
     /** 国内兜底更新源（优先级 ④）：123 云盘 WebDAV（内置**只读**凭据，泄漏也无法写入） */
     /* 2026-10-16 移除 123 云盘**更新源**：会员到期，WebDAV 实测 HTTP 401。
        ⚠️ ShareAppsView（软件分享浏览）仍用 123云盘，属独立功能，本次未动。
@@ -2655,118 +2653,10 @@ public class MainActivity extends AppCompatActivity {
             setupUpdateView();
         }
         renderUpdateView();
-        syncBetaSwitch();
         switchContent(updateView, PAGE_UPDATE);
         setSubpageToolbar("软件更新");
     }
 
-    /**
-     * 把「接收测试版」开关的显示状态与 prefs 对齐。
-     *
-     * <p>为什么需要单独一个方法：开关的监听器在 {@code setupUpdateView()}
-     * 里安装，而那个方法**只在 updateView 首次创建时调用一次**。
-     * 之后页面被反复复用，若期间 prefs 被别处改动（或用户上次没等落盘
-     * 就切走），控件显示就可能与真实值脱节 —— 用户看到「开着」，
-     * 实际读到 false，beta 就不会出现在列表里。
-     *
-     * <p>每次进入更新页都对齐一次，代价是一次 prefs 读取。
-     */
-    /**
-     * 确保更新页两个开关（启动自动检查 / 接收测试版）都已绑好监听器。
-     *
-     * <p>幂等：重复调用只是重装一次监听器（先摘后装，不会叠加）。
-     * 由 {@link #renderUpdateView()} 调用，而它每次进页面和每次重绘都会跑，
-     * 因此不存在「漏装」窗口。
-     */
-    private void ensureUpdateSwitchesBound() {
-        if (updateView == null || prefs == null) return;
-
-        com.google.android.material.switchmaterial.SwitchMaterial swAuto =
-                updateView.findViewById(R.id.switch_upd_auto);
-        TextView tvAutoDesc = updateView.findViewById(R.id.tv_upd_auto_desc);
-        if (swAuto != null) {
-            boolean on = prefs.getBoolean(PREF_AUTO_CHECK_UPDATE, true);
-            swAuto.setOnCheckedChangeListener(null);
-            swAuto.setChecked(on);
-            if (tvAutoDesc != null) {
-                tvAutoDesc.setText(on
-                        ? "打开应用时在后台静默检查，发现新版本会提示"
-                        : "已关闭，需手动点击「检查更新」");
-            }
-            swAuto.setOnCheckedChangeListener((btn, checked) -> {
-                prefs.edit().putBoolean(PREF_AUTO_CHECK_UPDATE, checked).commit();
-                if (tvAutoDesc != null) {
-                    tvAutoDesc.setText(checked
-                            ? "打开应用时在后台静默检查，发现新版本会提示"
-                            : "已关闭，需手动点击「检查更新」");
-                }
-            });
-        }
-
-        // 测试版开关：先对齐显示值，再装监听器（顺序不能反）
-        View v = updateView.findViewById(R.id.switch_upd_beta);
-        if (v instanceof android.widget.CompoundButton) {
-            android.widget.CompoundButton cb = (android.widget.CompoundButton) v;
-            boolean beta = prefs.getBoolean(PREF_BETA_CHANNEL, false);
-            cb.setOnCheckedChangeListener(null);
-            cb.setChecked(beta);
-            bindBetaSwitch();
-        }
-    }
-
-    private void syncBetaSwitch() {
-        if (updateView == null || prefs == null) return;
-        View v = updateView.findViewById(R.id.switch_upd_beta);
-        if (!(v instanceof android.widget.CompoundButton)) return;
-        android.widget.CompoundButton cb = (android.widget.CompoundButton) v;
-
-        boolean real = prefs.getBoolean(PREF_BETA_CHANNEL, false);
-        boolean shown = cb.isChecked();
-        android.util.Log.i("HyVqUpdate",
-                "进入更新页 syncBetaSwitch: 控件=" + shown + " prefs=" + real);
-
-        if (shown == real) return;
-
-        // ⚠️ 必须先摘掉监听器再 setChecked。
-        // 否则 setChecked 会触发监听器 → 把**旧值**写回 prefs，
-        // 正好覆盖掉用户刚才的改动。
-        // 2026-10-18 实测踩过：用户勾了开关（控件 true），
-        // 但 prefs 里 beta_channel 键根本不存在，beta 一直被过滤掉。
-        cb.setOnCheckedChangeListener(null);
-        cb.setChecked(real);
-        // 监听器由 bindBetaSwitch() 统一安装
-        bindBetaSwitch();
-        android.util.Log.w("HyVqUpdate",
-                "开关状态已纠正：控件 " + shown + " → " + real);
-    }
-
-    /**
-     * 给「接收测试版」开关安装监听器（幂等）。
-     *
-     * <p>初始化与 {@link #syncBetaSwitch()} 纠正后都走这里，
-     * 避免监听器被重复叠加或被漏装。
-     */
-    private void bindBetaSwitch() {
-        if (updateView == null || prefs == null) return;
-        View v = updateView.findViewById(R.id.switch_upd_beta);
-        if (!(v instanceof android.widget.CompoundButton)) return;
-        android.widget.CompoundButton cb = (android.widget.CompoundButton) v;
-        TextView desc = updateView.findViewById(R.id.tv_upd_beta_desc);
-
-        cb.setOnCheckedChangeListener((b, checked) -> {
-            // 同步写盘：开关是一次性操作，耗时可忽略，
-            // 但能保证紧接着的 fetchReleases 一定读到新值。
-            boolean ok = prefs.edit().putBoolean(PREF_BETA_CHANNEL, checked).commit();
-            android.util.Log.i("HyVqUpdate",
-                    "测试版通道 → " + checked + " (落盘" + (ok ? "成功" : "失败") + ")");
-            if (desc != null) {
-                desc.setText(checked
-                        ? "已开启，会列出 beta / 预览版（功能可能不稳定）"
-                        : "开启后会检查 beta / 预览版，功能可能不稳定");
-            }
-            checkRemoteUpdate();
-        });
-    }
 
     private void setupUpdateView() {
         if (updateView == null) return;
@@ -2782,6 +2672,15 @@ public class MainActivity extends AppCompatActivity {
         };
         View histHeader = updateView.findViewById(R.id.row_history_header);
         if (histHeader != null) histHeader.setOnClickListener(toggleHistory);
+
+        // 测试版历史的折叠按钮：与正式版互不影响
+        View betaHeader = updateView.findViewById(R.id.row_beta_history_header);
+        if (betaHeader != null) {
+            betaHeader.setOnClickListener(v -> {
+                betaHistoryExpanded = !betaHistoryExpanded;
+                renderReleaseList(true);
+            });
+        }
         View btnHistoryToggle = updateView.findViewById(R.id.btn_history_toggle);
         if (btnHistoryToggle != null) btnHistoryToggle.setOnClickListener(toggleHistory);
         com.google.android.material.switchmaterial.SwitchMaterial swAuto =
@@ -2803,30 +2702,6 @@ public class MainActivity extends AppCompatActivity {
                             ? "打开应用时在后台静默检查，发现新版本会提示"
                             : "已关闭，需手动点击「检查更新」");
                 }
-        // 测试版通道开关。
-        //
-        // 默认关闭 —— 普通用户不该被半成品打扰。开启后 fetchReleases
-        // 会保留 prerelease 版本（过滤逻辑见那边）。
-        {
-            com.google.android.material.switchmaterial.SwitchMaterial swBeta =
-                    updateView.findViewById(R.id.switch_upd_beta);
-            TextView tvBetaDesc = updateView.findViewById(R.id.tv_upd_beta_desc);
-            if (swBeta != null) {
-                // 先按 prefs 摆好位置，**然后**才装监听器 ——
-                // 顺序反了会让 setChecked 触发一次写入，把值改回去。
-                boolean betaOn = prefs.getBoolean(PREF_BETA_CHANNEL, false);
-                swBeta.setOnCheckedChangeListener(null);
-                swBeta.setChecked(betaOn);
-                if (tvBetaDesc != null) {
-                    tvBetaDesc.setText(betaOn
-                            ? "已开启，会列出 beta / 预览版（功能可能不稳定）"
-                            : "开启后会检查 beta / 预览版，功能可能不稳定");
-                }
-                bindBetaSwitch();
-            }
-        }
-
-
         // 导出安装包（由关于页迁入）
         View itemUpdExport = updateView.findViewById(R.id.item_upd_export);
         if (itemUpdExport != null) itemUpdExport.setOnClickListener(v -> exportSelfApk());
@@ -2865,16 +2740,15 @@ public class MainActivity extends AppCompatActivity {
     /** 统一渲染更新页：当前版本 / 状态卡 / 可用版本列表 / 缓存卡 / 操作按钮 */
     private void renderUpdateView() {
         if (updateView == null) return;
-        // ⚠️ 两个开关的监听器必须**每次都确保存在**。
+        // ⚠️ 「启动自动检查」开关的监听器必须每次都确保存在。
         //
-        // 它们原先只在 setupUpdateView() 里安装，而那个方法只在 updateView
-        // 首次创建时执行一次。若更新页在此之前就已经建好（比如上次会话遗留），
-        // 监听器就永远不会被装上 —— 控件点了会变、但没有任何代码接收事件，
-        // prefs 里连键都不会出现。
+        // 它原先只在 setupUpdateView() 里安装，而那个方法只在 updateView
+        // 首次创建时执行一次。若更新页在此之前就已经建好，
+        // 监听器就永远不会被装上 —— 控件点了会变、但没有任何代码接收事件。
         //
-        // 2026-10-18 实测踩过：诊断显示「控件=true / prefs=false /
-        // app_settings 里根本没有 beta_channel」，正是这个原因。
-        ensureUpdateSwitchesBound();
+        // 2026-10-18 实测踩过同类问题（当时是 beta 开关）：
+        // 诊断显示「控件=true / prefs=false / app_settings 里根本没有该键」。
+        bindAutoCheckSwitch();
         final int cur = currentPkgCode();
         final String curVer = baseVersionName();
 
@@ -2959,94 +2833,230 @@ public class MainActivity extends AppCompatActivity {
         updateUpdateStateLabel();
     }
 
-    /** 渲染「可用版本」列表：每行可点，下载直链取自 API 返回的精确地址 */
-    /** 渲染版本区：最新版本 / 当前版本 / 历史版本（默认折叠，避免列表过长） */
+    /**
+     * 绑定「启动自动检查」开关（幂等，每次重绘都调）。
+     *
+     * <p>先 setChecked 对齐显示值，**再**装监听器 —— 顺序反了会让
+     * setChecked 触发一次写入，把值改回去。
+     */
+    private void bindAutoCheckSwitch() {
+        if (updateView == null || prefs == null) return;
+        com.google.android.material.switchmaterial.SwitchMaterial swAuto =
+                updateView.findViewById(R.id.switch_upd_auto);
+        TextView tvAutoDesc = updateView.findViewById(R.id.tv_upd_auto_desc);
+        if (swAuto == null) return;
+
+        boolean on = prefs.getBoolean(PREF_AUTO_CHECK_UPDATE, true);
+        swAuto.setOnCheckedChangeListener(null);
+        swAuto.setChecked(on);
+        if (tvAutoDesc != null) {
+            tvAutoDesc.setText(on
+                    ? "打开应用时在后台静默检查，发现新版本会提示"
+                    : "已关闭，需手动点击「检查更新」");
+        }
+        swAuto.setOnCheckedChangeListener((btn, checked) -> {
+            prefs.edit().putBoolean(PREF_AUTO_CHECK_UPDATE, checked).commit();
+            if (tvAutoDesc != null) {
+                tvAutoDesc.setText(checked
+                        ? "打开应用时在后台静默检查，发现新版本会提示"
+                        : "已关闭，需手动点击「检查更新」");
+            }
+        });
+    }
+
+    /** 渲染版本区：正式版与测试版**分列两套**「最新 / 当前 / 历史」。 */
     private void renderReleaseList() {
         renderReleaseList(false);
     }
 
     private void renderReleaseList(boolean animate) {
         if (updateView == null) return;
+
         LinearLayout boxLatest = updateView.findViewById(R.id.box_latest_version);
         LinearLayout boxCurrent = updateView.findViewById(R.id.box_current_version);
         LinearLayout boxHistory = updateView.findViewById(R.id.box_history_list);
         View histHeader = updateView.findViewById(R.id.row_history_header);
         com.google.android.material.button.MaterialButton btnToggle =
                 updateView.findViewById(R.id.btn_history_toggle);
+
+        LinearLayout betaSection = updateView.findViewById(R.id.box_beta_section);
+        LinearLayout betaLatest = updateView.findViewById(R.id.box_beta_latest);
+        LinearLayout betaHistory = updateView.findViewById(R.id.box_beta_history_list);
+        View betaHeader = updateView.findViewById(R.id.row_beta_history_header);
+        com.google.android.material.button.MaterialButton betaToggle =
+                updateView.findViewById(R.id.btn_beta_history_toggle);
+        TextView betaHistTitle = updateView.findViewById(R.id.tv_beta_history_title);
+
         if (boxLatest == null || boxCurrent == null || boxHistory == null) return;
 
         boxLatest.removeAllViews();
         boxCurrent.removeAllViews();
         boxHistory.removeAllViews();
+        if (betaLatest != null) betaLatest.removeAllViews();
+        if (betaHistory != null) betaHistory.removeAllViews();
 
         final String curVer = baseVersionName();
 
-        // 尚未扫描：给出提示，并仍列出当前版本（本地信息，无需联网）
+        // ── 尚未扫描：给提示，并仍列出当前版本（本地信息，无需联网）──
         if (updReleases.isEmpty()) {
-            TextView tv = new TextView(this);
-            tv.setText("点「检查更新」获取版本信息");
-            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            tv.setTextColor(ModuleUiKit.color(this,
-                    com.google.android.material.R.attr.colorOnSurfaceVariant));
-            int pad = dp2(4);
-            tv.setPadding(pad, dp2(8), pad, pad);
-            boxLatest.addView(tv);
+            boxLatest.addView(buildHintRow("点「检查更新」获取版本信息"));
 
+            // 当前装的是什么版，就归到哪一栏
             ReleaseInfo local = new ReleaseInfo();
             local.ver = curVer;
+            local.prerelease = isPrereleaseVersion(curVer);
             boxCurrent.addView(buildReleaseRow(local, true));
             if (histHeader != null) histHeader.setVisibility(View.GONE);
+            if (betaSection != null) betaSection.setVisibility(View.GONE);
             return;
         }
 
-        ReleaseInfo latest = updReleases.get(0);
-        ReleaseInfo current = null;
-        java.util.List<ReleaseInfo> history = new java.util.ArrayList<>();
+        // ── 按 pre-release 分流 ──
+        // updReleases 已按版本号降序排好，直接顺序分流即可保持各栏内部有序。
+        java.util.List<ReleaseInfo> stable = new java.util.ArrayList<>();
+        java.util.List<ReleaseInfo> beta = new java.util.ArrayList<>();
         for (ReleaseInfo ri : updReleases) {
-            if (compareVersion(ri.ver, latest.ver) == 0) continue;
-            if (compareVersion(ri.ver, curVer) == 0) {
-                current = ri;
-                continue;
+            (ri.prerelease ? beta : stable).add(ri);
+        }
+
+        // ── 正式版栏 ──
+        fillVersionColumn(true, stable, curVer,
+                boxLatest, boxCurrent, boxHistory, histHeader, btnToggle, animate);
+
+        // ── 测试版栏 ──
+        boolean showBeta = betaSection != null && betaLatest != null && !beta.isEmpty();
+        if (betaSection != null) {
+            betaSection.setVisibility(showBeta ? View.VISIBLE : View.GONE);
+        }
+        if (showBeta) {
+            fillVersionColumn(false, beta, curVer,
+                    betaLatest, null, betaHistory, betaHeader, betaToggle, animate);
+        }
+    }
+
+    /**
+     * 填充一栏版本区（最新 / 当前 / 历史）。
+     *
+     * @param isStable  true=正式版栏；false=测试版栏
+     * @param list      该栏的版本（已按降序排列，可能为空）
+     * @param boxCurrent 当前版本容器；测试版栏传 null（不单列当前版）
+     */
+    private void fillVersionColumn(boolean isStable,
+                                   java.util.List<ReleaseInfo> list,
+                                   String curVer,
+                                   LinearLayout boxLatest,
+                                   LinearLayout boxCurrent,
+                                   LinearLayout boxHistory,
+                                   View histHeader,
+                                   com.google.android.material.button.MaterialButton btnToggle,
+                                   boolean animate) {
+        if (list.isEmpty()) {
+            // 正式版栏为空是异常情况（至少应有历史版本），给个提示；
+            // 测试版栏为空时外层已整体隐藏，不会走到这里。
+            if (boxLatest != null) {
+                boxLatest.addView(buildHintRow(isStable
+                        ? "暂无正式版信息" : "暂无测试版"));
             }
+            if (histHeader != null) histHeader.setVisibility(View.GONE);
+            if (boxHistory != null) boxHistory.setVisibility(View.GONE);
+            return;
+        }
+
+        ReleaseInfo latest = list.get(0);
+
+        // 最新版
+        if (boxLatest != null) {
+            boxLatest.addView(buildReleaseRow(latest,
+                    compareVersion(latest.ver, curVer) == 0));
+        }
+
+        // 当前版本（仅正式版栏展示）
+        if (boxCurrent != null) {
+            ReleaseInfo current = null;
+            for (ReleaseInfo ri : list) {
+                if (ri != latest && compareVersion(ri.ver, curVer) == 0) {
+                    current = ri;
+                    break;
+                }
+            }
+            if (current != null) {
+                boxCurrent.addView(buildReleaseRow(current, true));
+            } else if (compareVersion(latest.ver, curVer) == 0) {
+                // 当前就是这个栏的最新版：复用 latest（含 body）
+                boxCurrent.addView(buildReleaseRow(latest, true));
+            } else {
+                ReleaseInfo local = new ReleaseInfo();
+                local.ver = curVer;
+                local.prerelease = !isStable;
+                boxCurrent.addView(buildReleaseRow(local, true));
+            }
+        }
+
+        // 历史版本（可折叠）
+        java.util.List<ReleaseInfo> history = new java.util.ArrayList<>();
+        for (int i = 1; i < list.size(); i++) {
+            ReleaseInfo ri = list.get(i);
+            // 当前版本已单独展示，历史里不再重复
+            if (compareVersion(ri.ver, curVer) == 0) continue;
             history.add(ri);
         }
 
-        boxLatest.addView(buildReleaseRow(latest, compareVersion(latest.ver, curVer) == 0));
-        if (current != null) {
-            boxCurrent.addView(buildReleaseRow(current, true));
-        } else if (compareVersion(latest.ver, curVer) == 0) {
-            // 当前版本 = 最新版：上面的循环跳过了 latest，直接复用它（含 body）
-            boxCurrent.addView(buildReleaseRow(latest, true));
-        } else {
-            ReleaseInfo local = new ReleaseInfo();
-            local.ver = curVer;
-            boxCurrent.addView(buildReleaseRow(local, true));
-        }
+        if (boxHistory == null) return;
 
         if (history.isEmpty()) {
             if (histHeader != null) histHeader.setVisibility(View.GONE);
             boxHistory.setVisibility(View.GONE);
-        } else {
-            if (histHeader != null) histHeader.setVisibility(View.VISIBLE);
-            for (ReleaseInfo ri : history) boxHistory.addView(buildReleaseRow(ri, false));
+            return;
+        }
 
-            // 展开/收起时启用平滑过渡：必须在改变可见性**之前**启动，
-            // AutoTransition 会自动处理淡入淡出与高度变化（系统 API，无需额外依赖）
-            if (animate) {
-                ViewGroup scene = updateView.findViewById(R.id.update_content);
-                if (scene != null) {
-                    android.transition.TransitionManager.beginDelayedTransition(
-                            scene, new android.transition.AutoTransition().setDuration(240));
-                }
-            }
-            boxHistory.setVisibility(historyExpanded ? View.VISIBLE : View.GONE);
+        if (histHeader != null) {
+            histHeader.setVisibility(View.VISIBLE);
+            // 测试版历史标题带上条数，一眼看出有多少
+            TextView t = histHeader.findViewById(R.id.tv_beta_history_title);
+            if (t != null) t.setText("测试版历史（" + history.size() + "）");
+        }
+        for (ReleaseInfo ri : history) boxHistory.addView(buildReleaseRow(ri, false));
 
-            if (btnToggle != null) {
-                btnToggle.setText(historyExpanded ? "收起" : "展开");
-                btnToggle.setIconResource(historyExpanded
-                        ? R.drawable.ic_expand_less : R.drawable.ic_expand_more);
+        // 展开/收起时启用平滑过渡：必须在改变可见性**之前**启动
+        boolean expanded = isStable ? historyExpanded : betaHistoryExpanded;
+        if (animate) {
+            ViewGroup scene = updateView.findViewById(R.id.update_content);
+            if (scene != null) {
+                android.transition.TransitionManager.beginDelayedTransition(
+                        scene, new android.transition.AutoTransition().setDuration(240));
             }
         }
+        boxHistory.setVisibility(expanded ? View.VISIBLE : View.GONE);
+
+        if (btnToggle != null) {
+            btnToggle.setText(expanded ? "收起" : "展开");
+            btnToggle.setIconResource(expanded
+                    ? R.drawable.ic_expand_less : R.drawable.ic_expand_more);
+        }
+    }
+
+    /** 一行灰色提示文字。 */
+    private TextView buildHintRow(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tv.setTextColor(ModuleUiKit.color(this,
+                com.google.android.material.R.attr.colorOnSurfaceVariant));
+        int pad = dp2(4);
+        tv.setPadding(pad, dp2(8), pad, pad);
+        return tv;
+    }
+
+    /**
+     * 版本号是否属于测试版（按 SemVer 的 pre-release 段判断）。
+     *
+     * <p>用于「当前安装的是哪一栏」的归类。只看连字符后面的部分，
+     * 不依赖服务端的 prerelease 字段 —— 那个字段只在扫描之后才有。
+     */
+    private static boolean isPrereleaseVersion(String ver) {
+        if (ver == null || ver.isEmpty()) return false;
+        int dash = ver.indexOf('-');
+        return dash >= 0 && dash < ver.length() - 1;
     }
 
     /** 构建一行版本条目（最新/当前/历史共用） */
@@ -3340,13 +3350,13 @@ public class MainActivity extends AppCompatActivity {
         // 这是「用户明确要求测试版」的场景，多一次网络往返是值得的。
         // prefs 理论上在 onCreate 早期已初始化，但 fetchReleases 跑在
         // 裸 Thread 里、没有任何 try-catch —— 这里若 NPE 会直接杀进程。
-        boolean wantBeta = prefs != null
-                && prefs.getBoolean(PREF_BETA_CHANNEL, false);
-
-        if (merged.size() < MIN_EXPECTED_RELEASES || (wantBeta && !hasPrerelease(merged))) {
+        // 两栏都要有内容：条数不够要补，**缺 beta 也要补**。
+        // 后者是必须的 —— Gitee 可能只回填了正式版的 APK，
+        // 没有 beta 就得去 GitHub 拿。
+        if (merged.size() < MIN_EXPECTED_RELEASES || !hasPrerelease(merged)) {
             mergeInto(merged, fetchReleasesFromMirrors());
         }
-        if (merged.size() < MIN_EXPECTED_RELEASES || (wantBeta && !hasPrerelease(merged))) {
+        if (merged.size() < MIN_EXPECTED_RELEASES || !hasPrerelease(merged)) {
             mergeInto(merged, fetchReleasesFrom(REMOTE_RELEASES, "application/vnd.github+json"));
         }
 
@@ -3444,7 +3454,9 @@ public class MainActivity extends AppCompatActivity {
                 // 关闭时只列正式版（默认），开启后一并列出。
                 if (r.optBoolean("draft", false)) continue;
                 boolean isPre = r.optBoolean("prerelease", false);
-                if (isPre && !prefs.getBoolean(PREF_BETA_CHANNEL, false)) continue;
+                // 2026-10-18：不再按开关丢弃 prerelease。
+                // 正式版与测试版在 UI 上已分列两栏，过滤掉反而让用户
+                // 根本无从发现测试版的存在。全部保留，由渲染层分流。
                 ReleaseInfo ri = new ReleaseInfo();
                 ri.tag = r.optString("tag_name", "");
                 // 除 API 字段外再按 tag 名兜一层：作者可能忘了勾 prerelease，
