@@ -1,20 +1,20 @@
 {
- "updatedAt": "2026-10-21 15:35",
+ "updatedAt": "2026-10-21 15:40",
  "count": 33,
  "versions": [
   {
    "ver": "2.42.0-beta.3",
-   "versionCode": 0,
+   "versionCode": 153,
    "prerelease": true,
    "publishedAt": "2026-10-21",
-   "size": 0,
+   "size": 6448493,
    "md5": "1c3622c184252768a707d62eed53fef6",
    "apk": "HY_VQ-2.42.0-beta.3.apk",
    "body": "## HY_VQ v2.42.0-beta.3 测试版\n\n### 1. 文件管理左上角返回键位置修正\n修正返回键与标题之间的视觉重心偏移（`layout_marginStart=\"-4dp\"`）。\n\n### 2. 同步交换键箭头间距收紧\n`buildSyncArrows()` 中左右两个箭头的内边距由 0 改为 2dp，\n箭头视觉间距缩小，触控区域仍保持 34dp 不受影响。\n\n### 3. 解压支持更多压缩包格式\n解压能力从「仅 ZIP」扩展为：\n\n| 类型 | 扩展名 |\n|---|---|\n| ZIP 系 | `.zip` `.jar` `.war` |\n| 7-Zip | `.7z` |\n| RAR | `.rar` |\n| TAR | `.tar` |\n| GZip | `.gz` `.gzip` `.tgz` |\n| BZip2 | `.bz2` `.tbz` `.tbz2` |\n| XZ | `.xz` `.txz` |\n| LZMA | `.lzma` |\n\n支持多级后缀识别（`.tar.gz` / `.tar.bz2` / `.tar.xz`），解压目录自动去后缀命名，\n带路径穿越防护（`getCanonicalPath()` 前缀校验）。\n\n### 依赖与体积\n新增纯 Java 依赖：`commons-compress 1.26.2`、`junrar 7.5.5`、`tukaani-xz 1.10`。\n\nAPK 体积 5.80 MB → **6.15 MB**（+0.35 MB，+6%）。\n\n### 已知限制\n- **zstd / lz4 不支持**：`zstd-jni` 只提供 linux/mac/windows 的 JNI `.so`，\n  没有 Android ABI，在手机上会直接崩溃，故不引入。\n- **压缩仍是 ZIP 单一格式**，本次只扩展解压方向。\n- 7z 的加密包、RAR5 的加密包暂不支持。\n\n### ⚠️ 未验证项\n返回键的 -4dp 与箭头 2dp 的调整是按布局几何推算的，\n未在真机屏幕上肉眼确认。若仍偏或矫正过度，请反馈方向，下个版本微调。"
   },
   {
    "ver": "2.42.0-beta.2",
-   "versionCode": 0,
+   "versionCode": 152,
    "prerelease": true,
    "publishedAt": "2026-10-21",
    "size": 6081015,
@@ -24,7 +24,7 @@
   },
   {
    "ver": "2.42.0-beta.1",
-   "versionCode": 0,
+   "versionCode": 151,
    "prerelease": true,
    "publishedAt": "2026-10-21",
    "size": 6079667,
@@ -34,7 +34,7 @@
   },
   {
    "ver": "2.41.0-beta.9",
-   "versionCode": 0,
+   "versionCode": 149,
    "prerelease": true,
    "publishedAt": "2026-10-21",
    "size": 6079403,
@@ -44,7 +44,7 @@
   },
   {
    "ver": "2.41.0-beta.8",
-   "versionCode": 0,
+   "versionCode": 148,
    "prerelease": true,
    "publishedAt": "2026-10-21",
    "size": 6079023,
@@ -124,7 +124,7 @@
   },
   {
    "ver": "2.41.0",
-   "versionCode": 0,
+   "versionCode": 150,
    "prerelease": false,
    "publishedAt": "2026-10-21",
    "size": 6079387,
