@@ -1,7 +1,14 @@
 {
-  "updatedAt": "2026-10-25 10:30",
-  "count": 41,
+  "updatedAt": "2026-10-25 10:15",
+  "count": 42,
   "versions": [
+    {
+      "ver": "2.42.0-beta.13",
+      "versionCode": 163,
+      "prerelease": true,
+      "publishedAt": "2026-10-25",
+      "body": "## 2.42.0-beta.13\n\n> **本版修复更新扫描 bug**。此前软件内只能看到 beta.10，原因是 Gitee Releases API\n> 默认排序不是按创建时间（最新版本被挤出 100 条之外），客户端拿不到新版本。\n> 本版改为显式 `sort=created&direction=desc`，保证最新版本永远排第一。\n\n**修复**\n- 更新扫描：Gitee 源显式按创建时间倒序，确保新版本排在前面\n- 之前三次「扫不到更新」根因不同（仓库名错 / tag 缺 v / 排序错），症状相同，已归档\n\n**新增防再犯机制**\n- 发布前必跑 `03-工具链/pre-release-check.sh`，四项全过才可发布\n- 检查：Gitee 排序、tag 命名铁律、versions.json 与 release 一致、prerelease 标记\n\n### 已知\n- 本版改动仅编译验证，未在设备实测\n- **升级到本版后，后续版本才能正常扫到**（旧版客户端仍用旧代码，看到的是旧版本列表）\n- 终端功能本版未处理\n\n### 安装\n下载 APK 直接覆盖安装即可，签名与前序版本一致。arm64 设备。\n"
+    },
     {
       "ver": "2.42.0-beta.12",
       "versionCode": 162,
