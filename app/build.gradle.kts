@@ -16,8 +16,50 @@ val keystoreProps = Properties().apply {
     if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
 }
 
+// ── 版本号唯一来源：仓库根的 versions.json ──
+// 此前 versionCode/versionName 写死在本文件里，与 tag 长期不同步
+// （tag 已到 v2.42.0-beta.10，本文件却停在 vc=120 / 2.39.0-beta.6）。
+// 现改为从 versions.json 的 versions[0]（最新一条）读取，单一事实来源。
+// 优先级：-PappVersionCode / -PappVersionName（命令行覆盖） > versions.json > 兜底值。
+val versionsJsonFile = rootProject.file("versions.json")
+val (autoVersionCode, autoVersionName) = run {
+    val fallback = 1 to "0.0.0"
+    if (!versionsJsonFile.exists()) {
+        logger.warn("versions.json 不存在，版本号回退为 ${fallback.second} (${fallback.first})")
+        return@run fallback
+    }
+    try {
+        @Suppress("UNCHECKED_CAST")
+        val root = groovy.json.JsonSlurper().parse(versionsJsonFile) as Map<String, Any?>
+        @Suppress("UNCHECKED_CAST")
+        val versions = root["versions"] as? List<Map<String, Any?>>
+        val latest = versions?.firstOrNull()
+        if (latest == null) {
+            logger.warn("versions.json 中 versions 为空，版本号回退")
+            fallback
+        } else {
+            val vc = (latest["versionCode"] as? Number)?.toInt()
+            val vn = latest["ver"] as? String
+            if (vc == null || vn.isNullOrBlank()) {
+                logger.warn("versions.json 首条缺少 versionCode/ver，版本号回退")
+                fallback
+            } else vc to vn
+        }
+    } catch (e: Exception) {
+        logger.warn("解析 versions.json 失败（${e.message}），版本号回退")
+        fallback
+    }
+}
+val resolvedVersionCode: Int =
+    (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: autoVersionCode
+val resolvedVersionName: String =
+    (project.findProperty("appVersionName") as String?)?.takeIf { it.isNotBlank() } ?: autoVersionName
+
 android {
     namespace = "com.aliya.hy_vq"
+    // compileSdk 34 是 Compose 的需要；AGP 8.0.0 的官方支持上限是 33，
+    // 故用 suppression 消除「recommend newer AGP」提示，不做降级。
+    @Suppress("UnstableApiUsage")
     compileSdk = 34
 
     buildFeatures {
@@ -41,8 +83,8 @@ android {
         // targetSdk 保持 33（compileSdk 已升 34 以支持 Compose），暂不适配 Android 17 (API 37)
         minSdk = 28
         targetSdk = 33
-        versionCode = 120
-        versionName = "2.39.0-beta.6"
+        versionCode = resolvedVersionCode
+        versionName = resolvedVersionName
         
         vectorDrawables { 
             useSupportLibrary = true
@@ -76,6 +118,12 @@ android {
     
     lint {
         lintConfig = file("lint.xml")
+        // 不在 release 打包时跑 lintVital：AGP 8.0 的 lintVital 内置 Kotlin 1.7.x 编译器，
+        // 读 Kotlin 2.0 编译的依赖元数据（kotlin-stdlib/okio）必然刷
+        // "Module was compiled with an incompatible version of Kotlin" 的 e: 日志，
+        // 与本项目代码无关。lint 需要时用 `gradlew lint` 单独跑。
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 }
 
@@ -88,6 +136,10 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("com.google.android.material:material:1.9.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
+
+    // ── ZIP 加密支持（zip4j）：java.util.zip 不支持 ZipCrypto/AES 解密，
+    //    项目此前走零依赖路线，但加密包密码解出必须引入此库 ──
+    implementation("net.lingala.zip4j:zip4j:2.11.5")
 
     // ── 网络：OkHttp + WebSocket ──
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

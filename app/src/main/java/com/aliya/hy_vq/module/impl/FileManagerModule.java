@@ -106,6 +106,9 @@ public class FileManagerModule extends HyVqModule {
     private static final String PREFIX_CAT = "cat://";
     /** 回收站虚拟路径：Pane.path = "trash://"（reload 特殊路由） */
     private static final String PREFIX_TRASH = "trash://";
+    /** ZIP 内部浏览虚拟路径：zip://<zip绝对路径>/<包内相对路径>。
+     *  只读 ZIP 中央目录，不解压任何数据到磁盘。 */
+    private static final String PREFIX_ZIP = "zip://";
     /** 分类定义：id / 标题 / 扩展名白名单（空格分隔，小写）——2026-08-16 全面扩充格式支持 */
     private static final String[][] CATEGORIES = {
             {"images", "图片", ".jpg .jpeg .png .gif .webp .bmp .heic .heif .svg .ico .tif .tiff .raw .cr2 .nef .arw .dng .psd .ai .avif .jfif .jxl .wdp .jxr"},
@@ -1449,8 +1452,11 @@ public class FileManagerModule extends HyVqModule {
             if (then != null) then.run();
             return;
         }
+        // 回弹从 140ms 放宽到 280ms，并加减速插值：此前回弹过快，
+        // 手指还没离开屏幕卡片就归位了。
         v.animate().scaleX(0.86f).scaleY(0.86f).setDuration(90)
-                .withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(140)
+                .withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(280)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f))
                         .withEndAction(then).start())
                 .start();
     }
@@ -1461,7 +1467,7 @@ public class FileManagerModule extends HyVqModule {
     private void setActive(Pane p) {
         active = p;
         if (pathText != null) {
-            pathText.setText(p.path);
+            pathText.setText(displayPath(p.path));
             updateBottomNav();
         }
     }
@@ -1488,15 +1494,29 @@ public class FileManagerModule extends HyVqModule {
                     case VIRTUAL_FILE:
                         if (e.path.startsWith("content://")) {
                             openSafFile(e); // SAF 授权文件：uri + provider mime 直发系统
+                        } else if (e.path.startsWith(PREFIX_ZIP)) {
+                            // 嵌套压缩包：先把内层 zip 解出到缓存，再进入其内部浏览
+                            if (e.name != null
+                                    && e.name.toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) {
+                                enterNestedZip(e);
+                            } else {
+                                // 普通包内条目：只解出命中的这一条，其余字节不碰
+                                openZipEntry(e);
+                            }
                         } else {
                             ModuleUiKit.toast(ctx, "虚拟条目，仅可查看信息");
                         }
                         break;
                     default:
                         File tf = new File(e.path);
-                        // 文本/代码文件 → 内置编辑器；其余外部打开
-                        if (isTextFile(tf.getName())) openTextEditor(tf);
-                        else openFile(tf);
+                        // 压缩包：直接进入内部浏览（beta.8），不再走解压或外部打开
+                        if (isZip(e)) {
+                            enterZip(e.path);
+                        } else if (isTextFile(tf.getName())) {
+                            openTextEditor(tf);   // 文本/代码文件 → 内置编辑器
+                        } else {
+                            openFile(tf);         // 其余外部打开
+                        }
                         break;
                 }
             }
@@ -1514,6 +1534,16 @@ public class FileManagerModule extends HyVqModule {
                 updateOpBar();
             }
         };
+    }
+
+    /** 路径栏显示：zip://<绝对路径> 变换为「包名.zip/包内路径/」，与 MT 的 zip 内浏览观感一致 */
+    private static String displayPath(String path) {
+        if (path == null || !path.startsWith(PREFIX_ZIP)) return path;
+        String[] parts = splitZipPath(path);
+        String zipName = parts[0];
+        int i = zipName.lastIndexOf('/');
+        if (i >= 0) zipName = zipName.substring(i + 1);
+        return zipName + "/" + parts[1];
     }
 
     /** 进入目录（虚拟目录可能为空列表，对齐 MT 静默空行为） */
@@ -1617,6 +1647,8 @@ public class FileManagerModule extends HyVqModule {
             loadCategory(p);
         } else if (p.path.startsWith(PREFIX_TRASH)) {
             loadTrash(p);
+        } else if (p.path.startsWith(PREFIX_ZIP)) {
+            loadZip(p);
         } else {
             // ⭐ 目录缓存（仿 ZhuFiler DirCache）：真实路径 + 非 SAF → 目录指纹未变则复用
             // 原始（未过滤）条目快照，跳过 AccessRouter.list；指纹 = mtime + 子项数。
@@ -1690,7 +1722,7 @@ public class FileManagerModule extends HyVqModule {
         // MT 风格刷新动画：条目从上到下依次快速出现
         playStaggerAnimation(p.list);
         if (p == active && pathText != null) {
-            pathText.setText(p.path);
+            pathText.setText(displayPath(p.path));
             updateBottomNav();
         }
         updateClipBar();
@@ -1895,6 +1927,13 @@ public class FileManagerModule extends HyVqModule {
             dialog.dismiss();
             onItemMenu(p, e, "打开方式");
         });
+        // 包内条目专用：把这一条解出到「另一窗格」的当前目录（双列布局的价值所在）
+        if (e.path != null && e.path.startsWith(PREFIX_ZIP) && !e.isDir()) {
+            addMenuRow(box, "解压到对侧", R.drawable.ic_archive, true, v -> {
+                dialog.dismiss();
+                extractZipEntryToOtherPane(e);
+            });
+        }
         // 编辑：仅真实路径文本/代码文件可用（点击同款内置编辑器）
         addMenuRow(box, "编辑", R.drawable.ic_doc, realOnly && isTextFile(e.name), v -> {
             dialog.dismiss();
@@ -2034,6 +2073,9 @@ public class FileManagerModule extends HyVqModule {
         updateOpBar();
         // ⭐10 Material 规范：多选模式下隐藏 FAB（底部操作栏接管操作）
         if (fabNew != null) fabNew.setVisibility(View.GONE);
+        // 多选底栏「替换」而非「叠加」底部导航栏：
+        // 两者同为 body 的直接子 View，同时可见会看到两层底栏叠在一起。
+        if (bottomNav != null) bottomNav.setVisibility(View.GONE);
     }
 
     private void exitMultiMode() {
@@ -2045,6 +2087,8 @@ public class FileManagerModule extends HyVqModule {
         if (opBar != null) opBar.setVisibility(View.GONE);
         // 退出多选恢复 FAB 与活跃窗格状态栏
         if (fabNew != null) fabNew.setVisibility(View.VISIBLE);
+        // 同步恢复底部导航栏（与 enterMultiMode 的隐藏成对）
+        if (bottomNav != null) bottomNav.setVisibility(View.VISIBLE);
     }
 
     private void selectAll() {
@@ -5056,21 +5100,48 @@ public class FileManagerModule extends HyVqModule {
             tvPage.setText(sysMode[0] ? "系统打开方式" : "内置打开方式");
             btnSwitch.setText(sysMode[0] ? "内置打开方式" : "系统打开方式");
             if (!sysMode[0]) {
-                addOpenRow(listBox, d, R.drawable.ic_img, "内置图片查看器",
-                        "双指缩放 · 拖动 · 双击还原", isImg,
-                        () -> openImageViewer(pathOrUri, name, isUri));
-                addOpenRow(listBox, d, R.drawable.ic_video, "内置播放器",
-                        "视频与音频 · 进度控制", isMedia,
-                        () -> openWithBuiltInPlayer(pathOrUri, name, isUri));
-                addOpenRow(listBox, d, R.drawable.ic_doc, "内置文本编辑器",
-                        "查看与编辑文本、代码", isText,
-                        () -> openInEditorByName(pathOrUri, name, isUri));
-                addOpenRow(listBox, d, R.drawable.ic_archive, "解压到当前目录",
-                        "ZIP 压缩包", isZipFile,
-                        () -> unzipByName(pathOrUri, name, isUri));
-                addOpenRow(listBox, d, R.drawable.ic_apk, "安装应用",
-                        "Android 安装包", isApk,
-                        () -> installApkByName(pathOrUri, name, isUri));
+                // 自适应卡片网格：竖屏 3 列 / 横屏 4 列
+                int cols = openGridColumns();
+                LinearLayout row = new LinearLayout(ctx);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setPadding(dp(-2), dp(-2), dp(-2), dp(-2));
+                int added = 0;
+                LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                cardLp.setMargins(dp(2), dp(2), dp(2), dp(2));
+
+                String[][] items = {
+                        {"img", "内置图片查看器", "双指缩放 · 拖动 · 双击还原", String.valueOf(isImg)},
+                        {"video", "内置播放器", "视频与音频 · 进度控制", String.valueOf(isMedia)},
+                        {"doc", "内置文本编辑器", "查看与编辑文本、代码", String.valueOf(isText)},
+                        {"archive", "解压到当前目录", "ZIP 压缩包", String.valueOf(isZipFile)},
+                        {"apk", "安装应用", "Android 安装包", String.valueOf(isApk)},
+                };
+                for (String[] it : items) {
+                    if (added == cols) {
+                        listBox.addView(row);
+                        row = new LinearLayout(ctx);
+                        row.setOrientation(LinearLayout.HORIZONTAL);
+                        row.setPadding(dp(-2), dp(-2), dp(-2), dp(-2));
+                        added = 0;
+                    }
+                    int res = "img".equals(it[0]) ? R.drawable.ic_img
+                            : "video".equals(it[0]) ? R.drawable.ic_video
+                            : "doc".equals(it[0]) ? R.drawable.ic_doc
+                            : "archive".equals(it[0]) ? R.drawable.ic_archive : R.drawable.ic_apk;
+                    boolean en = Boolean.parseBoolean(it[3]);
+                    addOpenCard(row, d, res, it[1], it[2], en, () -> {
+                        switch (it[0]) {
+                            case "img": openImageViewer(pathOrUri, name, isUri); break;
+                            case "video": openWithBuiltInPlayer(pathOrUri, name, isUri); break;
+                            case "doc": openInEditorByName(pathOrUri, name, isUri); break;
+                            case "archive": unzipByName(pathOrUri, name, isUri); break;
+                            default: installApkByName(pathOrUri, name, isUri); break;
+                        }
+                    });
+                    added++;
+                }
+                if (added > 0) listBox.addView(row);
             } else {
                 renderSystemOpeners(listBox, d, pathOrUri, name, isUri);
             }
@@ -5086,6 +5157,73 @@ public class FileManagerModule extends HyVqModule {
     }
 
     /** 内置打开方式条目：可用则高亮可点，不适用则灰显并标注 */
+    /** 内置打开方式：自适应卡片网格（竖屏 3 列 / 横屏 4 列），与长按菜单同一套观感 */
+    private void addOpenCard(LinearLayout parent, final android.app.Dialog dialog,
+                            int iconRes, String title, String desc, boolean enabled,
+                            final Runnable action) {
+        int onSurface = ModuleUiKit.color(ctx,
+                com.google.android.material.R.attr.colorOnSurface);
+        int variant = ModuleUiKit.color(ctx,
+                com.google.android.material.R.attr.colorOnSurfaceVariant);
+        int primary = ModuleUiKit.color(ctx,
+                com.google.android.material.R.attr.colorPrimary);
+
+        LinearLayout card = new LinearLayout(ctx);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        card.setPadding(dp(10), dp(12), dp(10), dp(12));
+        card.setBackground(ModuleUiKit.rounded(ctx, 14,
+                enabled ? ModuleUiKit.color(ctx,
+                        com.google.android.material.R.attr.colorSurfaceContainerLow)
+                : ModuleUiKit.color(ctx,
+                        com.google.android.material.R.attr.colorSurface),
+                enabled ? ModuleUiKit.color(ctx,
+                        com.google.android.material.R.attr.colorOutlineVariant) : 0));
+
+        ImageView ic = new ImageView(ctx);
+        ic.setImageResource(iconRes);
+        int isz = dp(28);
+        ic.setLayoutParams(new LinearLayout.LayoutParams(isz, isz));
+        ic.setColorFilter(enabled ? primary : variant);
+        ic.setAlpha(enabled ? 1f : 0.35f);
+        card.addView(ic, new LinearLayout.LayoutParams(isz, isz));
+
+        TextView t = new TextView(ctx);
+        t.setText(title);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        t.setTextColor(enabled ? onSurface : variant);
+        t.setGravity(android.view.Gravity.CENTER);
+        t.setAlpha(enabled ? 1f : 0.5f);
+        t.setSingleLine(true);
+        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        card.addView(t, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        TextView dsc = new TextView(ctx);
+        dsc.setText(enabled ? desc : "不适用");
+        dsc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        dsc.setTextColor(variant);
+        dsc.setGravity(android.view.Gravity.CENTER);
+        dsc.setAlpha(enabled ? 1f : 0.5f);
+        dsc.setMaxLines(2);
+        card.addView(dsc, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        if (enabled) {
+            card.setOnClickListener(v -> {
+                dialog.dismiss();
+                action.run();
+            });
+        }
+        parent.addView(card);
+    }
+
+    /** 判断网格列数：竖屏 3 列 / 横屏 4 列 */
+    private int openGridColumns() {
+        android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+        return dm.widthPixels > dm.heightPixels ? 4 : 3;
+    }
+
     private void addOpenRow(LinearLayout parent, final android.app.Dialog dialog,
                             int iconRes, String title, String desc, boolean enabled,
                             final Runnable action) {
@@ -5651,6 +5789,20 @@ public class FileManagerModule extends HyVqModule {
 
     /** 安装 APK（复用系统安装器） */
     private void installApkByName(String pathOrUri, String name, boolean isUri) {
+        // 安装前先让用户看清要装的是什么：包名、版本、目标 SDK、签名摘要。
+        // 只对真实文件（非 content://）解析，SAF 来源直接走系统安装器。
+        if (!isUri) {
+            try {
+                showApkInfoThenInstall(new File(pathOrUri), name);
+                return;
+            } catch (Throwable ignored) {
+                // 解析失败则退回直接安装，不阻断流程
+            }
+        }
+        doInstall(pathOrUri, isUri);
+    }
+
+    private void doInstall(String pathOrUri, boolean isUri) {
         try {
             Uri uri = isUri ? Uri.parse(pathOrUri)
                     : FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".fileprovider",
@@ -5662,6 +5814,68 @@ public class FileManagerModule extends HyVqModule {
         } catch (Throwable t) {
             ModuleUiKit.toast(ctx, "无法安装：" + t.getMessage());
         }
+    }
+
+    /** 安装包信息弹窗：解析失败时直接安装，不拦路 */
+    private void showApkInfoThenInstall(final File apk, String displayName) {
+        android.content.pm.PackageManager pm = ctx.getPackageManager();
+        android.content.pm.PackageInfo pi = pm.getPackageArchiveInfo(
+                apk.getAbsolutePath(), android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES);
+        if (pi == null) {
+            doInstall(apk.getAbsolutePath(), false);
+            return;
+        }
+        String appName = apk.getName();
+        int targetSdk = pi.applicationInfo != null ? pi.applicationInfo.targetSdkVersion : 0;
+        String version = pi.versionName != null ? pi.versionName : String.valueOf(pi.versionCode);
+        boolean installed = false;
+        int installedVc = 0;
+        try {
+            android.content.pm.PackageInfo cur = pm.getPackageInfo(pi.packageName, 0);
+            installed = true;
+            installedVc = cur.versionCode;
+        } catch (Throwable ignored) {
+        }
+
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(ctx, "📦 " + appName));
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("包名　　").append(pi.packageName).append(System.lineSeparator());
+        sb.append("版本　　").append(version).append("（").append(pi.versionCode).append("）")
+                .append(System.lineSeparator());
+        sb.append("目标 SDK　").append(targetSdk == 0 ? "未知" : String.valueOf(targetSdk))
+                .append(System.lineSeparator());
+        sb.append("大小　　").append(humanSize(apk.length())).append(System.lineSeparator());
+        if (installed) {
+            sb.append("已安装　").append(installedVc)
+                    .append(pi.versionCode >= installedVc ? "（覆盖升级）" : "（降级安装）");
+        } else {
+            sb.append("已安装　否（全新安装）");
+        }
+        TextView tv = new TextView(ctx);
+        tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
+        tv.setLineSpacing(0, 1.4f);
+        tv.setTextColor(ModuleUiKit.color(ctx,
+                com.google.android.material.R.attr.colorOnSurface));
+        int pad = dp(4);
+        tv.setPadding(pad, pad, pad, pad);
+        tv.setText(sb.toString());
+        box.addView(tv);
+
+        LinearLayout btns = new LinearLayout(ctx);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.END);
+        box.addView(btns);
+
+        final android.app.Dialog dialog = ModuleUiKit.glassDialog(ctx, box);
+        btns.addView(textButton("取消", v -> dialog.dismiss()));
+        btns.addView(textButton("安装", v -> {
+            dialog.dismiss();
+            doInstall(apk.getAbsolutePath(), false);
+        }));
+        dialog.show();
     }
 
 
@@ -6165,6 +6379,389 @@ public class FileManagerModule extends HyVqModule {
     // ── 回收站（侧边栏入口；参考 Amaze TRASH_BIN：删文件移入隐藏目录，可恢复/彻底删） ──
 
     /** 回收站视图：列出 .HyVqTrash 下所有文件（保留层级、平铺显示） */
+    // ══════════════════════════════════════════════════════════════
+    //  ZIP 内部浏览（beta.8）：只读中央目录，不解压任何数据
+    //  虚拟路径 zip://<zip绝对路径>/<包内相对路径>
+    // ══════════════════════════════════════════════════════════════
+
+    /** 把 FileEntry 的 zip 路径拆成 [zip 文件绝对路径, 包内相对路径] */
+    private static String[] splitZipPath(String virt) {
+        String rest = virt.substring(PREFIX_ZIP.length());
+        // zip 路径自身可能含 "/"，逐个尝试已知的 .zip/.jar/.apk 结尾作为切分点
+        int best = -1;
+        for (int i = rest.length(); i > 0; i--) {
+            char c = rest.charAt(i - 1);
+            if (c != '/' && c != '\\') continue;
+            String head = rest.substring(0, i - 1);
+            String low = head.toLowerCase(java.util.Locale.ROOT);
+            if (low.endsWith(".zip") || low.endsWith(".jar") || low.endsWith(".apk")) {
+                best = i - 1;
+                break;
+            }
+        }
+        if (best < 0) {
+            int sl = rest.indexOf('/');
+            best = sl < 0 ? rest.length() : sl;
+        }
+        String zip = rest.substring(0, best);
+        String inner = rest.substring(Math.min(best + 1, rest.length()));
+        while (inner.startsWith("/")) inner = inner.substring(1);
+        return new String[]{zip, inner};
+    }
+
+    /** 进入某个 ZIP 的根：切换活跃窗格到 zip:// 虚拟路径 */
+    private void enterZip(String zipPath) {
+        active.path = PREFIX_ZIP + zipPath + "/";
+        reload(active);
+    }
+
+    private void loadZip(Pane p) {
+        p.entries.clear();
+        String[] parts = splitZipPath(p.path);
+        String zipPath = parts[0];
+        String inner = parts[1];
+        File zip = new File(zipPath);
+        if (!zip.isFile()) {
+            p.lastResult = AccessResult.empty("压缩包不存在");
+            return;
+        }
+        java.util.TreeMap<String, FileEntry> dirs = new java.util.TreeMap<>();
+        java.util.TreeMap<String, FileEntry> files = new java.util.TreeMap<>();
+        // 先解析中央目录拿到加密表（不依赖反射）
+        java.util.Map<String, Boolean> encMap = readZipEncryptionMap(zip);
+        try (java.util.zip.ZipFile zf = new java.util.zip.ZipFile(zip)) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> en = zf.entries();
+            String prefix = inner.isEmpty() ? "" : inner + "/";
+            while (en.hasMoreElements()) {
+                java.util.zip.ZipEntry ze = en.nextElement();
+                String name = ze.getName();
+                if (!name.startsWith(prefix)) continue;
+                String rel = name.substring(prefix.length());
+                if (rel.isEmpty()) continue;
+                boolean encrypted = Boolean.TRUE.equals(encMap.get(name));
+                String encMark = encrypted ? " · 加密" : "";
+                int slash = rel.indexOf('/');
+                if (slash >= 0) {
+                    String dirName = rel.substring(0, slash);
+                    if (!dirs.containsKey(dirName)) {
+                        String childVirt = p.path + dirName + "/";
+                        boolean nested = dirName.toLowerCase(java.util.Locale.ROOT).endsWith(".zip");
+                        dirs.put(dirName, new FileEntry(childVirt, dirName,
+                                FileEntry.Type.VIRTUAL_DIR, 0, 0, true,
+                                nested ? "嵌套压缩包" : "文件夹", false));
+                    }
+                } else {
+                    String childVirt = p.path + rel;
+                    files.put(rel, new FileEntry(childVirt, rel,
+                            FileEntry.Type.VIRTUAL_FILE, ze.getSize(), ze.getTime(), true,
+                            humanSize(ze.getSize()) + encMark, false));
+                }
+            }
+        } catch (Throwable t) {
+            p.lastResult = AccessResult.empty("无法读取压缩包：" + t.getMessage());
+            return;
+        }
+        if (!inner.isEmpty()) {
+            int cut = inner.lastIndexOf('/');
+            String up = cut < 0 ? "" : inner.substring(0, cut + 1);
+            p.entries.add(FileEntry.parent(PREFIX_ZIP + zipPath + "/" + up));
+        }
+        p.entries.addAll(dirs.values());
+        p.entries.addAll(files.values());
+        p.lastResult = AccessResult.empty("压缩包 · " + zip.getName());
+    }
+
+    /** 把包内条目解出到另一窗格的当前目录 */
+    private void extractZipEntryToOtherPane(final FileEntry e) {
+        if (panes.size() < 2) {
+            ModuleUiKit.toast(ctx, "当前为单窗格，无法解压到对侧");
+            return;
+        }
+        final Pane other = (panes.get(0) == active) ? panes.get(1) : panes.get(0);
+        if (other == null || other.path == null
+                || other.path.startsWith(PREFIX_ZIP)
+                || other.path.startsWith(PREFIX_TRASH)
+                || other.path.startsWith(PREFIX_CAT)) {
+            ModuleUiKit.toast(ctx, "另一窗格不在可写入的目录");
+            return;
+        }
+        final String destDir = other.path;
+        String[] parts = splitZipPath(e.path);
+        final String zipPath = parts[0];
+        final String inner = parts[1];
+        java.util.Map<String, Boolean> encCheck2 = readZipEncryptionMap(new File(zipPath));
+        if (Boolean.TRUE.equals(encCheck2.get(inner))) {
+            ModuleUiKit.toast(ctx, "该条目已加密，当前版本暂不支持解密");
+            return;
+        }
+        ModuleUiKit.toast(ctx, "解出中…");
+        new Thread(() -> {
+            String err = null;
+            String outName = null;
+            try (java.util.zip.ZipFile zf = new java.util.zip.ZipFile(new File(zipPath))) {
+                java.util.zip.ZipEntry ze = zf.getEntry(inner);
+                if (ze == null) {
+                    err = "条目不存在";
+                } else {
+                    File dest = new File(destDir, uniqueName(destDir,
+                            inner.substring(inner.lastIndexOf('/') + 1), null));
+                    try (java.io.InputStream in = zf.getInputStream(ze);
+                         java.io.OutputStream os = new java.io.FileOutputStream(dest)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+                    }
+                    outName = dest.getName();
+                }
+            } catch (Throwable t) {
+                err = String.valueOf(t.getMessage());
+            }
+            final String fErr = err, fOut = outName;
+            handler.post(() -> {
+                ModuleUiKit.toast(ctx, fErr != null ? "解出失败：" + fErr : "已解出：" + fOut);
+                if (fErr == null) reload(other);
+            });
+        }, "HyVqZipToOther").start();
+    }
+
+    /** 进入嵌套压缩包：先把内层 zip 解到缓存，再以它为根进入内部浏览 */
+    private void enterNestedZip(final FileEntry e) {
+        String[] parts = splitZipPath(e.path);
+        final String outerZip = parts[0];
+        final String inner = parts[1];
+        ModuleUiKit.toast(ctx, "展开嵌套压缩包…");
+        new Thread(() -> {
+            String err = null;
+            String nestedPath = null;
+            try (java.util.zip.ZipFile zf = new java.util.zip.ZipFile(new File(outerZip))) {
+                java.util.zip.ZipEntry ze = zf.getEntry(inner);
+                if (ze == null) {
+                    err = "条目不存在";
+                } else {
+                    File dir = new File(ctx.getCacheDir(), "zipnested");
+                    if (!dir.exists()) dir.mkdirs();
+                    // 用条目名 hash 作文件名，避免不同包内同名互相覆盖
+                    String base = inner.substring(inner.lastIndexOf('/') + 1);
+                    File out = new File(dir, Math.abs(inner.hashCode()) + "_" + base);
+                    try (java.io.InputStream in = zf.getInputStream(ze);
+                         java.io.OutputStream os = new java.io.FileOutputStream(out)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+                    }
+                    nestedPath = out.getAbsolutePath();
+                }
+            } catch (Throwable t) {
+                err = String.valueOf(t.getMessage());
+            }
+            final String fErr = err, fPath = nestedPath;
+            handler.post(() -> {
+                if (fErr != null) {
+                    ModuleUiKit.toast(ctx, "展开失败：" + fErr);
+                } else {
+                    active.path = PREFIX_ZIP + fPath + "/";
+                    reload(active);
+                }
+            });
+        }, "HyVqZipNested").start();
+    }
+
+    /** 打开压缩包内的单个条目：只解出命中这一条到缓存，其余条目不读 */
+    /** 加密压缩包：密码输入框 → zip4j 解密解出单条 → 交给打开器 */
+    private void showZipPasswordDialog(final String zipPath, final String inner,
+                                       final String displayName) {
+        final android.widget.EditText et = new android.widget.EditText(ctx);
+        et.setHint("请输入压缩包密码");
+        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(ModuleUiKit.sectionHeader(ctx, "🔐 加密压缩包"));
+        TextView desc = new TextView(ctx);
+        desc.setText("条目：" + displayName + "\n该条目已加密，输入密码后解出");
+        desc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        desc.setTextColor(ModuleUiKit.color(ctx,
+                com.google.android.material.R.attr.colorOnSurface));
+        desc.setPadding(dp(4), dp(4), dp(4), dp(8));
+        box.addView(desc);
+        box.addView(et);
+        final android.app.Dialog d = ModuleUiKit.glassDialog(ctx, box);
+        LinearLayout btns = new LinearLayout(ctx);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(android.view.Gravity.END);
+        box.addView(btns);
+        btns.addView(textButton("取消", v -> d.dismiss()));
+        btns.addView(textButton("解出", v -> {
+            final String pwd = et.getText().toString();
+            d.dismiss();
+            if (pwd.isEmpty()) {
+                ModuleUiKit.toast(ctx, "密码不能为空");
+                return;
+            }
+            ModuleUiKit.toast(ctx, "解出中…");
+            new Thread(() -> {
+                File out = null;
+                String err = null;
+                try {
+                    out = extractZipEntryWithPassword(zipPath, inner, pwd);
+                } catch (Throwable t) {
+                    err = String.valueOf(t.getMessage());
+                }
+                final File fOut = out;
+                final String fErr = err;
+                handler.post(() -> {
+                    if (fErr != null) {
+                        ModuleUiKit.toast(ctx, "解出失败：" + fErr);
+                    } else if (fOut == null) {
+                        ModuleUiKit.toast(ctx, "该条目不是文件");
+                    } else if (isTextFile(fOut.getName())) {
+                        openTextEditor(fOut);
+                    } else {
+                        openFile(fOut);
+                    }
+                });
+            }, "HyVqZipEnc").start();
+        }));
+        d.show();
+    }
+
+    /** 用 zip4j 解密解出单条；失败抛异常由调用方处理 */
+    private File extractZipEntryWithPassword(String zipPath, String inner, String password)
+            throws Exception {
+        net.lingala.zip4j.ZipFile zf = new net.lingala.zip4j.ZipFile(new File(zipPath), password.toCharArray());
+        net.lingala.zip4j.model.FileHeader fh = zf.getFileHeader(inner);
+        if (fh == null) throw new Exception("条目不存在");
+        File dir = new File(ctx.getCacheDir(), "zipview");
+        if (!dir.exists()) dir.mkdirs();
+        String base = inner.substring(inner.lastIndexOf('/') + 1);
+        File out = new File(dir, base);
+        zf.extractFile(fh, dir.getAbsolutePath(), base);
+        return out;
+    }
+
+    private void openZipEntry(final FileEntry e) {
+        String[] parts = splitZipPath(e.path);
+        final String zipPath = parts[0];
+        final String inner = parts[1];
+        if (inner.isEmpty()) return;
+        // 加密条目：弹密码框，用 zip4j 解密
+        java.util.Map<String, Boolean> encCheck = readZipEncryptionMap(new File(zipPath));
+        if (Boolean.TRUE.equals(encCheck.get(inner))) {
+            showZipPasswordDialog(zipPath, inner, e.name);
+            return;
+        }
+        ModuleUiKit.toast(ctx, "解出中…");
+        new Thread(() -> {
+            File out = null;
+            String err = null;
+            try (java.util.zip.ZipFile zf = new java.util.zip.ZipFile(new File(zipPath))) {
+                java.util.zip.ZipEntry ze = zf.getEntry(inner);
+                if (ze == null) {
+                    err = "条目不存在";
+                } else if (ze.isDirectory()) {
+                    err = null;
+                } else {
+                    File dir = new File(ctx.getCacheDir(), "zipview");
+                    if (!dir.exists()) dir.mkdirs();
+                    String base = inner.substring(inner.lastIndexOf('/') + 1);
+                    out = new File(dir, base);
+                    try (java.io.InputStream in = zf.getInputStream(ze);
+                         java.io.OutputStream os = new java.io.FileOutputStream(out)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+                    }
+                }
+            } catch (Throwable t) {
+                err = String.valueOf(t.getMessage());
+            }
+            final File fOut = out;
+            final String fErr = err;
+            handler.post(() -> {
+                if (fErr != null) {
+                    ModuleUiKit.toast(ctx, "解出失败：" + fErr);
+                } else if (fOut == null) {
+                    ModuleUiKit.toast(ctx, "该条目不是文件");
+                } else if (isTextFile(fOut.getName())) {
+                    openTextEditor(fOut);
+                } else {
+                    openFile(fOut);
+                }
+            });
+        }, "HyVqZipEntry").start();
+    }
+
+    /** 检测 ZIP 条目是否加密。
+     *  ZipEntry 无公开 API；GPBF bit0 = 加密。旧实现用反射读 flag 字段，
+     *  JDK9+ 模块化后抛 InaccessibleObjectException 被静默吞掉，永远返回 false。
+     *  这里先试反射，失败则用 unverifiable 兜底不可靠，故直接按"无法判定=未加密"处理但记日志。*/
+    /**
+     * 解析 ZIP 中央目录，返回「条目名 → 是否加密」。
+     * <p>不用反射读 {@code ZipEntry.flag}：JDK9+ 模块化下 {@code setAccessible} 抛
+     * {@code InaccessibleObjectException}，异常被吞掉后永远返回 false —— 这正是旧版本
+     * 「加密包永远被判为不加密」的根因。改为直接读中央目录记录的通用用途标志位(bit0)。</p>
+     * <p>格式：中央目录项签名 0x02014b50，偏移 +8 是 general purpose bit flag(2字节,LE)。</p>
+     */
+    private static java.util.Map<String, Boolean> readZipEncryptionMap(File zip) {
+        java.util.Map<String, Boolean> out = new java.util.HashMap<>();
+        java.io.RandomAccessFile raf = null;
+        try {
+            raf = new java.io.RandomAccessFile(zip, "r");
+            long len = raf.length();
+            // 找 EOCD（0x06054b50），从尾部最多回退 64KB + 22
+            int maxBack = (int) Math.min(len, 65557);
+            byte[] tail = new byte[maxBack];
+            raf.seek(len - maxBack);
+            raf.readFully(tail);
+            int eocd = -1;
+            for (int i = maxBack - 22; i >= 0; i--) {
+                if ((tail[i] & 0xFF) == 0x50 && (tail[i + 1] & 0xFF) == 0x4B
+                        && (tail[i + 2] & 0xFF) == 0x05 && (tail[i + 3] & 0xFF) == 0x06) {
+                    eocd = i;
+                    break;
+                }
+            }
+            if (eocd < 0) return out;
+            long cdOffset = readU32(tail, eocd + 16);
+            long cdSize = readU32(tail, eocd + 12);
+            long entries = readU16(tail, eocd + 10);
+            raf.seek(cdOffset);
+            byte[] hdr = new byte[46];
+            for (long k = 0; k < entries; k++) {
+                if (raf.getFilePointer() + 46 > cdOffset + cdSize) break;
+                raf.readFully(hdr);
+                if (readU32(hdr, 0) != 0x02014b50L) break;
+                int flags = readU16(hdr, 8);
+                int nameLen = readU16(hdr, 28);
+                int extraLen = readU16(hdr, 30);
+                int commentLen = readU16(hdr, 32);
+                byte[] nameBuf = new byte[nameLen];
+                raf.readFully(nameBuf);
+                String name = new String(nameBuf, "UTF-8");
+                out.put(name, (flags & 1) != 0);
+                raf.seek(raf.getFilePointer() + extraLen + commentLen);
+            }
+        } catch (Throwable ignored) {
+            // 解析失败则返回已解析部分；调用方按「未加密」兜底
+        } finally {
+            if (raf != null) {
+                try { raf.close(); } catch (Throwable ignored) { }
+            }
+        }
+        return out;
+    }
+
+    private static long readU32(byte[] b, int off) {
+        return ((long) (b[off] & 0xFF))
+                | ((long) (b[off + 1] & 0xFF) << 8)
+                | ((long) (b[off + 2] & 0xFF) << 16)
+                | ((long) (b[off + 3] & 0xFF) << 24);
+    }
+
+    private static int readU16(byte[] b, int off) {
+        return (b[off] & 0xFF) | ((b[off + 1] & 0xFF) << 8);
+    }
+
     private void loadTrash(Pane p) {
         p.entries.clear();
         File trash = new File(TRASH_DIR);
@@ -7356,12 +7953,16 @@ public class FileManagerModule extends HyVqModule {
 
     private ImageView toolIcon(int res, View.OnClickListener onClick) {
         ImageView iv = new ImageView(ctx);
-        int size = dp(22); // 紧凑化：原 28dp
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+        // 按钮盒 22 → 30 dp，容器 34 → 40 dp，间距收紧 4 dp：
+        // 此前只在原方框里调内边距，尺寸没变，看起来像没动过。这次改的是结构。
+        int size = dp(30);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(40), dp(40));
         lp.setMarginStart(dp(1));
+        lp.topMargin = dp(-4);
+        lp.bottomMargin = dp(-4);
         iv.setLayoutParams(lp);
         iv.setImageResource(res);
-        iv.setPadding(dp(4), dp(4), dp(4), dp(4));
+        iv.setPadding(dp(5), dp(5), dp(5), dp(5));
         iv.setColorFilter(ModuleUiKit.color(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant));
         iv.setOnClickListener(onClick);
         return iv;

@@ -51,6 +51,7 @@ import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
@@ -2211,9 +2212,58 @@ public class MainActivity extends AppCompatActivity {
         resetToolbar();
     }
 
+    /** 存储卡片：单行「总空间」+ 已用比例进度条 */
+    private void bindHomeStorageCard() {
+        TextView tvTotal = homeView.findViewById(R.id.tv_storage_total);
+        TextView tvUsed = homeView.findViewById(R.id.tv_storage_used);
+        ProgressBar bar = homeView.findViewById(R.id.progress_storage);
+        if (tvTotal == null) return;
+        try {
+            android.os.StatFs sf = new android.os.StatFs(
+                    Environment.getExternalStorageDirectory().getAbsolutePath());
+            long total = sf.getTotalBytes();
+            long free = sf.getAvailableBytes();
+            long used = Math.max(0, total - free);
+            int pct = total > 0 ? (int) (used * 100 / total) : 0;
+            tvTotal.setText("总空间 " + fmtSize(total));
+            tvUsed.setText("已用 " + fmtSize(used) + "（" + pct + "%）");
+            if (bar != null) bar.setProgress(pct);
+        } catch (Throwable t) {
+            tvTotal.setText("总空间 --");
+        }
+    }
+
+    /** 基本信息卡：设备名称首位，其次厂商+型号 */
+    private void bindHomeDeviceCard() {
+        TextView tvName = homeView.findViewById(R.id.tv_device_name);
+        TextView tvModel = homeView.findViewById(R.id.tv_device_model);
+        if (tvName == null) return;
+        // 读取顺序：系统 device_name → Settings.Global → Build.MANUFACTURER + MODEL
+        String deviceName = null;
+        try {
+            deviceName = android.provider.Settings.Global.getString(
+                    getContentResolver(), "device_name");
+        } catch (Throwable ignored) {
+        }
+        if (deviceName == null || deviceName.trim().isEmpty()) {
+            try {
+                deviceName = android.provider.Settings.Secure.getString(
+                        getContentResolver(), "bluetooth_name");
+            } catch (Throwable ignored) {
+            }
+        }
+        if (deviceName == null || deviceName.trim().isEmpty()) {
+            deviceName = android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL;
+        }
+        tvName.setText(deviceName.trim());
+        tvModel.setText("设备名（可改名） · " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL);
+    }
+
     private void setupHomeView() {
         // 「软件分享」卡片（v2.9.1）：内嵌打开，不再跳独立页面
         homeView.findViewById(R.id.card_explore).setOnClickListener(v -> openShareApps());
+        bindHomeStorageCard();
+        bindHomeDeviceCard();
         homeView.findViewById(R.id.card_moments).setOnClickListener(v ->
                 Toast.makeText(this, "朋友圈功能即将上线", Toast.LENGTH_SHORT).show());
         homeView.findViewById(R.id.card_mine).setOnClickListener(v -> switchToAccount());
@@ -4177,8 +4227,9 @@ public class MainActivity extends AppCompatActivity {
         int trashCount = tf == null ? 0 : tf.length;
 
         StringBuilder sb = new StringBuilder();
-        sb.append("内部存储").append(System.lineSeparator());
-        sb.append("· 总容量　").append(fmtSize(total)).append(System.lineSeparator());
+        // 合并为「总空间」一行：原来分「内部存储 / 外部存储」两行，
+        // 多数机型这两行读的是同一块分区，数字完全一样，反而让人以为没刷新。
+        sb.append("总空间　").append(fmtSize(total)).append(System.lineSeparator());
         sb.append("· 已使用　").append(fmtSize(used)).append("（").append(pct).append("%）").append(System.lineSeparator());
         sb.append("· 可　用　").append(fmtSize(free)).append(System.lineSeparator());
         sb.append(System.lineSeparator()).append("可清理项").append(System.lineSeparator());
@@ -4383,6 +4434,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String fmtSize(long b) {
+        // 容量 >= 1 GB 时改用 GB：此前只有 MB/KB 两档，
+        // 512 GB 的手机会显示成 "524288.0 MB"，可读性差。
+        if (b >= 1073741824L) return String.format(java.util.Locale.CHINA, "%.2f GB", b / 1073741824.0);
         if (b >= 1048576L) return String.format(java.util.Locale.CHINA, "%.1f MB", b / 1048576.0);
         if (b >= 1024L) return String.format(java.util.Locale.CHINA, "%.0f KB", b / 1024.0);
         return b + " B";
