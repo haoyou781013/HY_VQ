@@ -2453,9 +2453,23 @@ public class MainActivity extends AppCompatActivity {
      *   ⑤ assets 混入源码包 → 按 tag 名特征剔除
      * </pre>
      */
+    /**
+     * Gitee Releases API。
+     *
+     * <p>⚠️ <b>必须显式指定排序</b>：Gitee 默认排序<b>不是按创建时间</b>（实测默认返回
+     * v2.31.1 在前，而 v2.42.0-beta.12 挤在 100 条之外）→ 客户端拿不到新版本。
+     * 已两次踩坑（2026-10-25）：上一次是仓库名 bug，这次是排序 bug，症状都是「扫不到更新」。</p>
+     *
+     * <p>修法：<b>显式加 sort=created &amp; direction=desc</b>，保证最新版本永远排第一。
+     * 验证方法（不要凭印象）：
+     * <pre>
+     *   curl "https://gitee.com/api/v5/repos/haoyou781/hy_vq/releases?per_page=100"      *     | jq -r '.[0].tag_name'   # 必须是最新版本
+     * </pre>
+     * 若第一条不是最新，说明排序失效 → 立即修，别发版。</p>
+     */
     private static final String GITEE_RELEASES =
             "https://gitee.com/api/v5/repos/" + GITEE_USER + "/" + GITEE_REPO
-                    + "/releases?per_page=100";
+                    + "/releases?per_page=100&sort=created&direction=desc";
 
     /** 启动时自动检查更新的偏好键（默认开启） */
     private static final String PREF_AUTO_CHECK_UPDATE = "auto_check_update";
